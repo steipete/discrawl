@@ -319,6 +319,44 @@ func TestSyncSkipsMissingAccessChannels(t *testing.T) {
 	require.Equal(t, "missing_access", cursor)
 }
 
+func TestSyncMarksEmptyChannelComplete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {
+				{ID: "c1", GuildID: "g1", Name: "quiet", Type: discordgo.ChannelTypeGuildText},
+			},
+		},
+		messages: map[string][]*discordgo.Message{
+			"c1": {},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{Full: true})
+	require.NoError(t, err)
+	require.Equal(t, 0, stats.Messages)
+
+	cursor, err := s.GetSyncState(ctx, "channel:c1:latest_message_id")
+	require.NoError(t, err)
+	require.Equal(t, "", cursor)
+
+	cols, rows, err := s.ReadOnlyQuery(ctx, `select count(*) from sync_state where scope = 'channel:c1:latest_message_id'`)
+	require.NoError(t, err)
+	require.Equal(t, []string{"count(*)"}, cols)
+	require.Equal(t, [][]string{{"1"}}, rows)
+}
+
 func TestNormalizeMessageIncludesRichFields(t *testing.T) {
 	t.Parallel()
 

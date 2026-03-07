@@ -389,7 +389,7 @@ func (s *Syncer) syncChannelMessages(ctx context.Context, guildID string, channe
 			}
 		}
 	}
-	if newest != "" {
+	if newest != "" || full || latest != "" {
 		if err := s.store.SetSyncState(ctx, scope, newest); err != nil {
 			return messageCount, err
 		}
