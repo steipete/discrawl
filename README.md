@@ -9,6 +9,8 @@ It is a bot-token crawler. No user-token hacks. Data stays local.
 - discovers every guild the configured bot can access
 - syncs channels, threads, members, and message history into SQLite
 - maintains FTS5 search indexes for fast local text search
+- extracts small text-like attachments into the local search index
+- records structured user and role mentions for direct querying
 - tails Gateway events for live updates, with periodic repair syncs
 - exposes read-only SQL for ad hoc analysis
 - keeps schema multi-guild ready while preserving a simple single-guild default UX
@@ -163,7 +165,7 @@ bin/discrawl search --include-empty "GitHub"
 bin/discrawl --json search "websocket closed"
 ```
 
-By default, `search` skips empty-body rows such as attachment-only or system-style messages. Use `--include-empty` to opt back in.
+By default, `search` skips rows with no searchable content. Attachment text, attachment filenames, embeds, and replies still count as content. Use `--include-empty` to opt back in.
 
 ### `messages`
 
@@ -182,8 +184,25 @@ Notes:
 - `--channel` accepts a channel id, exact name, `#name`, or partial name match
 - `--days` is shorthand for "since now minus N days"
 - `--all` removes the safety limit; default is `200`
-- empty-body rows are skipped by default; `--include-empty` opts back in
+- rows with no displayable/searchable content are skipped by default; `--include-empty` opts back in
 - at least one filter is required
+
+### `mentions`
+
+Lists structured user and role mentions.
+
+```bash
+bin/discrawl mentions --channel maintainers --days 7
+bin/discrawl mentions --target steipete --type user --limit 50
+bin/discrawl mentions --target 1456406468898197625
+bin/discrawl --json mentions --type role --days 1
+```
+
+Notes:
+
+- `--target` accepts an id, exact name, or partial name match
+- `--type` can be `user` or `role`
+- same guild/time filters as `messages`
 
 ### `sql`
 

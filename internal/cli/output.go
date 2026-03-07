@@ -54,6 +54,11 @@ func printPlain(w io.Writer, value any) error {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", formatTime(row.CreatedAt), row.GuildID, row.ChannelID, row.AuthorID, row.MessageID, row.Content)
 		}
 		return nil
+	case []store.MentionRow:
+		for _, row := range v {
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", formatTime(row.CreatedAt), row.GuildID, row.ChannelID, row.AuthorID, row.TargetType, row.TargetID, row.Content)
+		}
+		return nil
 	default:
 		return fmt.Errorf("no plain printer")
 	}
@@ -71,6 +76,7 @@ Commands:
   tail
   search
   messages
+  mentions
   sql
   members
   channels
@@ -108,6 +114,13 @@ func printHuman(w io.Writer, value any) error {
 	case []store.MessageRow:
 		for _, row := range v {
 			if _, err := fmt.Fprintf(w, "[%s/%s] %s %s\n%s\n\n", row.GuildID, row.ChannelName, row.AuthorName, formatTime(row.CreatedAt), row.Content); err != nil {
+				return err
+			}
+		}
+		return nil
+	case []store.MentionRow:
+		for _, row := range v {
+			if _, err := fmt.Fprintf(w, "[%s/%s] %s -> %s:%s %s\n%s\n\n", row.GuildID, row.ChannelName, row.AuthorName, row.TargetType, firstNonEmpty(row.TargetName, row.TargetID), formatTime(row.CreatedAt), row.Content); err != nil {
 				return err
 			}
 		}

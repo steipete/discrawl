@@ -57,6 +57,20 @@ type SearchResult struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type MentionRow struct {
+	MessageID   string    `json:"message_id"`
+	GuildID     string    `json:"guild_id"`
+	ChannelID   string    `json:"channel_id"`
+	ChannelName string    `json:"channel_name"`
+	AuthorID    string    `json:"author_id"`
+	AuthorName  string    `json:"author_name"`
+	TargetType  string    `json:"target_type"`
+	TargetID    string    `json:"target_id"`
+	TargetName  string    `json:"target_name"`
+	Content     string    `json:"content"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type MemberRow struct {
 	GuildID     string    `json:"guild_id"`
 	UserID      string    `json:"user_id"`
@@ -189,6 +203,31 @@ func (s *Store) migrate(ctx context.Context) error {
 			event_at text not null,
 			payload_json text not null
 		);`,
+		`create table if not exists message_attachments (
+			attachment_id text primary key,
+			message_id text not null,
+			guild_id text not null,
+			channel_id text not null,
+			author_id text,
+			filename text not null,
+			content_type text,
+			size integer not null default 0,
+			url text,
+			proxy_url text,
+			text_content text not null default '',
+			updated_at text not null
+		);`,
+		`create table if not exists mention_events (
+			event_id integer primary key autoincrement,
+			message_id text not null,
+			guild_id text not null,
+			channel_id text not null,
+			author_id text,
+			target_type text not null,
+			target_id text not null,
+			target_name text not null default '',
+			event_at text not null
+		);`,
 		`create table if not exists sync_state (
 			scope text primary key,
 			cursor text,
@@ -214,6 +253,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		`create index if not exists idx_messages_channel_id on messages(channel_id);`,
 		`create index if not exists idx_messages_guild_id on messages(guild_id);`,
 		`create index if not exists idx_events_message_id on message_events(message_id);`,
+		`create index if not exists idx_attachments_message_id on message_attachments(message_id);`,
+		`create index if not exists idx_attachments_channel_id on message_attachments(channel_id);`,
+		`create index if not exists idx_mentions_message_id on mention_events(message_id);`,
+		`create index if not exists idx_mentions_target on mention_events(target_type, target_id, event_at);`,
+		`create index if not exists idx_mentions_author on mention_events(author_id, event_at);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {

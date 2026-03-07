@@ -57,14 +57,18 @@ func (s *Store) SearchMessages(ctx context.Context, opts SearchOptions) ([]Searc
 		args = append(args, opts.Author, "%"+opts.Author+"%")
 	}
 	if !opts.IncludeEmpty {
-		clauses = append(clauses, "trim(coalesce(m.content, '')) <> ''")
+		clauses = append(clauses, "trim(coalesce(m.normalized_content, '')) <> ''")
 	}
 	args = append(args, opts.Limit)
 	query := `
 		select
 			m.id, m.guild_id, m.channel_id, coalesce(c.name, ''),
 			coalesce(m.author_id, ''), coalesce(message_fts.author_name, ''),
-			m.content, m.created_at
+			case
+				when trim(coalesce(m.content, '')) <> '' then m.content
+				else m.normalized_content
+			end,
+			m.created_at
 		from message_fts
 		join messages m on m.id = message_fts.message_id
 		left join channels c on c.id = m.channel_id
@@ -108,11 +112,22 @@ func (s *Store) searchFallback(ctx context.Context, opts SearchOptions) ([]Searc
 		args = append(args, opts.Author, "%"+opts.Author+"%")
 	}
 	if !opts.IncludeEmpty {
-		clauses = append(clauses, "trim(coalesce(m.content, '')) <> ''")
+		clauses = append(clauses, "trim(coalesce(m.normalized_content, '')) <> ''")
 	}
 	args = append(args, opts.Limit)
 	rows, err := s.db.QueryContext(ctx, `
-		select m.id, m.guild_id, m.channel_id, coalesce(c.name, ''), coalesce(m.author_id, ''), '', m.content, m.created_at
+		select
+			m.id,
+			m.guild_id,
+			m.channel_id,
+			coalesce(c.name, ''),
+			coalesce(m.author_id, ''),
+			'',
+			case
+				when trim(coalesce(m.content, '')) <> '' then m.content
+				else m.normalized_content
+			end,
+			m.created_at
 		from messages m
 		left join channels c on c.id = m.channel_id
 		where `+strings.Join(clauses, " and ")+`

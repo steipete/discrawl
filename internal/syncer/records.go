@@ -29,7 +29,7 @@ func toMemberRecord(guildID string, member *discordgo.Member) store.MemberRecord
 	}
 }
 
-func toMessageRecord(message *discordgo.Message, channelName string) store.MessageRecord {
+func toMessageRecord(message *discordgo.Message, channelName, normalizedContent string) store.MessageRecord {
 	raw, _ := json.Marshal(message)
 	authorID := ""
 	authorName := ""
@@ -59,7 +59,7 @@ func toMessageRecord(message *discordgo.Message, channelName string) store.Messa
 		CreatedAt:         message.Timestamp.UTC().Format(time.RFC3339Nano),
 		EditedAt:          editedAt,
 		Content:           message.Content,
-		NormalizedContent: normalizeMessage(message),
+		NormalizedContent: normalizedContent,
 		ReplyToMessageID:  replyTo,
 		Pinned:            message.Pinned,
 		HasAttachments:    len(message.Attachments) > 0,
@@ -68,10 +68,18 @@ func toMessageRecord(message *discordgo.Message, channelName string) store.Messa
 }
 
 func normalizeMessage(message *discordgo.Message) string {
+	return normalizeMessageParts(message, nil)
+}
+
+func normalizeMessageParts(message *discordgo.Message, attachmentParts []string) string {
 	parts := []string{strings.TrimSpace(message.Content)}
-	for _, attachment := range message.Attachments {
-		if attachment != nil && attachment.Filename != "" {
-			parts = append(parts, attachment.Filename)
+	if len(attachmentParts) != 0 {
+		parts = append(parts, attachmentParts...)
+	} else {
+		for _, attachment := range message.Attachments {
+			if attachment != nil && attachment.Filename != "" {
+				parts = append(parts, attachment.Filename)
+			}
 		}
 	}
 	for _, embed := range message.Embeds {

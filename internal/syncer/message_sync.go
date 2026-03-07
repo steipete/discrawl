@@ -342,27 +342,26 @@ func (s *Syncer) syncBackfillPages(ctx context.Context, channel *discordgo.Chann
 }
 
 func (s *Syncer) persistMessagePage(ctx context.Context, messages []*discordgo.Message, channelName string, embeddings bool) (string, error) {
-	mutations, newest := buildMessageMutations(messages, channelName, embeddings)
+	mutations, newest, err := buildMessageMutations(ctx, messages, channelName, embeddings)
+	if err != nil {
+		return "", err
+	}
 	if err := s.store.UpsertMessages(ctx, mutations); err != nil {
 		return "", err
 	}
 	return newest, nil
 }
 
-func buildMessageMutations(messages []*discordgo.Message, channelName string, embeddings bool) ([]store.MessageMutation, string) {
+func buildMessageMutations(ctx context.Context, messages []*discordgo.Message, channelName string, embeddings bool) ([]store.MessageMutation, string, error) {
 	mutations := make([]store.MessageMutation, 0, len(messages))
 	newest := ""
 	for _, message := range messages {
-		record := toMessageRecord(message, channelName)
-		mutations = append(mutations, store.MessageMutation{
-			Record:      record,
-			EventType:   "upsert",
-			PayloadJSON: record.RawJSON,
-			Options: store.WriteOptions{
-				EnqueueEmbedding: embeddings,
-			},
-		})
+		mutation, err := buildMessageMutation(ctx, message, channelName, embeddings)
+		if err != nil {
+			return nil, "", err
+		}
+		mutations = append(mutations, mutation)
 		newest = maxSnowflake(newest, message.ID)
 	}
-	return mutations, newest
+	return mutations, newest, nil
 }

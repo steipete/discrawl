@@ -16,7 +16,7 @@ func TestBuildMessageMutationsTracksNewest(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
-	mutations, newest := buildMessageMutations([]*discordgo.Message{
+	mutations, newest, err := buildMessageMutations(context.Background(), []*discordgo.Message{
 		{
 			ID:        "100",
 			GuildID:   "g1",
@@ -35,6 +35,7 @@ func TestBuildMessageMutationsTracksNewest(t *testing.T) {
 		},
 	}, "general", true)
 
+	require.NoError(t, err)
 	require.Len(t, mutations, 2)
 	require.Equal(t, "101", newest)
 	require.Equal(t, "general", mutations[0].Record.ChannelName)

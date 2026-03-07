@@ -65,11 +65,38 @@ type MessageRecord struct {
 	RawJSON           string
 }
 
+type AttachmentRecord struct {
+	AttachmentID string
+	MessageID    string
+	GuildID      string
+	ChannelID    string
+	AuthorID     string
+	Filename     string
+	ContentType  string
+	Size         int64
+	URL          string
+	ProxyURL     string
+	TextContent  string
+}
+
+type MentionEventRecord struct {
+	MessageID  string
+	GuildID    string
+	ChannelID  string
+	AuthorID   string
+	TargetType string
+	TargetID   string
+	TargetName string
+	EventAt    string
+}
+
 type MessageMutation struct {
 	Record      MessageRecord
 	EventType   string
 	PayloadJSON string
 	Options     WriteOptions
+	Attachments []AttachmentRecord
+	Mentions    []MentionEventRecord
 }
 
 type WriteOptions struct {
@@ -209,6 +236,12 @@ func (s *Store) UpsertMessages(ctx context.Context, messages []MessageMutation) 
 		if err := upsertMessageTx(ctx, tx, message.Record, message.Options); err != nil {
 			return err
 		}
+		if err := replaceAttachmentsTx(ctx, tx, message.Record.ID, message.Attachments); err != nil {
+			return err
+		}
+		if err := replaceMentionEventsTx(ctx, tx, message.Record.ID, message.Mentions); err != nil {
+			return err
+		}
 		if message.Options.AppendEvent && message.EventType != "" {
 			if err := appendEventTx(
 				ctx,
@@ -318,6 +351,84 @@ func appendEventTx(ctx context.Context, tx *sql.Tx, guildID, channelID, messageI
 		values(?, ?, ?, ?, ?, ?)
 	`, guildID, channelID, messageID, eventType, time.Now().UTC().Format(timeLayout), payload)
 	return err
+}
+
+func replaceAttachmentsTx(ctx context.Context, tx *sql.Tx, messageID string, attachments []AttachmentRecord) error {
+	if _, err := tx.ExecContext(ctx, `delete from message_attachments where message_id = ?`, messageID); err != nil {
+		return err
+	}
+	if len(attachments) == 0 {
+		return nil
+	}
+	now := time.Now().UTC().Format(timeLayout)
+	stmt, err := tx.PrepareContext(ctx, `
+		insert into message_attachments(
+			attachment_id, message_id, guild_id, channel_id, author_id, filename,
+			content_type, size, url, proxy_url, text_content, updated_at
+		) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+	for _, attachment := range attachments {
+		if _, err := stmt.ExecContext(
+			ctx,
+			attachment.AttachmentID,
+			attachment.MessageID,
+			attachment.GuildID,
+			attachment.ChannelID,
+			nullable(attachment.AuthorID),
+			attachment.Filename,
+			nullable(attachment.ContentType),
+			attachment.Size,
+			nullable(attachment.URL),
+			nullable(attachment.ProxyURL),
+			attachment.TextContent,
+			now,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func replaceMentionEventsTx(ctx context.Context, tx *sql.Tx, messageID string, mentions []MentionEventRecord) error {
+	if _, err := tx.ExecContext(ctx, `delete from mention_events where message_id = ?`, messageID); err != nil {
+		return err
+	}
+	if len(mentions) == 0 {
+		return nil
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		insert into mention_events(
+			message_id, guild_id, channel_id, author_id, target_type, target_id, target_name, event_at
+		) values(?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+	for _, mention := range mentions {
+		eventAt := mention.EventAt
+		if eventAt == "" {
+			eventAt = time.Now().UTC().Format(timeLayout)
+		}
+		if _, err := stmt.ExecContext(
+			ctx,
+			mention.MessageID,
+			mention.GuildID,
+			mention.ChannelID,
+			nullable(mention.AuthorID),
+			mention.TargetType,
+			mention.TargetID,
+			mention.TargetName,
+			eventAt,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) SetSyncState(ctx context.Context, scope, cursor string) error {

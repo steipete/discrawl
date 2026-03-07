@@ -16,6 +16,17 @@ type MessageListOptions struct {
 	IncludeEmpty bool
 }
 
+type MentionListOptions struct {
+	GuildIDs   []string
+	Channel    string
+	Author     string
+	Target     string
+	TargetType string
+	Since      time.Time
+	Before     time.Time
+	Limit      int
+}
+
 type MessageRow struct {
 	MessageID      string    `json:"message_id"`
 	GuildID        string    `json:"guild_id"`
@@ -56,7 +67,7 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 		args = append(args, opts.Before.UTC().Format(timeLayout))
 	}
 	if !opts.IncludeEmpty {
-		clauses = append(clauses, "trim(coalesce(m.content, '')) <> ''")
+		clauses = append(clauses, "trim(coalesce(m.normalized_content, '')) <> ''")
 	}
 
 	query := `
@@ -75,7 +86,10 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 				nullif(json_extract(m.raw_json, '$.author.username'), ''),
 				''
 			),
-			m.content,
+			case
+				when trim(coalesce(m.content, '')) <> '' then m.content
+				else m.normalized_content
+			end,
 			m.created_at,
 			coalesce(m.reply_to_message_id, ''),
 			m.has_attachments,

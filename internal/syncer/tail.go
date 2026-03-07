@@ -48,7 +48,11 @@ func (t *tailHandler) OnMessageCreate(ctx context.Context, msg *discordgo.Messag
 	if !t.allowGuild(msg.GuildID) {
 		return nil
 	}
-	if err := t.store.UpsertMessageWithOptions(ctx, toMessageRecord(msg, ""), store.WriteOptions{}); err != nil {
+	mutation, err := buildMessageMutation(ctx, msg, "", false)
+	if err != nil {
+		return err
+	}
+	if err := t.store.UpsertMessages(ctx, []store.MessageMutation{mutation}); err != nil {
 		return err
 	}
 	if err := t.store.AppendMessageEvent(ctx, msg.GuildID, msg.ChannelID, msg.ID, "create", msg); err != nil {
@@ -64,7 +68,11 @@ func (t *tailHandler) OnMessageUpdate(ctx context.Context, msg *discordgo.Messag
 	if !t.allowGuild(msg.GuildID) {
 		return nil
 	}
-	if err := t.store.UpsertMessageWithOptions(ctx, toMessageRecord(msg, ""), store.WriteOptions{}); err != nil {
+	mutation, err := buildMessageMutation(ctx, msg, "", false)
+	if err != nil {
+		return err
+	}
+	if err := t.store.UpsertMessages(ctx, []store.MessageMutation{mutation}); err != nil {
 		return err
 	}
 	if err := t.store.AppendMessageEvent(ctx, msg.GuildID, msg.ChannelID, msg.ID, "update", msg); err != nil {

@@ -1,0 +1,118 @@
+package store
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestAttachmentTextAndMentionsAreQueryable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "maintainers", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMember(ctx, MemberRecord{
+		GuildID:     "g1",
+		UserID:      "u1",
+		Username:    "peter",
+		DisplayName: "Peter",
+		RoleIDsJSON: `[]`,
+		RawJSON:     `{}`,
+	}))
+
+	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
+	require.NoError(t, s.UpsertMessages(ctx, []MessageMutation{{
+		Record: MessageRecord{
+			ID:                "m1",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "maintainers",
+			AuthorID:          "u1",
+			AuthorName:        "Peter",
+			MessageType:       0,
+			CreatedAt:         createdAt,
+			Content:           "",
+			NormalizedContent: "trace.txt stack trace line one stack trace line two",
+			HasAttachments:    true,
+			RawJSON:           `{"author":{"username":"peter"}}`,
+		},
+		Attachments: []AttachmentRecord{{
+			AttachmentID: "a1",
+			MessageID:    "m1",
+			GuildID:      "g1",
+			ChannelID:    "c1",
+			AuthorID:     "u1",
+			Filename:     "trace.txt",
+			ContentType:  "text/plain",
+			URL:          "https://example.test/trace.txt",
+			TextContent:  "stack trace line one stack trace line two",
+		}},
+		Mentions: []MentionEventRecord{
+			{
+				MessageID:  "m1",
+				GuildID:    "g1",
+				ChannelID:  "c1",
+				AuthorID:   "u1",
+				TargetType: "user",
+				TargetID:   "u2",
+				TargetName: "Shadow",
+				EventAt:    createdAt,
+			},
+			{
+				MessageID:  "m1",
+				GuildID:    "g1",
+				ChannelID:  "c1",
+				AuthorID:   "u1",
+				TargetType: "role",
+				TargetID:   "r1",
+				TargetName: "Maintainer",
+				EventAt:    createdAt,
+			},
+		},
+	}}))
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select filename, text_content from message_attachments")
+	require.NoError(t, err)
+	require.Equal(t, []string{"trace.txt", "stack trace line one stack trace line two"}, rows[0])
+
+	results, err := s.SearchMessages(ctx, SearchOptions{Query: "stack", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "m1", results[0].MessageID)
+	require.Contains(t, results[0].Content, "stack trace")
+
+	messages, err := s.ListMessages(ctx, MessageListOptions{Channel: "maintainers", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	require.Contains(t, messages[0].Content, "stack trace")
+
+	mentions, err := s.ListMentions(ctx, MentionListOptions{Target: "Shadow", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, mentions, 1)
+	require.Equal(t, "u2", mentions[0].TargetID)
+	require.Equal(t, "Shadow", mentions[0].TargetName)
+	require.Contains(t, mentions[0].Content, "stack trace")
+
+	roleMentions, err := s.ListMentions(ctx, MentionListOptions{TargetType: "role", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, roleMentions, 1)
+	require.Equal(t, "r1", roleMentions[0].TargetID)
+
+	filtered, err := s.ListMentions(ctx, MentionListOptions{
+		Channel:    "#maint",
+		Author:     "pet",
+		TargetType: "user",
+		Since:      parseTime(createdAt).Add(-time.Minute),
+		Before:     parseTime(createdAt).Add(time.Minute),
+		Limit:      10,
+	})
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+}

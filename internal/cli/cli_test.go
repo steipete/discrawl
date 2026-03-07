@@ -75,14 +75,42 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 		NormalizedContent: "",
 		RawJSON:           `{"author":{"username":"Peter"}}`,
 	}))
+	require.NoError(t, s.UpsertMessages(ctx, []store.MessageMutation{{
+		Record: store.MessageRecord{
+			ID:                "m3",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u1",
+			AuthorName:        "Peter",
+			MessageType:       0,
+			CreatedAt:         time.Now().UTC().Add(2 * time.Second).Format(time.RFC3339Nano),
+			Content:           "",
+			NormalizedContent: "trace.txt stack trace line one",
+			HasAttachments:    true,
+			RawJSON:           `{"author":{"username":"Peter"}}`,
+		},
+		Mentions: []store.MentionEventRecord{{
+			MessageID:  "m3",
+			GuildID:    "g1",
+			ChannelID:  "c1",
+			AuthorID:   "u1",
+			TargetType: "user",
+			TargetID:   "u2",
+			TargetName: "Shadow",
+			EventAt:    time.Now().UTC().Add(2 * time.Second).Format(time.RFC3339Nano),
+		}},
+	}}))
 	require.NoError(t, s.Close())
 
 	tests := [][]string{
 		{"--config", cfgPath, "status"},
 		{"--config", cfgPath, "search", "panic"},
+		{"--config", cfgPath, "search", "stack"},
 		{"--config", cfgPath, "search", "--include-empty", "Peter"},
 		{"--config", cfgPath, "messages", "--channel", "general", "--days", "7", "--all"},
 		{"--config", cfgPath, "messages", "--channel", "general", "--days", "7", "--all", "--include-empty"},
+		{"--config", cfgPath, "mentions", "--target", "Shadow", "--limit", "10"},
 		{"--config", cfgPath, "sql", "select count(*) as total from messages"},
 		{"--config", cfgPath, "members", "list"},
 		{"--config", cfgPath, "channels", "list"},
@@ -273,12 +301,26 @@ func TestRuntimeHelpersAndSubcommands(t *testing.T) {
 		rt.now = func() time.Time { return time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC) }
 		require.NoError(t, rt.runMessages([]string{"--channel", "#general", "--days", "7", "--all"}))
 		require.NoError(t, rt.runMessages([]string{"--channel", "#general", "--days", "7", "--all", "--include-empty"}))
+		require.NoError(t, rt.runMentions([]string{"--channel", "#general", "--target", "u2"}))
 		require.NoError(t, rt.runSearch([]string{"--include-empty", "Peter"}))
 		require.NoError(t, rt.runChannels([]string{"show", "c1"}))
 		require.NoError(t, rt.runChannels([]string{"list"}))
 		require.NoError(t, rt.runStatus(nil))
 		return nil
 	}))
+}
+
+func TestRunMentionsValidation(t *testing.T) {
+	t.Parallel()
+
+	rt := &runtime{stderr: &bytes.Buffer{}}
+	rt.now = func() time.Time { return time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC) }
+
+	require.Equal(t, 2, ExitCode(rt.runMentions([]string{"--days", "-1", "--target", "u1"})))
+	require.Equal(t, 2, ExitCode(rt.runMentions([]string{"--days", "1", "--since", "2026-03-01T00:00:00Z", "--target", "u1"})))
+	require.Equal(t, 2, ExitCode(rt.runMentions([]string{"--since", "bad", "--target", "u1"})))
+	require.Equal(t, 2, ExitCode(rt.runMentions([]string{"--type", "nope", "--target", "u1"})))
+	require.Equal(t, 2, ExitCode(rt.runMentions([]string{})))
 }
 
 func TestPrintJSONAndPlain(t *testing.T) {
@@ -296,6 +338,10 @@ func TestPrintJSONAndPlain(t *testing.T) {
 	require.NoError(t, rt.print([]store.SearchResult{{GuildID: "g1", ChannelName: "general", AuthorName: "Peter", Content: "hello"}}))
 	require.Contains(t, rt.stdout.(*bytes.Buffer).String(), "hello")
 
+	rt = &runtime{stdout: &bytes.Buffer{}}
+	require.NoError(t, rt.print([]store.MentionRow{{GuildID: "g1", ChannelName: "general", AuthorName: "Peter", TargetType: "user", TargetName: "Shadow", Content: "hello"}}))
+	require.Contains(t, rt.stdout.(*bytes.Buffer).String(), "Shadow")
+
 	rt = &runtime{stdout: &bytes.Buffer{}, plain: true}
 	require.NoError(t, rt.print([]store.MemberRow{{GuildID: "g1", UserID: "u1", Username: "peter"}}))
 	require.Contains(t, rt.stdout.(*bytes.Buffer).String(), "peter")
@@ -307,6 +353,10 @@ func TestPrintJSONAndPlain(t *testing.T) {
 	rt = &runtime{stdout: &bytes.Buffer{}, plain: true}
 	require.NoError(t, rt.print([]store.MessageRow{{GuildID: "g1", ChannelID: "c1", AuthorID: "u1", MessageID: "m1", Content: "hello", CreatedAt: time.Unix(1, 0).UTC()}}))
 	require.Contains(t, rt.stdout.(*bytes.Buffer).String(), "m1")
+
+	rt = &runtime{stdout: &bytes.Buffer{}, plain: true}
+	require.NoError(t, rt.print([]store.MentionRow{{GuildID: "g1", ChannelID: "c1", AuthorID: "u1", TargetType: "user", TargetID: "u2", Content: "hello", CreatedAt: time.Unix(1, 0).UTC()}}))
+	require.Contains(t, rt.stdout.(*bytes.Buffer).String(), "u2")
 
 	rt = &runtime{stdout: &bytes.Buffer{}}
 	require.NoError(t, rt.print(struct{ OK bool }{OK: true}))
