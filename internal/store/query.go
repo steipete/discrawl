@@ -4,8 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"time"
+)
+
+const (
+	queryTimeout  = 15 * time.Second
+	queryRowLimit = 50000
 )
 
 func (s *Store) GetSyncState(ctx context.Context, scope string) (string, error) {
@@ -279,21 +285,69 @@ func (s *Store) ReadOnlyQuery(ctx context.Context, query string) ([]string, [][]
 	if query == "" {
 		return nil, nil, fmt.Errorf("empty query")
 	}
-	lower := strings.ToLower(query)
-	if !strings.HasPrefix(lower, "select") && !strings.HasPrefix(lower, "with") && !strings.HasPrefix(lower, "pragma") {
+	if !IsReadOnlySQL(query) {
 		return nil, nil, fmt.Errorf("only read-only sql is allowed")
 	}
-	rows, err := s.db.QueryContext(ctx, query)
+	db, closeFn, err := s.openReadOnlyDB()
+	if err != nil {
+		return nil, nil, err
+	}
+	if closeFn != nil {
+		defer closeFn()
+	}
+	return queryRows(ctx, db, query)
+}
+
+func (s *Store) Query(ctx context.Context, query string) ([]string, [][]string, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil, fmt.Errorf("empty query")
+	}
+	return queryRows(ctx, s.db, query)
+}
+
+func (s *Store) Exec(ctx context.Context, query string) (int64, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return 0, fmt.Errorf("empty query")
+	}
+	queryCtx, cancel := withQueryTimeout(ctx)
+	defer cancel()
+
+	result, err := s.db.ExecContext(queryCtx, query)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func queryRows(ctx context.Context, db *sql.DB, query string) ([]string, [][]string, error) {
+	queryCtx, cancel := withQueryTimeout(ctx)
+	defer cancel()
+
+	rows, err := db.QueryContext(queryCtx, query)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer func() { _ = rows.Close() }()
+
 	cols, err := rows.Columns()
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(cols) == 0 {
+		return nil, nil, fmt.Errorf("query returned no columns")
+	}
+
 	var out [][]string
 	for rows.Next() {
+		if len(out) >= queryRowLimit {
+			return nil, nil, fmt.Errorf("query returned more than %d rows", queryRowLimit)
+		}
 		values := make([]any, len(cols))
 		ptrs := make([]any, len(cols))
 		for i := range values {
@@ -309,6 +363,69 @@ func (s *Store) ReadOnlyQuery(ctx context.Context, query string) ([]string, [][]
 		out = append(out, record)
 	}
 	return cols, out, rows.Err()
+}
+
+func (s *Store) openReadOnlyDB() (*sql.DB, func(), error) {
+	if strings.TrimSpace(s.path) == "" {
+		return s.db, nil, nil
+	}
+	if _, err := os.Stat(s.path); err != nil {
+		return nil, nil, err
+	}
+	dsn := fmt.Sprintf(
+		"file:%s?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)&_pragma=temp_store(MEMORY)&_pragma=mmap_size(268435456)",
+		s.path,
+	)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, nil, err
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	return db, func() { _ = db.Close() }, nil
+}
+
+func withQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, queryTimeout)
+}
+
+func IsReadOnlySQL(query string) bool {
+	switch leadingSQLKeyword(query) {
+	case "select", "explain", "pragma":
+		return true
+	default:
+		return false
+	}
+}
+
+func leadingSQLKeyword(query string) string {
+	trimmed := strings.TrimSpace(query)
+	for trimmed != "" {
+		switch {
+		case strings.HasPrefix(trimmed, "--"):
+			if idx := strings.IndexByte(trimmed, '\n'); idx >= 0 {
+				trimmed = strings.TrimSpace(trimmed[idx+1:])
+				continue
+			}
+			return ""
+		case strings.HasPrefix(trimmed, "/*"):
+			end := strings.Index(trimmed, "*/")
+			if end < 0 {
+				return ""
+			}
+			trimmed = strings.TrimSpace(trimmed[end+2:])
+		default:
+			fields := strings.Fields(trimmed)
+			if len(fields) == 0 {
+				return ""
+			}
+			return strings.ToLower(fields[0])
+		}
+	}
+	return ""
 }
 
 func placeholders(n int) string {

@@ -43,24 +43,59 @@ func (r *runtime) runSearch(args []string) error {
 }
 
 func (r *runtime) runSQL(args []string) error {
+	fs := flag.NewFlagSet("sql", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	unsafe := fs.Bool("unsafe", false, "")
+	confirm := fs.Bool("confirm", false, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	if *confirm && !*unsafe {
+		return usageErr(fmt.Errorf("--confirm requires --unsafe"))
+	}
+
 	var query string
-	if len(args) == 0 || args[0] == "-" {
+	rest := fs.Args()
+	if len(rest) == 0 || rest[0] == "-" {
 		body, err := io.ReadAll(bufio.NewReader(os.Stdin))
 		if err != nil {
 			return err
 		}
 		query = string(body)
 	} else {
-		query = strings.Join(args, " ")
+		query = strings.Join(rest, " ")
 	}
-	cols, rows, err := r.store.ReadOnlyQuery(r.ctx, query)
+
+	if !*unsafe {
+		cols, rows, err := r.store.ReadOnlyQuery(r.ctx, query)
+		if err != nil {
+			return err
+		}
+		if r.json {
+			return r.print(map[string]any{"columns": cols, "rows": rows})
+		}
+		return printRows(r.stdout, cols, rows)
+	}
+	if !*confirm {
+		return usageErr(fmt.Errorf("--unsafe requires --confirm"))
+	}
+
+	if store.IsReadOnlySQL(query) {
+		cols, rows, err := r.store.Query(r.ctx, query)
+		if err != nil {
+			return err
+		}
+		if r.json {
+			return r.print(map[string]any{"columns": cols, "rows": rows})
+		}
+		return printRows(r.stdout, cols, rows)
+	}
+
+	affected, err := r.store.Exec(r.ctx, query)
 	if err != nil {
 		return err
 	}
-	if r.json {
-		return r.print(map[string]any{"columns": cols, "rows": rows})
-	}
-	return printRows(r.stdout, cols, rows)
+	return r.print(map[string]any{"rows_affected": affected})
 }
 
 func (r *runtime) runMembers(args []string) error {

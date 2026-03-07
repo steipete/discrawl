@@ -243,6 +243,48 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	require.Contains(t, out.String(), "discord_auth=ok")
 }
 
+func TestSQLRejectsMutationsByDefaultAndAllowsUnsafeConfirm(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	s, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "m1",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		Content:           "hello",
+		NormalizedContent: "hello",
+		RawJSON:           `{}`,
+	}))
+	require.NoError(t, s.Close())
+
+	err = Run(ctx, []string{"--config", cfgPath, "sql", "delete from messages"}, &bytes.Buffer{}, &bytes.Buffer{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only read-only sql is allowed")
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "sql", "--unsafe", "--confirm", "delete from messages"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "rows_affected=1")
+
+	s, err = store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+	_, rows, err := s.ReadOnlyQuery(ctx, "select count(*) from messages")
+	require.NoError(t, err)
+	require.Equal(t, "0", rows[0][0])
+}
+
 func TestHelpers(t *testing.T) {
 	t.Parallel()
 
