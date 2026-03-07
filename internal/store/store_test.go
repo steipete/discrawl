@@ -68,7 +68,7 @@ func TestStoreReadWriteAndSearch(t *testing.T) {
 
 	results, err = s.SearchMessages(ctx, SearchOptions{Query: "panic:error", Limit: 10})
 	require.NoError(t, err)
-	require.Len(t, results, 0)
+	require.Empty(t, results)
 
 	members, err := s.Members(ctx, "g1", "pet", 10)
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestUpsertAndDeleteMember(t *testing.T) {
 	require.NoError(t, s.DeleteMember(ctx, "g1", "u1"))
 	rows, err = s.MemberByID(ctx, "u1")
 	require.NoError(t, err)
-	require.Len(t, rows, 0)
+	require.Empty(t, rows)
 
 	require.NoError(t, s.ReplaceMembers(ctx, "g1", []MemberRecord{{
 		GuildID:     "g1",
@@ -192,7 +192,7 @@ func TestEventsSyncStateAndHelpers(t *testing.T) {
 
 	require.Equal(t, "1", stringify(int64(1)))
 	require.Equal(t, "value", stringify("value"))
-	require.Equal(t, "", stringify(nil))
+	require.Empty(t, stringify(nil))
 	require.Equal(t, "abc", stringify([]byte("abc")))
 	require.True(t, parseTime(time.Now().UTC().Format(time.RFC3339Nano)).After(time.Time{}))
 	require.Equal(t, "?, ?, ?", placeholders(3))

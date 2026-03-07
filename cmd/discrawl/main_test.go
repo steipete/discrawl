@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"testing"
@@ -29,7 +30,8 @@ func TestMainHelpAndVersion(t *testing.T) {
 	cmd := exec.Command(exe, "-test.run=TestMainHelpAndVersion")
 	cmd.Env = append(os.Environ(), "DISCRAWL_MAIN_ERROR=1")
 	err = cmd.Run()
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
 		if exitErr.ExitCode() == 2 {
 			return
 		}

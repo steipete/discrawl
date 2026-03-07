@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -88,30 +87,39 @@ func (f *fakeDiscordClient) Close() error { return nil }
 func (f *fakeDiscordClient) Self(context.Context) (*discordgo.User, error) {
 	return f.self, nil
 }
+
 func (f *fakeDiscordClient) Guilds(context.Context) ([]*discordgo.UserGuild, error) {
 	return f.guilds, nil
 }
+
 func (f *fakeDiscordClient) Guild(context.Context, string) (*discordgo.Guild, error) {
 	return &discordgo.Guild{}, nil
 }
+
 func (f *fakeDiscordClient) GuildChannels(context.Context, string) ([]*discordgo.Channel, error) {
 	return nil, nil
 }
+
 func (f *fakeDiscordClient) ThreadsActive(context.Context, string) ([]*discordgo.Channel, error) {
 	return nil, nil
 }
+
 func (f *fakeDiscordClient) ThreadsArchived(context.Context, string, bool) ([]*discordgo.Channel, error) {
 	return nil, nil
 }
+
 func (f *fakeDiscordClient) GuildMembers(context.Context, string) ([]*discordgo.Member, error) {
 	return nil, nil
 }
+
 func (f *fakeDiscordClient) ChannelMessages(context.Context, string, int, string, string) ([]*discordgo.Message, error) {
 	return nil, nil
 }
+
 func (f *fakeDiscordClient) ChannelMessage(context.Context, string, string) (*discordgo.Message, error) {
 	return nil, nil
 }
+
 func (f *fakeDiscordClient) Tail(context.Context, discordclient.EventHandler) error {
 	return nil
 }
@@ -126,10 +134,12 @@ type fakeSyncService struct {
 func (f *fakeSyncService) DiscoverGuilds(context.Context) ([]*discordgo.UserGuild, error) {
 	return f.discovered, nil
 }
+
 func (f *fakeSyncService) Sync(_ context.Context, opts syncer.SyncOptions) (syncer.SyncStats, error) {
 	f.lastSync = opts
 	return syncer.SyncStats{Guilds: len(opts.GuildIDs), Messages: 3}, nil
 }
+
 func (f *fakeSyncService) RunTail(_ context.Context, guildIDs []string, repairEvery time.Duration) error {
 	f.lastTail = guildIDs
 	f.lastRepair = repairEvery
@@ -211,7 +221,7 @@ type assertErr string
 func (e assertErr) Error() string { return string(e) }
 
 func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 func TestRuntimeHelpersAndSubcommands(t *testing.T) {

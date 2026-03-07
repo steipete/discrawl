@@ -2,12 +2,25 @@ version: "2"
 
 linters:
   enable:
+    - bodyclose
+    - copyloopvar
+    - durationcheck
     - errcheck
+    - errorlint
     - govet
     - ineffassign
+    - misspell
+    - nilerr
+    - rowserrcheck
+    - sloglint
+    - sqlclosecheck
     - staticcheck
+    - testifylint
+    - unconvert
     - unused
+    - wastedassign
 
 formatters:
   enable:
-    - gofmt
+    - gofumpt
+    - goimports

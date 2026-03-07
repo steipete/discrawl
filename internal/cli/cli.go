@@ -344,7 +344,7 @@ func (r *runtime) runSearch(args []string) error {
 }
 
 func (r *runtime) runSQL(args []string) error {
-	query := ""
+	var query string
 	if len(args) == 0 || args[0] == "-" {
 		body, err := io.ReadAll(bufio.NewReader(os.Stdin))
 		if err != nil {

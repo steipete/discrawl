@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -38,20 +39,25 @@ type fakeClient struct {
 func (f *fakeClient) Self(context.Context) (*discordgo.User, error) {
 	return &discordgo.User{ID: "bot"}, nil
 }
+
 func (f *fakeClient) Guilds(context.Context) ([]*discordgo.UserGuild, error) {
 	return f.guilds, nil
 }
+
 func (f *fakeClient) Guild(_ context.Context, guildID string) (*discordgo.Guild, error) {
 	return f.guildByID[guildID], nil
 }
+
 func (f *fakeClient) GuildChannels(_ context.Context, guildID string) ([]*discordgo.Channel, error) {
 	f.guildChanCalls++
 	return f.channels[guildID], nil
 }
+
 func (f *fakeClient) ThreadsActive(_ context.Context, channelID string) ([]*discordgo.Channel, error) {
 	f.threadCalls++
 	return f.activeThreads[channelID], nil
 }
+
 func (f *fakeClient) ThreadsArchived(_ context.Context, channelID string, private bool) ([]*discordgo.Channel, error) {
 	f.threadCalls++
 	if private {
@@ -59,10 +65,12 @@ func (f *fakeClient) ThreadsArchived(_ context.Context, channelID string, privat
 	}
 	return f.publicArchived[channelID], nil
 }
+
 func (f *fakeClient) GuildMembers(_ context.Context, guildID string) ([]*discordgo.Member, error) {
 	f.memberCalls++
 	return f.members[guildID], nil
 }
+
 func (f *fakeClient) ChannelMessages(_ context.Context, channelID string, limit int, beforeID, afterID string) ([]*discordgo.Message, error) {
 	if err := f.messageErrors[channelID]; err != nil {
 		return nil, err
@@ -97,6 +105,7 @@ func (f *fakeClient) ChannelMessages(_ context.Context, channelID string, limit 
 	}
 	return nil, nil
 }
+
 func (f *fakeClient) ChannelMessage(_ context.Context, channelID, messageID string) (*discordgo.Message, error) {
 	for _, msg := range f.messages[channelID] {
 		if msg.ID == messageID {
@@ -105,6 +114,7 @@ func (f *fakeClient) ChannelMessage(_ context.Context, channelID, messageID stri
 	}
 	return nil, nil
 }
+
 func (f *fakeClient) Tail(ctx context.Context, handler discordclient.EventHandler) error {
 	f.tailCalls++
 	msg := &discordgo.Message{
@@ -349,7 +359,7 @@ func TestSyncMarksEmptyChannelComplete(t *testing.T) {
 
 	cursor, err := s.GetSyncState(ctx, "channel:c1:latest_message_id")
 	require.NoError(t, err)
-	require.Equal(t, "", cursor)
+	require.Empty(t, cursor)
 
 	cols, rows, err := s.ReadOnlyQuery(ctx, `select count(*) from sync_state where scope = 'channel:c1:latest_message_id'`)
 	require.NoError(t, err)
@@ -505,7 +515,7 @@ func TestHelpers(t *testing.T) {
 	handler := &tailHandler{guilds: makeGuildSet([]string{"g1"})}
 	require.True(t, handler.allowGuild("g1"))
 	require.False(t, handler.allowGuild("g2"))
-	require.Equal(t, "", displayName(nil))
+	require.Empty(t, displayName(nil))
 	require.Equal(t, "Nick", displayName(&discordgo.Member{Nick: "Nick", User: &discordgo.User{Username: "user"}}))
 	require.Equal(t, "Global", displayName(&discordgo.Member{User: &discordgo.User{GlobalName: "Global", Username: "user"}}))
 	require.Equal(t, "user", displayName(&discordgo.Member{User: &discordgo.User{Username: "user"}}))
@@ -531,7 +541,7 @@ func TestRunTail(t *testing.T) {
 		cancel()
 	}()
 	err = svc.RunTail(ctx, nil, 0)
-	require.True(t, err == nil || err == context.Canceled)
+	require.True(t, err == nil || errors.Is(err, context.Canceled))
 
 	status, err := s.Status(context.Background(), "db", "")
 	require.NoError(t, err)
@@ -565,7 +575,7 @@ func TestRunTailWithRepairLoop(t *testing.T) {
 		cancel()
 	}()
 	err = svc.RunTail(ctx, []string{"g1"}, 10*time.Millisecond)
-	require.True(t, err == nil || err == context.Canceled)
+	require.True(t, err == nil || errors.Is(err, context.Canceled))
 
 	status, err := s.Status(context.Background(), "db", "")
 	require.NoError(t, err)

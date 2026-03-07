@@ -180,16 +180,25 @@ func TestTailReceivesGatewayEvents(t *testing.T) {
 	gatewayURL = "ws" + server.URL[len("http"):] + "/gateway"
 	gatewayHandler := func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("upgrade gateway: %v", err)
+			return
+		}
 		defer func() { _ = conn.Close() }()
 
-		require.NoError(t, conn.WriteJSON(map[string]any{
+		if err := conn.WriteJSON(map[string]any{
 			"op": 10,
 			"d":  map[string]any{"heartbeat_interval": 1000},
-		}))
+		}); err != nil {
+			t.Errorf("write hello: %v", err)
+			return
+		}
 		_, _, err = conn.ReadMessage()
-		require.NoError(t, err)
-		require.NoError(t, conn.WriteJSON(map[string]any{
+		if err != nil {
+			t.Errorf("read identify: %v", err)
+			return
+		}
+		if err := conn.WriteJSON(map[string]any{
 			"op": 0,
 			"t":  "READY",
 			"s":  1,
@@ -197,7 +206,10 @@ func TestTailReceivesGatewayEvents(t *testing.T) {
 				"session_id": "session",
 				"user":       map[string]any{"id": "bot", "username": "bot"},
 			},
-		}))
+		}); err != nil {
+			t.Errorf("write ready: %v", err)
+			return
+		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		events := []map[string]any{
 			{"op": 0, "t": "MESSAGE_CREATE", "s": 2, "d": map[string]any{"id": "m1", "guild_id": "g1", "channel_id": "c1", "content": "hello", "timestamp": now, "author": map[string]any{"id": "u1", "username": "user"}}},
@@ -208,7 +220,10 @@ func TestTailReceivesGatewayEvents(t *testing.T) {
 			{"op": 0, "t": "GUILD_MEMBER_REMOVE", "s": 7, "d": map[string]any{"guild_id": "g1", "user": map[string]any{"id": "u1", "username": "user"}}},
 		}
 		for _, event := range events {
-			require.NoError(t, conn.WriteJSON(event))
+			if err := conn.WriteJSON(event); err != nil {
+				t.Errorf("write event %v: %v", event["t"], err)
+				return
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
