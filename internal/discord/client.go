@@ -19,7 +19,8 @@ type EventHandler interface {
 }
 
 type Client struct {
-	session *discordgo.Session
+	session        *discordgo.Session
+	requestTimeout time.Duration
 }
 
 func New(token string) (*Client, error) {
@@ -31,7 +32,10 @@ func New(token string) (*Client, error) {
 		discordgo.IntentsGuildMessages |
 		discordgo.IntentsMessageContent |
 		discordgo.IntentsGuildMembers
-	return &Client{session: session}, nil
+	return &Client{
+		session:        session,
+		requestTimeout: 45 * time.Second,
+	}, nil
 }
 
 func (c *Client) Close() error {
@@ -42,14 +46,18 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) Self(ctx context.Context) (*discordgo.User, error) {
-	return c.session.User("@me", discordgo.WithContext(ctx))
+	reqCtx, cancel := c.requestContext(ctx)
+	defer cancel()
+	return c.session.User("@me", discordgo.WithContext(reqCtx))
 }
 
 func (c *Client) Guilds(ctx context.Context) ([]*discordgo.UserGuild, error) {
 	var out []*discordgo.UserGuild
 	before := ""
 	for {
-		page, err := c.session.UserGuilds(200, before, "", false, discordgo.WithContext(ctx))
+		reqCtx, cancel := c.requestContext(ctx)
+		page, err := c.session.UserGuilds(200, before, "", false, discordgo.WithContext(reqCtx))
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -65,15 +73,21 @@ func (c *Client) Guilds(ctx context.Context) ([]*discordgo.UserGuild, error) {
 }
 
 func (c *Client) Guild(ctx context.Context, guildID string) (*discordgo.Guild, error) {
-	return c.session.Guild(guildID, discordgo.WithContext(ctx))
+	reqCtx, cancel := c.requestContext(ctx)
+	defer cancel()
+	return c.session.Guild(guildID, discordgo.WithContext(reqCtx))
 }
 
 func (c *Client) GuildChannels(ctx context.Context, guildID string) ([]*discordgo.Channel, error) {
-	return c.session.GuildChannels(guildID, discordgo.WithContext(ctx))
+	reqCtx, cancel := c.requestContext(ctx)
+	defer cancel()
+	return c.session.GuildChannels(guildID, discordgo.WithContext(reqCtx))
 }
 
 func (c *Client) ThreadsActive(ctx context.Context, channelID string) ([]*discordgo.Channel, error) {
-	list, err := c.session.ThreadsActive(channelID, discordgo.WithContext(ctx))
+	reqCtx, cancel := c.requestContext(ctx)
+	defer cancel()
+	list, err := c.session.ThreadsActive(channelID, discordgo.WithContext(reqCtx))
 	if err != nil {
 		return nil, err
 	}
@@ -84,13 +98,15 @@ func (c *Client) ThreadsArchived(ctx context.Context, channelID string, private 
 	var out []*discordgo.Channel
 	var before *time.Time
 	for {
+		reqCtx, cancel := c.requestContext(ctx)
 		var list *discordgo.ThreadsList
 		var err error
 		if private {
-			list, err = c.session.ThreadsPrivateArchived(channelID, before, 100, discordgo.WithContext(ctx))
+			list, err = c.session.ThreadsPrivateArchived(channelID, before, 100, discordgo.WithContext(reqCtx))
 		} else {
-			list, err = c.session.ThreadsArchived(channelID, before, 100, discordgo.WithContext(ctx))
+			list, err = c.session.ThreadsArchived(channelID, before, 100, discordgo.WithContext(reqCtx))
 		}
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +130,9 @@ func (c *Client) GuildMembers(ctx context.Context, guildID string) ([]*discordgo
 	var out []*discordgo.Member
 	after := ""
 	for {
-		page, err := c.session.GuildMembers(guildID, after, 1000, discordgo.WithContext(ctx))
+		reqCtx, cancel := c.requestContext(ctx)
+		page, err := c.session.GuildMembers(guildID, after, 1000, discordgo.WithContext(reqCtx))
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -130,11 +148,15 @@ func (c *Client) GuildMembers(ctx context.Context, guildID string) ([]*discordgo
 }
 
 func (c *Client) ChannelMessages(ctx context.Context, channelID string, limit int, beforeID, afterID string) ([]*discordgo.Message, error) {
-	return c.session.ChannelMessages(channelID, limit, beforeID, afterID, "", discordgo.WithContext(ctx))
+	reqCtx, cancel := c.requestContext(ctx)
+	defer cancel()
+	return c.session.ChannelMessages(channelID, limit, beforeID, afterID, "", discordgo.WithContext(reqCtx))
 }
 
 func (c *Client) ChannelMessage(ctx context.Context, channelID, messageID string) (*discordgo.Message, error) {
-	return c.session.ChannelMessage(channelID, messageID, discordgo.WithContext(ctx))
+	reqCtx, cancel := c.requestContext(ctx)
+	defer cancel()
+	return c.session.ChannelMessage(channelID, messageID, discordgo.WithContext(reqCtx))
 }
 
 func (c *Client) Tail(ctx context.Context, handler EventHandler) error {
@@ -266,4 +288,14 @@ func uniqueChannels(in []*discordgo.Channel) []*discordgo.Channel {
 		}
 	})
 	return out
+}
+
+func (c *Client) requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c == nil || c.requestTimeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, c.requestTimeout)
 }

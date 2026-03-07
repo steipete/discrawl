@@ -3,8 +3,10 @@ package syncer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -234,7 +236,7 @@ func (s *Syncer) syncMessageChannels(
 		for _, channel := range messageChannels {
 			count, err := s.syncChannelMessages(ctx, guildID, channel, opts.Full, opts.Embeddings)
 			if err != nil {
-				if s.skipUnavailableChannel(ctx, channel, err) {
+				if s.skipSyncError(ctx, channel, err) {
 					continue
 				}
 				return total, fmt.Errorf("sync channel %s: %w", channel.ID, err)
@@ -265,7 +267,7 @@ func (s *Syncer) syncMessageChannels(
 					return
 				}
 				count, err := s.syncChannelMessages(ctx, guildID, channel, opts.Full, opts.Embeddings)
-				if err != nil && s.skipUnavailableChannel(ctx, channel, err) {
+				if err != nil && s.skipSyncError(ctx, channel, err) {
 					err = nil
 				}
 				select {
@@ -306,6 +308,17 @@ func (s *Syncer) syncMessageChannels(
 		}
 	}
 	return total, firstErr
+}
+
+func (s *Syncer) skipSyncError(ctx context.Context, channel *discordgo.Channel, err error) bool {
+	if s.skipUnavailableChannel(ctx, channel, err) {
+		return true
+	}
+	if !isRetryableSyncError(ctx, err) {
+		return false
+	}
+	s.logger.Warn("channel message crawl deferred", "channel_id", channel.ID, "err", err)
+	return true
 }
 
 func (s *Syncer) skipUnavailableChannel(ctx context.Context, channel *discordgo.Channel, err error) bool {
@@ -401,6 +414,43 @@ func (s *Syncer) syncChannelMessages(ctx context.Context, guildID string, channe
 		}
 	}
 	return messageCount, nil
+}
+
+func isRetryableSyncError(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout()
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "deadline exceeded"),
+		strings.Contains(msg, "timeout"),
+		strings.Contains(msg, "eof"),
+		strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "broken pipe"),
+		strings.Contains(msg, "stream error"),
+		strings.Contains(msg, "goaway"),
+		strings.Contains(msg, "http 429"),
+		strings.Contains(msg, "http 500"),
+		strings.Contains(msg, "http 502"),
+		strings.Contains(msg, "http 503"),
+		strings.Contains(msg, "http 504"):
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Syncer) RunTail(ctx context.Context, guildIDs []string, repairEvery time.Duration) error {

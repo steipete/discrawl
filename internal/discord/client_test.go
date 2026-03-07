@@ -3,8 +3,10 @@ package discord
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,6 +154,29 @@ func TestTailRequiresHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, client.Tail(context.Background(), nil))
 	require.NoError(t, (&Client{}).Close())
+}
+
+func TestClientChannelMessagesTimesOut(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v10/channels/c1/messages", func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	restore := patchDiscordEndpoints(server.URL + "/api/v10/")
+	defer restore()
+
+	client, err := New("token")
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+	client.requestTimeout = 20 * time.Millisecond
+
+	start := time.Now()
+	_, err = client.ChannelMessages(context.Background(), "c1", 100, "", "")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context deadline exceeded"))
+	require.Less(t, time.Since(start), time.Second)
 }
 
 func TestUniqueChannels(t *testing.T) {
