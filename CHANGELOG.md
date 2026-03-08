@@ -2,6 +2,13 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
+## 0.2.0 - Unreleased
+
+- offline member-profile search via `member_fts`
+- `members search` now matches archived profile fields in addition to names
+- `members show` now accepts ids or queries and shows recent messages plus message stats when uniquely resolved
+- profile extraction surfaces stored fields like `bio`, `website`, `x`, `github`, and other archived URLs when present
+
 ## 0.1.0 - 2026-03-08
 
 - initial public release of `discrawl`

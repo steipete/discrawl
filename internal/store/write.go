@@ -156,6 +156,9 @@ func (s *Store) ReplaceMembers(ctx context.Context, guildID string, members []Me
 	if _, err := tx.ExecContext(ctx, `delete from members where guild_id = ?`, guildID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `delete from member_fts where guild_id = ?`, guildID); err != nil {
+		return err
+	}
 	now := time.Now().UTC().Format(timeLayout)
 	stmt, err := tx.PrepareContext(ctx, `
 		insert into members(
@@ -173,13 +176,21 @@ func (s *Store) ReplaceMembers(ctx context.Context, guildID string, members []Me
 			boolInt(member.Bot), nullable(member.JoinedAt), member.RoleIDsJSON, member.RawJSON, now); err != nil {
 			return err
 		}
+		if err := upsertMemberFTSTx(ctx, tx, member); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
 
 func (s *Store) UpsertMember(ctx context.Context, member MemberRecord) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
 	now := time.Now().UTC().Format(timeLayout)
-	_, err := s.db.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		insert into members(
 			guild_id, user_id, username, global_name, display_name, nick, discriminator,
 			avatar, bot, joined_at, role_ids_json, raw_json, updated_at
@@ -198,13 +209,28 @@ func (s *Store) UpsertMember(ctx context.Context, member MemberRecord) error {
 			updated_at=excluded.updated_at
 	`, member.GuildID, member.UserID, member.Username, nullable(member.GlobalName), nullable(member.DisplayName),
 		nullable(member.Nick), nullable(member.Discriminator), nullable(member.Avatar), boolInt(member.Bot),
-		nullable(member.JoinedAt), member.RoleIDsJSON, member.RawJSON, now)
-	return err
+		nullable(member.JoinedAt), member.RoleIDsJSON, member.RawJSON, now); err != nil {
+		return err
+	}
+	if err := upsertMemberFTSTx(ctx, tx, member); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteMember(ctx context.Context, guildID, userID string) error {
-	_, err := s.db.ExecContext(ctx, `delete from members where guild_id = ? and user_id = ?`, guildID, userID)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
+	if _, err := tx.ExecContext(ctx, `delete from members where guild_id = ? and user_id = ?`, guildID, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `delete from member_fts where rowid = ?`, memberFTSRowID(guildID, userID)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) UpsertMessage(ctx context.Context, message MessageRecord) error {
@@ -460,4 +486,26 @@ func nullable(v string) any {
 		return nil
 	}
 	return v
+}
+
+func upsertMemberFTSTx(ctx context.Context, tx *sql.Tx, member MemberRecord) error {
+	rowID := memberFTSRowID(member.GuildID, member.UserID)
+	if _, err := tx.ExecContext(ctx, `delete from member_fts where rowid = ?`, rowID); err != nil {
+		return err
+	}
+	displayName := member.DisplayName
+	if displayName == "" {
+		displayName = member.Nick
+	}
+	if displayName == "" {
+		displayName = member.GlobalName
+	}
+	if displayName == "" {
+		displayName = member.Username
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into member_fts(rowid, member_key, guild_id, user_id, username, display_name, profile_text)
+		values(?, ?, ?, ?, ?, ?, ?)
+	`, rowID, memberKey(member.GuildID, member.UserID), member.GuildID, member.UserID, member.Username, displayName, memberProfileSearchText(member.RawJSON))
+	return err
 }

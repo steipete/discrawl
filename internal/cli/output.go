@@ -44,6 +44,9 @@ func printPlain(w io.Writer, value any) error {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", row.GuildID, row.UserID, row.Username)
 		}
 		return nil
+	case store.MemberProfile:
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", v.Member.GuildID, v.Member.UserID, v.Member.Username)
+		return nil
 	case []store.ChannelRow:
 		for _, row := range v {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", row.GuildID, row.ID, row.Kind, row.Name)
@@ -127,11 +130,82 @@ func printHuman(w io.Writer, value any) error {
 		return nil
 	case []store.MemberRow:
 		tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "GUILD\tUSER\tNAME\tDISPLAY")
+		_, _ = fmt.Fprintln(tw, "GUILD\tUSER\tNAME\tDISPLAY\tPROFILE")
 		for _, row := range v {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", row.GuildID, row.UserID, row.Username, firstNonEmpty(row.DisplayName, row.Nick, row.GlobalName))
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+				row.GuildID,
+				row.UserID,
+				row.Username,
+				firstNonEmpty(row.DisplayName, row.Nick, row.GlobalName),
+				memberProfileSummary(row),
+			)
 		}
 		return tw.Flush()
+	case store.MemberProfile:
+		if _, err := fmt.Fprintf(w, "guild=%s\nuser=%s\nusername=%s\ndisplay=%s\njoined=%s\nbot=%t\n",
+			v.Member.GuildID,
+			v.Member.UserID,
+			v.Member.Username,
+			firstNonEmpty(v.Member.DisplayName, v.Member.Nick, v.Member.GlobalName),
+			formatTime(v.Member.JoinedAt),
+			v.Member.Bot,
+		); err != nil {
+			return err
+		}
+		if v.Member.XHandle != "" {
+			if _, err := fmt.Fprintf(w, "x=%s\n", v.Member.XHandle); err != nil {
+				return err
+			}
+		}
+		if v.Member.GitHubLogin != "" {
+			if _, err := fmt.Fprintf(w, "github=%s\n", v.Member.GitHubLogin); err != nil {
+				return err
+			}
+		}
+		if v.Member.Website != "" {
+			if _, err := fmt.Fprintf(w, "website=%s\n", v.Member.Website); err != nil {
+				return err
+			}
+		}
+		if v.Member.Pronouns != "" {
+			if _, err := fmt.Fprintf(w, "pronouns=%s\n", v.Member.Pronouns); err != nil {
+				return err
+			}
+		}
+		if v.Member.Location != "" {
+			if _, err := fmt.Fprintf(w, "location=%s\n", v.Member.Location); err != nil {
+				return err
+			}
+		}
+		if v.Member.Bio != "" {
+			if _, err := fmt.Fprintf(w, "bio=%s\n", v.Member.Bio); err != nil {
+				return err
+			}
+		}
+		if len(v.Member.URLs) > 0 {
+			if _, err := fmt.Fprintf(w, "urls=%s\n", strings.Join(v.Member.URLs, ", ")); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(w, "message_count=%d\nfirst_message=%s\nlast_message=%s\n",
+			v.MessageCount,
+			formatTime(v.FirstMessageAt),
+			formatTime(v.LastMessageAt),
+		); err != nil {
+			return err
+		}
+		if len(v.RecentMessages) == 0 {
+			return nil
+		}
+		if _, err := fmt.Fprintln(w, "\nRecent messages:"); err != nil {
+			return err
+		}
+		for _, row := range v.RecentMessages {
+			if _, err := fmt.Fprintf(w, "[%s] %s\n%s\n\n", row.ChannelName, formatTime(row.CreatedAt), row.Content); err != nil {
+				return err
+			}
+		}
+		return nil
 	case []store.ChannelRow:
 		tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 		_, _ = fmt.Fprintln(tw, "GUILD\tCHANNEL\tKIND\tNAME")
@@ -161,4 +235,29 @@ func formatTime(t time.Time) string {
 		return ""
 	}
 	return t.Format(time.RFC3339)
+}
+
+func memberProfileSummary(row store.MemberRow) string {
+	parts := []string{}
+	if row.XHandle != "" {
+		parts = append(parts, "x:"+row.XHandle)
+	}
+	if row.GitHubLogin != "" {
+		parts = append(parts, "gh:"+row.GitHubLogin)
+	}
+	if row.Website != "" {
+		parts = append(parts, row.Website)
+	}
+	if row.Bio != "" {
+		parts = append(parts, trimForTable(row.Bio))
+	}
+	return strings.Join(parts, " | ")
+}
+
+func trimForTable(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 40 {
+		return value
+	}
+	return value[:37] + "..."
 }

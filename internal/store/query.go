@@ -158,6 +158,9 @@ func (s *Store) searchFallback(ctx context.Context, opts SearchOptions) ([]Searc
 }
 
 func (s *Store) Members(ctx context.Context, guildID, query string, limit int) ([]MemberRow, error) {
+	if strings.TrimSpace(query) != "" {
+		return s.searchMembers(ctx, guildID, query, limit)
+	}
 	if limit <= 0 {
 		limit = 100
 	}
@@ -167,38 +170,37 @@ func (s *Store) Members(ctx context.Context, guildID, query string, limit int) (
 		clauses = append(clauses, "guild_id = ?")
 		args = append(args, guildID)
 	}
-	if query != "" {
-		clauses = append(clauses, `(username like ? or coalesce(display_name, '') like ? or coalesce(nick, '') like ? or user_id = ?)`)
-		args = append(args, "%"+query+"%", "%"+query+"%", "%"+query+"%", query)
-	}
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, `
 		select guild_id, user_id, username, coalesce(global_name, ''), coalesce(display_name, ''),
-		       coalesce(nick, ''), role_ids_json, bot, coalesce(joined_at, '')
+		       coalesce(nick, ''), coalesce(discriminator, ''), coalesce(avatar, ''),
+		       role_ids_json, bot, coalesce(joined_at, ''), raw_json
 		from members
 		where `+strings.Join(clauses, " and ")+`
-		order by coalesce(display_name, nick, username), username
+		order by coalesce(nullif(display_name, ''), nullif(nick, ''), nullif(global_name, ''), username), username
 		limit ?
 	`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var out []MemberRow
-	for rows.Next() {
-		var row MemberRow
-		var joined string
-		if err := rows.Scan(&row.GuildID, &row.UserID, &row.Username, &row.GlobalName, &row.DisplayName, &row.Nick, &row.RoleIDsJSON, &row.Bot, &joined); err != nil {
-			return nil, err
-		}
-		row.JoinedAt = parseTime(joined)
-		out = append(out, row)
-	}
-	return out, rows.Err()
+	return scanMemberRows(rows)
 }
 
 func (s *Store) MemberByID(ctx context.Context, userID string) ([]MemberRow, error) {
-	return s.Members(ctx, "", userID, 100)
+	rows, err := s.db.QueryContext(ctx, `
+		select guild_id, user_id, username, coalesce(global_name, ''), coalesce(display_name, ''),
+		       coalesce(nick, ''), coalesce(discriminator, ''), coalesce(avatar, ''),
+		       role_ids_json, bot, coalesce(joined_at, ''), raw_json
+		from members
+		where user_id = ?
+		order by guild_id, username
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	return scanMemberRows(rows)
 }
 
 func (s *Store) Channels(ctx context.Context, guildID string) ([]ChannelRow, error) {

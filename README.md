@@ -226,8 +226,15 @@ echo 'select guild_id, count(*) from messages group by guild_id' | bin/discrawl 
 ```bash
 bin/discrawl members list
 bin/discrawl members show 123456789012345678
+bin/discrawl members show --messages 10 steipete
 bin/discrawl members search "peter"
+bin/discrawl members search "github"
 ```
+
+Notes:
+
+- `search` matches names plus any offline profile fields present in the archived member payload
+- `show` accepts a user id or query; if it resolves to one member, it also shows recent messages
 
 ### `channels`
 

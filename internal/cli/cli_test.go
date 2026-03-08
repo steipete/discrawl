@@ -27,7 +27,7 @@ func TestHelpAndVersion(t *testing.T) {
 
 	out.Reset()
 	require.NoError(t, Run(context.Background(), []string{"--version"}, &out, &bytes.Buffer{}))
-	require.Contains(t, out.String(), "0.1.0")
+	require.Contains(t, out.String(), "0.2.0")
 
 	err := Run(context.Background(), []string{"bogus"}, &out, &bytes.Buffer{})
 	require.Equal(t, 2, ExitCode(err))
@@ -48,7 +48,14 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
-	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{GuildID: "g1", UserID: "u1", Username: "peter", RoleIDsJSON: `[]`, RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{
+		GuildID:     "g1",
+		UserID:      "u1",
+		Username:    "peter",
+		DisplayName: "Peter",
+		RoleIDsJSON: `[]`,
+		RawJSON:     `{"bio":"Maintainer","github":"steipete","website":"https://steipete.me"}`,
+	}))
 	require.NoError(t, s.UpsertMessage(ctx, store.MessageRecord{
 		ID:                "m1",
 		GuildID:           "g1",
@@ -113,6 +120,8 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 		{"--config", cfgPath, "mentions", "--target", "Shadow", "--limit", "10"},
 		{"--config", cfgPath, "sql", "select count(*) as total from messages"},
 		{"--config", cfgPath, "members", "list"},
+		{"--config", cfgPath, "members", "search", "Maintainer"},
+		{"--config", cfgPath, "members", "show", "u1"},
 		{"--config", cfgPath, "channels", "list"},
 	}
 	for _, args := range tests {

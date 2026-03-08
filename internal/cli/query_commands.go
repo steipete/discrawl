@@ -110,14 +110,7 @@ func (r *runtime) runMembers(args []string) error {
 		}
 		return r.print(rows)
 	case "show":
-		if len(args) < 2 {
-			return usageErr(fmt.Errorf("members show requires a user id"))
-		}
-		rows, err := r.store.MemberByID(r.ctx, args[1])
-		if err != nil {
-			return err
-		}
-		return r.print(rows)
+		return r.runMembersShow(args[1:])
 	case "search":
 		if len(args) < 2 {
 			return usageErr(fmt.Errorf("members search requires a query"))
@@ -130,6 +123,54 @@ func (r *runtime) runMembers(args []string) error {
 	default:
 		return usageErr(fmt.Errorf("unknown members subcommand %q", args[0]))
 	}
+}
+
+func (r *runtime) runMembersShow(args []string) error {
+	fs := flag.NewFlagSet("members show", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	messageLimit := fs.Int("messages", 20, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	if fs.NArg() < 1 {
+		return usageErr(fmt.Errorf("members show requires a user id or query"))
+	}
+	query := strings.Join(fs.Args(), " ")
+
+	rows, err := r.store.MemberByID(r.ctx, query)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		rows, err = r.store.Members(r.ctx, "", query, 20)
+		if err != nil {
+			return err
+		}
+	}
+	if len(rows) == 0 {
+		return r.print([]store.MemberRow{})
+	}
+	if len(rows) > 1 {
+		defaultGuild := r.cfg.EffectiveDefaultGuildID()
+		if defaultGuild != "" {
+			for _, row := range rows {
+				if row.GuildID == defaultGuild && (row.UserID == query || row.Username == query || row.DisplayName == query || row.Nick == query || row.GlobalName == query) {
+					profile, err := r.store.MemberProfile(r.ctx, row.GuildID, row.UserID, *messageLimit)
+					if err != nil {
+						return err
+					}
+					return r.print(profile)
+				}
+			}
+		}
+		return r.print(rows)
+	}
+
+	profile, err := r.store.MemberProfile(r.ctx, rows[0].GuildID, rows[0].UserID, *messageLimit)
+	if err != nil {
+		return err
+	}
+	return r.print(profile)
 }
 
 func (r *runtime) runChannels(args []string) error {

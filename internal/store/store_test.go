@@ -29,7 +29,7 @@ func TestStoreReadWriteAndSearch(t *testing.T) {
 		Username:    "peter",
 		DisplayName: "Peter",
 		RoleIDsJSON: `["r1"]`,
-		RawJSON:     `{}`,
+		RawJSON:     `{"bio":"Maintainer at Example","website":"https://steipete.me","github":"steipete","twitter":"steipete"}`,
 	}}))
 	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
 		ID:                "m1",
@@ -95,6 +95,19 @@ func TestStoreReadWriteAndSearch(t *testing.T) {
 	members, err := s.Members(ctx, "g1", "pet", 10)
 	require.NoError(t, err)
 	require.Len(t, members, 1)
+	require.Equal(t, "steipete", members[0].GitHubLogin)
+	require.Equal(t, "steipete", members[0].XHandle)
+	require.Equal(t, "https://steipete.me", members[0].Website)
+
+	members, err = s.Members(ctx, "g1", "Maintainer", 10)
+	require.NoError(t, err)
+	require.Len(t, members, 1)
+
+	profile, err := s.MemberProfile(ctx, "g1", "u1", 2)
+	require.NoError(t, err)
+	require.Equal(t, 3, profile.MessageCount)
+	require.Len(t, profile.RecentMessages, 2)
+	require.Equal(t, "steipete", profile.Member.GitHubLogin)
 
 	channels, err := s.Channels(ctx, "g1")
 	require.NoError(t, err)

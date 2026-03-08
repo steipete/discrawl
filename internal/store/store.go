@@ -17,6 +17,7 @@ import (
 const (
 	timeLayout        = time.RFC3339Nano
 	messageFTSVersion = "2"
+	memberFTSVersion  = "1"
 )
 
 type Store struct {
@@ -74,15 +75,25 @@ type MentionRow struct {
 }
 
 type MemberRow struct {
-	GuildID     string    `json:"guild_id"`
-	UserID      string    `json:"user_id"`
-	Username    string    `json:"username"`
-	GlobalName  string    `json:"global_name,omitempty"`
-	DisplayName string    `json:"display_name,omitempty"`
-	Nick        string    `json:"nick,omitempty"`
-	RoleIDsJSON string    `json:"role_ids_json"`
-	Bot         bool      `json:"bot"`
-	JoinedAt    time.Time `json:"joined_at,omitempty"`
+	GuildID       string    `json:"guild_id"`
+	UserID        string    `json:"user_id"`
+	Username      string    `json:"username"`
+	GlobalName    string    `json:"global_name,omitempty"`
+	DisplayName   string    `json:"display_name,omitempty"`
+	Nick          string    `json:"nick,omitempty"`
+	Discriminator string    `json:"discriminator,omitempty"`
+	Avatar        string    `json:"avatar,omitempty"`
+	RoleIDsJSON   string    `json:"role_ids_json"`
+	Bot           bool      `json:"bot"`
+	JoinedAt      time.Time `json:"joined_at,omitempty"`
+	Bio           string    `json:"bio,omitempty"`
+	Pronouns      string    `json:"pronouns,omitempty"`
+	Location      string    `json:"location,omitempty"`
+	Website       string    `json:"website,omitempty"`
+	XHandle       string    `json:"x_handle,omitempty"`
+	GitHubLogin   string    `json:"github_login,omitempty"`
+	URLs          []string  `json:"urls,omitempty"`
+	RawJSON       string    `json:"-"`
 }
 
 type ChannelRow struct {
@@ -288,6 +299,14 @@ func (s *Store) migrate(ctx context.Context) error {
 			channel_name,
 			content
 		);`,
+		`create virtual table if not exists member_fts using fts5(
+			member_key unindexed,
+			guild_id unindexed,
+			user_id unindexed,
+			username,
+			display_name,
+			profile_text
+		);`,
 		`create index if not exists idx_channels_guild_id on channels(guild_id);`,
 		`create index if not exists idx_members_guild_id on members(guild_id);`,
 		`create index if not exists idx_messages_channel_id on messages(channel_id);`,
@@ -305,6 +324,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 	}
 	if err := s.ensureFTSRowIDs(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureMemberFTSRowIDs(ctx); err != nil {
 		return err
 	}
 	return nil

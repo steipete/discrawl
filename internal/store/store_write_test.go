@@ -192,6 +192,33 @@ func TestMessageFTSUsesSnowflakeRowID(t *testing.T) {
 	require.Equal(t, []string{"1", "1469950701764350208", "1469950701764350208", "second body"}, rows[0])
 }
 
+func TestMemberFTSUpdatesOnUpsert(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	record := MemberRecord{
+		GuildID:       "g1",
+		UserID:        "u1",
+		Username:      "peter",
+		DisplayName:   "Peter",
+		RoleIDsJSON:   `[]`,
+		RawJSON:       `{"bio":"Maintainer","github":"steipete"}`,
+		Discriminator: "0",
+	}
+	require.NoError(t, s.UpsertMember(ctx, record))
+
+	record.RawJSON = `{"bio":"Updated bio","github":"steipete","website":"https://steipete.me"}`
+	require.NoError(t, s.UpsertMember(ctx, record))
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select count(*), min(profile_text) from member_fts")
+	require.NoError(t, err)
+	require.Equal(t, []string{"1", "Updated bio steipete https://steipete.me"}, rows[0])
+}
+
 func TestOpenRebuildsLegacyFTSRowIDs(t *testing.T) {
 	t.Parallel()
 
