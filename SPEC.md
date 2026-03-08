@@ -559,6 +559,7 @@ log_dir = "~/.discrawl/logs"
 token_source = "openclaw"
 openclaw_config = "~/.openclaw/openclaw.json"
 channel_account = "discord"
+token_kind = "bot"
 
 [sync]
 concurrency = 4
@@ -598,6 +599,7 @@ Do not:
 Do:
 
 - load Discord token from OpenClaw config path
+- choose auth style explicitly via `discord.token_kind = "bot" | "user"`
 - load OpenAI key from env
 - redact secrets in debug and doctor output
 

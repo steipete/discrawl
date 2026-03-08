@@ -30,7 +30,10 @@ Search defaults to all guilds. `sync` and `tail` default to the configured defau
 - a bot token (`Bot <token>` or raw token text)
 - a user token (raw token text)
 
-When a raw token is provided, `discrawl` tries bot auth first, then falls back to user auth if Discord rejects the bot prefix.
+Choose auth mode with `discord.token_kind` in config:
+
+- `bot`: sends `Authorization: Bot <token>`
+- `user`: sends `Authorization: <token>`
 
 ### Discord Bot Setup (optional)
 
@@ -56,6 +59,7 @@ Token resolution:
 2. `DISCORD_BOT_TOKEN` or the configured `discord.token_env`
 
 `discrawl` accepts either raw token text or a value prefixed with `Bot `.
+In `bot` mode, `discrawl` normalizes to `Bot <token>`. In `user` mode, it sends raw token auth.
 
 Fastest env-only path:
 
@@ -285,6 +289,7 @@ token_source = "openclaw"
 openclaw_config = "~/.openclaw/openclaw.json"
 account = "default"
 token_env = "DISCORD_BOT_TOKEN"
+token_kind = "bot"
 
 [sync]
 concurrency = 16
@@ -310,6 +315,7 @@ Config override rules:
 - `--config` beats everything
 - `DISCRAWL_CONFIG` overrides the default config path
 - `discord.token_source = "env"` forces env-only token lookup
+- `discord.token_kind = "bot" | "user"` chooses auth header style
 
 ## Embeddings
 
@@ -339,7 +345,7 @@ Set `sync.attachment_text = false` if you want to keep attachment metadata and f
 
 ## Security
 
-- do not commit bot tokens or API keys
+- do not commit Discord tokens or API keys
 - default config lives in your home directory, not inside the repo
 - CI runs secret scanning with `gitleaks`
 - `doctor` reports token source, not token contents

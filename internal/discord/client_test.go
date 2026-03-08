@@ -158,7 +158,7 @@ func TestTailRequiresHandler(t *testing.T) {
 	require.NoError(t, (&Client{}).Close())
 }
 
-func TestClientSelfFallsBackToUserToken(t *testing.T) {
+func TestClientSelfUsesUserTokenAsProvided(t *testing.T) {
 	var (
 		mu      sync.Mutex
 		headers []string
@@ -190,10 +190,10 @@ func TestClientSelfFallsBackToUserToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "user", self.ID)
 	require.Equal(t, "token", client.session.Token)
-	require.Equal(t, []string{"Bot token", "token"}, headers)
+	require.Equal(t, []string{"token"}, headers)
 }
 
-func TestClientSelfKeepsBotTokenWhenBotAuthWorks(t *testing.T) {
+func TestClientSelfUsesBotTokenAsProvided(t *testing.T) {
 	var (
 		mu      sync.Mutex
 		headers []string
@@ -217,7 +217,7 @@ func TestClientSelfKeepsBotTokenWhenBotAuthWorks(t *testing.T) {
 	restore := patchDiscordEndpoints(server.URL + "/api/v10/")
 	defer restore()
 
-	client, err := New("token")
+	client, err := New("Bot token")
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
