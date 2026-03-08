@@ -1,5 +1,7 @@
 # discrawl
 
+![discrawl banner](https://ghrb.waren.build/banner?header=%21%5Bdiscord%5D+discrawl&subheader=Mirror+Discord+guild+history+into+local+SQLite&bg=5865F2-6D7CFF&color=ffffff&support=true)<!-- Created with GitHub Repo Banner by Waren Gonzaga: https://ghrb.waren.build -->
+
 `discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search.
 
 It is a bot-token crawler. No user-token hacks. Data stays local.
