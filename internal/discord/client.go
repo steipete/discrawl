@@ -2,9 +2,12 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +25,8 @@ type EventHandler interface {
 
 type Client struct {
 	session            *discordgo.Session
+	fallbackToken      string
+	authMu             sync.Mutex
 	requestTimeout     time.Duration
 	tailWorkerCount    int
 	tailQueueSize      int
@@ -29,7 +34,8 @@ type Client struct {
 }
 
 func New(token string) (*Client, error) {
-	session, err := discordgo.New("Bot " + token)
+	authToken, fallbackToken := authTokens(token)
+	session, err := discordgo.New(authToken)
 	if err != nil {
 		return nil, fmt.Errorf("create discord session: %w", err)
 	}
@@ -39,6 +45,7 @@ func New(token string) (*Client, error) {
 		discordgo.IntentsGuildMembers
 	return &Client{
 		session:            session,
+		fallbackToken:      fallbackToken,
 		requestTimeout:     45 * time.Second,
 		tailWorkerCount:    defaultTailWorkerCount(),
 		tailQueueSize:      defaultTailQueueSize(),
@@ -54,18 +61,38 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) Self(ctx context.Context) (*discordgo.User, error) {
-	reqCtx, cancel := c.requestContext(ctx)
-	defer cancel()
-	return c.session.User("@me", discordgo.WithContext(reqCtx))
+	var out *discordgo.User
+	err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+		reqCtx, cancel := c.requestContext(callCtx)
+		defer cancel()
+		user, err := c.session.User("@me", discordgo.WithContext(reqCtx))
+		if err != nil {
+			return err
+		}
+		out = user
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *Client) Guilds(ctx context.Context) ([]*discordgo.UserGuild, error) {
 	var out []*discordgo.UserGuild
 	before := ""
 	for {
-		reqCtx, cancel := c.requestContext(ctx)
-		page, err := c.session.UserGuilds(200, before, "", false, discordgo.WithContext(reqCtx))
-		cancel()
+		var page []*discordgo.UserGuild
+		err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+			reqCtx, cancel := c.requestContext(callCtx)
+			defer cancel()
+			result, err := c.session.UserGuilds(200, before, "", false, discordgo.WithContext(reqCtx))
+			if err != nil {
+				return err
+			}
+			page = result
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -81,21 +108,53 @@ func (c *Client) Guilds(ctx context.Context) ([]*discordgo.UserGuild, error) {
 }
 
 func (c *Client) Guild(ctx context.Context, guildID string) (*discordgo.Guild, error) {
-	reqCtx, cancel := c.requestContext(ctx)
-	defer cancel()
-	return c.session.Guild(guildID, discordgo.WithContext(reqCtx))
+	var out *discordgo.Guild
+	err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+		reqCtx, cancel := c.requestContext(callCtx)
+		defer cancel()
+		guild, err := c.session.Guild(guildID, discordgo.WithContext(reqCtx))
+		if err != nil {
+			return err
+		}
+		out = guild
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *Client) GuildChannels(ctx context.Context, guildID string) ([]*discordgo.Channel, error) {
-	reqCtx, cancel := c.requestContext(ctx)
-	defer cancel()
-	return c.session.GuildChannels(guildID, discordgo.WithContext(reqCtx))
+	var out []*discordgo.Channel
+	err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+		reqCtx, cancel := c.requestContext(callCtx)
+		defer cancel()
+		channels, err := c.session.GuildChannels(guildID, discordgo.WithContext(reqCtx))
+		if err != nil {
+			return err
+		}
+		out = channels
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *Client) ThreadsActive(ctx context.Context, channelID string) ([]*discordgo.Channel, error) {
-	reqCtx, cancel := c.requestContext(ctx)
-	defer cancel()
-	list, err := c.session.ThreadsActive(channelID, discordgo.WithContext(reqCtx))
+	var list *discordgo.ThreadsList
+	err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+		reqCtx, cancel := c.requestContext(callCtx)
+		defer cancel()
+		result, err := c.session.ThreadsActive(channelID, discordgo.WithContext(reqCtx))
+		if err != nil {
+			return err
+		}
+		list = result
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -106,15 +165,25 @@ func (c *Client) ThreadsArchived(ctx context.Context, channelID string, private 
 	var out []*discordgo.Channel
 	var before *time.Time
 	for {
-		reqCtx, cancel := c.requestContext(ctx)
 		var list *discordgo.ThreadsList
-		var err error
-		if private {
-			list, err = c.session.ThreadsPrivateArchived(channelID, before, 100, discordgo.WithContext(reqCtx))
-		} else {
-			list, err = c.session.ThreadsArchived(channelID, before, 100, discordgo.WithContext(reqCtx))
-		}
-		cancel()
+		err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+			reqCtx, cancel := c.requestContext(callCtx)
+			defer cancel()
+			if private {
+				result, err := c.session.ThreadsPrivateArchived(channelID, before, 100, discordgo.WithContext(reqCtx))
+				if err != nil {
+					return err
+				}
+				list = result
+				return nil
+			}
+			result, err := c.session.ThreadsArchived(channelID, before, 100, discordgo.WithContext(reqCtx))
+			if err != nil {
+				return err
+			}
+			list = result
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -138,9 +207,17 @@ func (c *Client) GuildMembers(ctx context.Context, guildID string) ([]*discordgo
 	var out []*discordgo.Member
 	after := ""
 	for {
-		reqCtx, cancel := c.requestContext(ctx)
-		page, err := c.session.GuildMembers(guildID, after, 1000, discordgo.WithContext(reqCtx))
-		cancel()
+		var page []*discordgo.Member
+		err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+			reqCtx, cancel := c.requestContext(callCtx)
+			defer cancel()
+			result, err := c.session.GuildMembers(guildID, after, 1000, discordgo.WithContext(reqCtx))
+			if err != nil {
+				return err
+			}
+			page = result
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -156,15 +233,39 @@ func (c *Client) GuildMembers(ctx context.Context, guildID string) ([]*discordgo
 }
 
 func (c *Client) ChannelMessages(ctx context.Context, channelID string, limit int, beforeID, afterID string) ([]*discordgo.Message, error) {
-	reqCtx, cancel := c.requestContext(ctx)
-	defer cancel()
-	return c.session.ChannelMessages(channelID, limit, beforeID, afterID, "", discordgo.WithContext(reqCtx))
+	var out []*discordgo.Message
+	err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+		reqCtx, cancel := c.requestContext(callCtx)
+		defer cancel()
+		messages, err := c.session.ChannelMessages(channelID, limit, beforeID, afterID, "", discordgo.WithContext(reqCtx))
+		if err != nil {
+			return err
+		}
+		out = messages
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *Client) ChannelMessage(ctx context.Context, channelID, messageID string) (*discordgo.Message, error) {
-	reqCtx, cancel := c.requestContext(ctx)
-	defer cancel()
-	return c.session.ChannelMessage(channelID, messageID, discordgo.WithContext(reqCtx))
+	var out *discordgo.Message
+	err := c.withAuthFallback(ctx, func(callCtx context.Context) error {
+		reqCtx, cancel := c.requestContext(callCtx)
+		defer cancel()
+		message, err := c.session.ChannelMessage(channelID, messageID, discordgo.WithContext(reqCtx))
+		if err != nil {
+			return err
+		}
+		out = message
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *Client) Tail(ctx context.Context, handler EventHandler) error {
@@ -261,7 +362,9 @@ func (c *Client) Tail(ctx context.Context, handler EventHandler) error {
 			return handler.OnMemberDelete(taskCtx, evt.GuildID, evt.User.ID)
 		})
 	})
-	if err := c.session.Open(); err != nil {
+	if err := c.withAuthFallback(tailCtx, func(context.Context) error {
+		return c.session.Open()
+	}); err != nil {
 		return err
 	}
 	defer func() {
@@ -369,4 +472,55 @@ func (c *Client) requestContext(ctx context.Context) (context.Context, context.C
 		return context.WithCancel(ctx)
 	}
 	return context.WithTimeout(ctx, c.requestTimeout)
+}
+
+func authTokens(raw string) (token string, fallback string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", ""
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "bot ") || strings.HasPrefix(lower, "bearer ") {
+		return trimmed, ""
+	}
+	return "Bot " + trimmed, trimmed
+}
+
+func (c *Client) withAuthFallback(ctx context.Context, call func(context.Context) error) error {
+	err := call(ctx)
+	if err == nil || !isUnauthorized(err) {
+		return err
+	}
+	if !c.swapToFallbackToken() {
+		return err
+	}
+	return call(ctx)
+}
+
+func (c *Client) swapToFallbackToken() bool {
+	if c == nil {
+		return false
+	}
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.fallbackToken == "" || c.session == nil || c.session.Token == c.fallbackToken {
+		return false
+	}
+	c.session.Token = c.fallbackToken
+	c.fallbackToken = ""
+	return true
+}
+
+func isUnauthorized(err error) bool {
+	var restErr *discordgo.RESTError
+	if errors.As(err, &restErr) && restErr.Response != nil {
+		if restErr.Response.StatusCode == http.StatusUnauthorized {
+			return true
+		}
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "401") ||
+		strings.Contains(message, "4004") ||
+		strings.Contains(message, "unauthorized") ||
+		strings.Contains(message, "authentication failed")
 }

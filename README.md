@@ -2,7 +2,7 @@
 
 `discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search.
 
-It is a bot-token crawler. No user-token hacks. Data stays local.
+It supports both bot tokens and user tokens. Data stays local.
 
 ## What It Does
 
@@ -20,12 +20,19 @@ Search defaults to all guilds. `sync` and `tail` default to the configured defau
 ## Requirements
 
 - Go `1.26+`
-- a Discord bot token the bot can use to read the target guilds
-- bot permissions for the channels you want archived
+- a Discord token (bot or user) that can read the target guilds
+- for bot tokens: bot permissions for the channels you want archived
 
-### Discord Bot Setup
+### Discord Auth Setup
 
-`discrawl` needs a real bot token. Not a user token.
+`discrawl` can authenticate with either:
+
+- a bot token (`Bot <token>` or raw token text)
+- a user token (raw token text)
+
+When a raw token is provided, `discrawl` tries bot auth first, then falls back to user auth if Discord rejects the bot prefix.
+
+### Discord Bot Setup (optional)
 
 Minimum practical setup:
 
@@ -41,14 +48,14 @@ Minimum practical setup:
 
 Without those intents/permissions, `sync`, `tail`, member snapshots, or message content archiving will be partial or fail.
 
-### Bot Token Sources
+### Token Sources
 
 Token resolution:
 
 1. OpenClaw config, if `discord.token_source` is not `env`
 2. `DISCORD_BOT_TOKEN` or the configured `discord.token_env`
 
-`discrawl` accepts either raw token text or a value prefixed with `Bot `. It normalizes that automatically.
+`discrawl` accepts either raw token text or a value prefixed with `Bot `.
 
 Fastest env-only path:
 
@@ -95,7 +102,7 @@ brew install steipete/tap/discrawl
 
 ## Quick Start
 
-Reuse an existing OpenClaw Discord bot config:
+Reuse an existing OpenClaw Discord config:
 
 ```bash
 bin/discrawl init --from-openclaw ~/.openclaw/openclaw.json
@@ -120,8 +127,8 @@ bin/discrawl sync --full
 
 - confirms config can be loaded
 - shows where the token was resolved from
-- verifies bot auth
-- shows how many guilds the bot can access
+- verifies Discord auth
+- shows how many guilds the token can access
 - verifies DB + FTS wiring
 
 ## Commands
