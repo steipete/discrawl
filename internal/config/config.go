@@ -39,9 +39,10 @@ type DiscordConfig struct {
 }
 
 type SyncConfig struct {
-	Concurrency int    `toml:"concurrency"`
-	RepairEvery string `toml:"repair_every"`
-	FullHistory bool   `toml:"full_history"`
+	Concurrency    int    `toml:"concurrency"`
+	RepairEvery    string `toml:"repair_every"`
+	FullHistory    bool   `toml:"full_history"`
+	AttachmentText *bool  `toml:"attachment_text"`
 }
 
 type SearchConfig struct {
@@ -102,9 +103,10 @@ func Default() Config {
 			TokenEnv:       DefaultTokenEnv,
 		},
 		Sync: SyncConfig{
-			Concurrency: defaultSyncConcurrency(),
-			RepairEvery: "6h",
-			FullHistory: true,
+			Concurrency:    defaultSyncConcurrency(),
+			RepairEvery:    "6h",
+			FullHistory:    true,
+			AttachmentText: boolPtr(true),
 		},
 		Search: SearchConfig{
 			DefaultMode: "fts",
@@ -216,6 +218,9 @@ func (c *Config) Normalize() error {
 	if c.Sync.RepairEvery == "" {
 		c.Sync.RepairEvery = "6h"
 	}
+	if c.Sync.AttachmentText == nil {
+		c.Sync.AttachmentText = boolPtr(true)
+	}
 	if c.Search.DefaultMode == "" {
 		c.Search.DefaultMode = "fts"
 	}
@@ -247,6 +252,10 @@ func (c Config) EffectiveDefaultGuildID() string {
 
 func (c Config) SearchGuildDefaults() []string {
 	return nil
+}
+
+func (c Config) AttachmentTextEnabled() bool {
+	return c.Sync.AttachmentText == nil || *c.Sync.AttachmentText
 }
 
 func EnsureRuntimeDirs(cfg Config) error {
@@ -377,6 +386,10 @@ func normalizeAccount(account string) string {
 		return "default"
 	}
 	return account
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func mapKeys[V any](m map[string]V) []string {

@@ -20,6 +20,8 @@ func TestNormalizeFillsDefaults(t *testing.T) {
 	require.Equal(t, defaultSyncConcurrency(), cfg.Sync.Concurrency)
 	require.GreaterOrEqual(t, cfg.Sync.Concurrency, 8)
 	require.LessOrEqual(t, cfg.Sync.Concurrency, 32)
+	require.NotNil(t, cfg.Sync.AttachmentText)
+	require.True(t, *cfg.Sync.AttachmentText)
 	require.Equal(t, "fts", cfg.Search.DefaultMode)
 }
 
@@ -94,6 +96,17 @@ func TestWriteAndLoadRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "g1", loaded.EffectiveDefaultGuildID())
 	require.Equal(t, []string{"g1", "g2"}, loaded.GuildIDs)
+	require.NotNil(t, loaded.Sync.AttachmentText)
+	require.True(t, *loaded.Sync.AttachmentText)
+}
+
+func TestAttachmentTextExplicitFalseSurvivesNormalize(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Sync.AttachmentText = boolPtr(false)
+	require.NoError(t, cfg.Normalize())
+	require.False(t, cfg.AttachmentTextEnabled())
 }
 
 func TestExpandPath(t *testing.T) {

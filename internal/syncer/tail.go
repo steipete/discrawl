@@ -11,9 +11,10 @@ import (
 
 func (s *Syncer) RunTail(ctx context.Context, guildIDs []string, repairEvery time.Duration) error {
 	handler := &tailHandler{
-		guilds: makeGuildSet(guildIDs),
-		store:  s.store,
-		client: s.client,
+		guilds:                makeGuildSet(guildIDs),
+		store:                 s.store,
+		client:                s.client,
+		attachmentTextEnabled: s.attachmentTextEnabled,
 	}
 	if repairEvery <= 0 {
 		return s.client.Tail(ctx, handler)
@@ -39,16 +40,17 @@ func (s *Syncer) RunTail(ctx context.Context, guildIDs []string, repairEvery tim
 }
 
 type tailHandler struct {
-	guilds map[string]struct{}
-	store  *store.Store
-	client Client
+	guilds                map[string]struct{}
+	store                 *store.Store
+	client                Client
+	attachmentTextEnabled bool
 }
 
 func (t *tailHandler) OnMessageCreate(ctx context.Context, msg *discordgo.Message) error {
 	if !t.allowGuild(msg.GuildID) {
 		return nil
 	}
-	mutation, err := buildMessageMutation(ctx, msg, "", false)
+	mutation, err := buildMessageMutation(ctx, msg, "", false, t.attachmentTextEnabled)
 	if err != nil {
 		return err
 	}
@@ -68,7 +70,7 @@ func (t *tailHandler) OnMessageUpdate(ctx context.Context, msg *discordgo.Messag
 	if !t.allowGuild(msg.GuildID) {
 		return nil
 	}
-	mutation, err := buildMessageMutation(ctx, msg, "", false)
+	mutation, err := buildMessageMutation(ctx, msg, "", false, t.attachmentTextEnabled)
 	if err != nil {
 		return err
 	}

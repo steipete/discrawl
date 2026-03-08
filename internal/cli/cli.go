@@ -16,8 +16,6 @@ import (
 	"github.com/steipete/discrawl/internal/syncer"
 )
 
-const version = "0.1.0"
-
 type cliError struct {
 	code int
 	err  error
@@ -112,6 +110,10 @@ type syncService interface {
 	RunTail(context.Context, []string, time.Duration) error
 }
 
+type attachmentTextConfigurer interface {
+	SetAttachmentTextEnabled(bool)
+}
+
 func (r *runtime) dispatch(rest []string) error {
 	switch rest[0] {
 	case "init":
@@ -186,6 +188,9 @@ func (r *runtime) withServices(withDiscord bool, fn func() error) error {
 			}
 		}
 		r.syncer = syncerFactory(r.client, r.store, r.logger)
+		if configurable, ok := r.syncer.(attachmentTextConfigurer); ok {
+			configurable.SetAttachmentTextEnabled(cfg.AttachmentTextEnabled())
+		}
 	}
 	return fn()
 }

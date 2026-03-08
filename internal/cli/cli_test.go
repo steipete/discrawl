@@ -169,10 +169,11 @@ func (f *fakeDiscordClient) Tail(context.Context, discordclient.EventHandler) er
 }
 
 type fakeSyncService struct {
-	discovered []*discordgo.UserGuild
-	lastSync   syncer.SyncOptions
-	lastTail   []string
-	lastRepair time.Duration
+	discovered            []*discordgo.UserGuild
+	lastSync              syncer.SyncOptions
+	lastTail              []string
+	lastRepair            time.Duration
+	attachmentTextEnabled bool
 }
 
 func (f *fakeSyncService) DiscoverGuilds(context.Context) ([]*discordgo.UserGuild, error) {
@@ -188,6 +189,10 @@ func (f *fakeSyncService) RunTail(_ context.Context, guildIDs []string, repairEv
 	f.lastTail = guildIDs
 	f.lastRepair = repairEvery
 	return nil
+}
+
+func (f *fakeSyncService) SetAttachmentTextEnabled(enabled bool) {
+	f.attachmentTextEnabled = enabled
 }
 
 func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
@@ -230,6 +235,7 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	rt = newRuntime()
 	require.NoError(t, rt.withServices(true, func() error { return rt.runSync([]string{"--guilds", "g2"}) }))
 	require.Equal(t, []string{"g2"}, fakeSync.lastSync.GuildIDs)
+	require.True(t, fakeSync.attachmentTextEnabled)
 
 	rt = newRuntime()
 	require.NoError(t, rt.withServices(true, func() error { return rt.runTail([]string{"--repair-every", "30s"}) }))
@@ -241,6 +247,40 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	rt.stdout = &out
 	require.NoError(t, rt.runDoctor(nil))
 	require.Contains(t, out.String(), "discord_auth=ok")
+}
+
+func TestRuntimeConfiguresAttachmentTextOnSyncer(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+	t.Setenv(config.DefaultTokenEnv, "env-token")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Sync.AttachmentText = nil
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	fakeSync := &fakeSyncService{}
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &bytes.Buffer{},
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+		openStore:  store.Open,
+		newDiscord: func(config.Config) (discordClient, error) { return &fakeDiscordClient{}, nil },
+		newSyncer: func(syncer.Client, *store.Store, *slog.Logger) syncService {
+			return fakeSync
+		},
+	}
+	require.NoError(t, rt.withServices(true, func() error { return nil }))
+	require.True(t, fakeSync.attachmentTextEnabled)
+
+	cfg.Sync.AttachmentText = ptrBool(false)
+	require.NoError(t, config.Write(cfgPath, cfg))
+	require.NoError(t, rt.withServices(true, func() error { return nil }))
+	require.False(t, fakeSync.attachmentTextEnabled)
 }
 
 func TestSQLRejectsMutationsByDefaultAndAllowsUnsafeConfirm(t *testing.T) {
@@ -308,6 +348,10 @@ func (e assertErr) Error() string { return string(e) }
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
+}
+
+func ptrBool(value bool) *bool {
+	return &value
 }
 
 func TestRuntimeHelpersAndSubcommands(t *testing.T) {

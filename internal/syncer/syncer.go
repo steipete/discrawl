@@ -28,9 +28,10 @@ type Client interface {
 }
 
 type Syncer struct {
-	client Client
-	store  *store.Store
-	logger *slog.Logger
+	client                Client
+	store                 *store.Store
+	logger                *slog.Logger
+	attachmentTextEnabled bool
 }
 
 type SyncOptions struct {
@@ -55,7 +56,16 @@ func New(client Client, store *store.Store, logger *slog.Logger) *Syncer {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Syncer{client: client, store: store, logger: logger}
+	return &Syncer{
+		client:                client,
+		store:                 store,
+		logger:                logger,
+		attachmentTextEnabled: true,
+	}
+}
+
+func (s *Syncer) SetAttachmentTextEnabled(enabled bool) {
+	s.attachmentTextEnabled = enabled
 }
 
 func (s *Syncer) DiscoverGuilds(ctx context.Context) ([]*discordgo.UserGuild, error) {

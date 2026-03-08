@@ -1,8 +1,10 @@
 package syncer
 
 import (
+	"bufio"
 	"context"
 	"io"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -25,8 +27,9 @@ func buildMessageMutation(
 	message *discordgo.Message,
 	channelName string,
 	embeddings bool,
+	attachmentText bool,
 ) (store.MessageMutation, error) {
-	attachments, attachmentParts, err := extractAttachments(ctx, message)
+	attachments, attachmentParts, err := extractAttachments(ctx, message, attachmentText)
 	if err != nil {
 		return store.MessageMutation{}, err
 	}
@@ -44,7 +47,7 @@ func buildMessageMutation(
 	}, nil
 }
 
-func extractAttachments(ctx context.Context, message *discordgo.Message) ([]store.AttachmentRecord, []string, error) {
+func extractAttachments(ctx context.Context, message *discordgo.Message, attachmentText bool) ([]store.AttachmentRecord, []string, error) {
 	if message == nil || len(message.Attachments) == 0 {
 		return nil, nil, nil
 	}
@@ -71,7 +74,7 @@ func extractAttachments(ctx context.Context, message *discordgo.Message) ([]stor
 		if name := strings.TrimSpace(attachment.Filename); name != "" {
 			parts = append(parts, name)
 		}
-		if shouldFetchAttachmentText(attachment) && attachment.URL != "" {
+		if attachmentText && shouldFetchAttachmentText(attachment) && attachment.URL != "" {
 			text, err := fetchAttachmentText(ctx, attachment.URL)
 			if err != nil {
 				text = ""
@@ -148,6 +151,9 @@ func shouldFetchAttachmentText(attachment *discordgo.MessageAttachment) bool {
 	if attachment == nil {
 		return false
 	}
+	if isBlockedAttachment(attachment.Filename, attachment.ContentType) {
+		return false
+	}
 	contentType := strings.ToLower(strings.TrimSpace(attachment.ContentType))
 	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
 		return true
@@ -173,11 +179,76 @@ func fetchAttachmentText(ctx context.Context, url string) (string, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", nil
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, attachmentFetchMaxBytes))
+	if resp.ContentLength > attachmentFetchMaxBytes {
+		return "", nil
+	}
+	contentType := normalizedMediaType(resp.Header.Get("Content-Type"))
+	if contentType != "" && !isAllowedFetchedContentType(contentType) {
+		return "", nil
+	}
+	reader := bufio.NewReader(resp.Body)
+	peek, err := reader.Peek(512)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	if len(peek) != 0 && !isAllowedFetchedContentType(normalizedMediaType(http.DetectContentType(peek))) {
+		return "", nil
+	}
+	body, err := io.ReadAll(io.LimitReader(reader, attachmentFetchMaxBytes+1))
 	if err != nil {
 		return "", err
 	}
+	if len(body) > attachmentFetchMaxBytes {
+		return "", nil
+	}
 	return clampText(string(body), attachmentIndexMaxChars), nil
+}
+
+func isBlockedAttachment(filename, contentType string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filename))) {
+	case ".app", ".bat", ".cmd", ".com", ".dll", ".dmg", ".exe", ".jar", ".msi", ".pkg", ".ps1", ".scr", ".sh":
+		return true
+	}
+	switch normalizedMediaType(contentType) {
+	case "application/java-archive",
+		"application/octet-stream",
+		"application/vnd.microsoft.portable-executable",
+		"application/x-apple-diskimage",
+		"application/x-dosexec",
+		"application/x-msdownload",
+		"application/x-msi",
+		"application/x-sh":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedFetchedContentType(contentType string) bool {
+	if contentType == "" {
+		return false
+	}
+	if strings.HasPrefix(contentType, "text/") {
+		return true
+	}
+	switch contentType {
+	case "application/json", "application/xml", "text/xml":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizedMediaType(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err == nil {
+		return strings.ToLower(mediaType)
+	}
+	return strings.ToLower(strings.TrimSpace(strings.Split(value, ";")[0]))
 }
 
 func clampText(text string, limit int) string {

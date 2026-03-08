@@ -86,6 +86,13 @@ go build -o bin/discrawl ./cmd/discrawl
 ./bin/discrawl --version
 ```
 
+Homebrew tap:
+
+```bash
+brew tap steipete/tap
+brew install steipete/tap/discrawl
+```
+
 ## Quick Start
 
 Reuse an existing OpenClaw Discord bot config:
@@ -268,6 +275,7 @@ token_env = "DISCORD_BOT_TOKEN"
 concurrency = 16
 repair_every = "6h"
 full_history = true
+attachment_text = true
 
 [search]
 default_mode = "fts"
@@ -311,6 +319,8 @@ bin/discrawl sync --with-embeddings
 - optional embedding backlog metadata
 
 Attachment binaries are not stored in SQLite.
+
+Set `sync.attachment_text = false` if you want to keep attachment metadata and filenames but disable attachment body fetches for text indexing.
 
 ## Security
 

@@ -33,7 +33,7 @@ func TestBuildMessageMutationsTracksNewest(t *testing.T) {
 			Timestamp: now,
 			Author:    &discordgo.User{ID: "u1", Username: "user"},
 		},
-	}, "general", true)
+	}, "general", true, true)
 
 	require.NoError(t, err)
 	require.Len(t, mutations, 2)
