@@ -17,11 +17,14 @@ func (r *runtime) runMessages(args []string) error {
 	fs.SetOutput(io.Discard)
 	channel := fs.String("channel", "", "")
 	author := fs.String("author", "", "")
+	hours := fs.Int("hours", 0, "")
 	days := fs.Int("days", 0, "")
 	since := fs.String("since", "", "")
 	before := fs.String("before", "", "")
 	limit := fs.Int("limit", defaultMessageLimit, "")
+	last := fs.Int("last", 0, "")
 	all := fs.Bool("all", false, "")
+	syncNow := fs.Bool("sync", false, "")
 	includeEmpty := fs.Bool("include-empty", false, "")
 	guildsFlag := fs.String("guilds", "", "")
 	guildFlag := fs.String("guild", "", "")
@@ -31,19 +34,42 @@ func (r *runtime) runMessages(args []string) error {
 	if fs.NArg() != 0 {
 		return usageErr(fmt.Errorf("messages takes flags only"))
 	}
+	if *hours < 0 {
+		return usageErr(fmt.Errorf("--hours must be >= 0"))
+	}
 	if *days < 0 {
 		return usageErr(fmt.Errorf("--days must be >= 0"))
 	}
-	if *days > 0 && strings.TrimSpace(*since) != "" {
-		return usageErr(fmt.Errorf("use either --days or --since"))
+	if countNonZero(*hours > 0, *days > 0, strings.TrimSpace(*since) != "") > 1 {
+		return usageErr(fmt.Errorf("use only one of --hours, --days, or --since"))
 	}
 	if *limit < 0 {
 		return usageErr(fmt.Errorf("--limit must be >= 0"))
+	}
+	if *last < 0 {
+		return usageErr(fmt.Errorf("--last must be >= 0"))
+	}
+	limitSet := flagPassed(fs, "limit")
+	if *all && *last > 0 {
+		return usageErr(fmt.Errorf("use either --all or --last"))
+	}
+	if limitSet && *last > 0 {
+		return usageErr(fmt.Errorf("use either --limit or --last"))
+	}
+	if *last > 0 {
+		*limit = 0
 	}
 
 	var sinceTime time.Time
 	var beforeTime time.Time
 	var err error
+	if *hours > 0 {
+		now := time.Now().UTC()
+		if r.now != nil {
+			now = r.now().UTC()
+		}
+		sinceTime = now.Add(-time.Duration(*hours) * time.Hour)
+	}
 	if *days > 0 {
 		now := time.Now().UTC()
 		if r.now != nil {
@@ -71,6 +97,11 @@ func (r *runtime) runMessages(args []string) error {
 	if *all {
 		*limit = 0
 	}
+	if *syncNow {
+		if err := r.syncMessagesQuery(*channel, *guildFlag, *guildsFlag); err != nil {
+			return err
+		}
+	}
 
 	rows, err := r.store.ListMessages(r.ctx, store.MessageListOptions{
 		GuildIDs:     guildIDs,
@@ -79,10 +110,21 @@ func (r *runtime) runMessages(args []string) error {
 		Since:        sinceTime,
 		Before:       beforeTime,
 		Limit:        *limit,
+		Last:         *last,
 		IncludeEmpty: *includeEmpty,
 	})
 	if err != nil {
 		return err
 	}
 	return r.print(rows)
+}
+
+func countNonZero(values ...bool) int {
+	count := 0
+	for _, value := range values {
+		if value {
+			count++
+		}
+	}
+	return count
 }

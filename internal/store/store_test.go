@@ -384,6 +384,14 @@ func TestListMessagesFiltersAndLimit(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Equal(t, "m1", rows[0].MessageID)
 
+	rows, err = s.ListMessages(ctx, MessageListOptions{
+		Channel: "maintainers",
+		Last:    1,
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "m2", rows[0].MessageID)
+
 	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
 		ID:                "m4",
 		GuildID:           "g1",
@@ -446,4 +454,13 @@ func TestListMessagesFiltersAndLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 4)
 	require.Equal(t, "m5", rows[3].MessageID)
+
+	rows, err = s.ListMessages(ctx, MessageListOptions{
+		Channel: "maintainers",
+		Last:    2,
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, "m2", rows[0].MessageID)
+	require.Equal(t, "m4", rows[1].MessageID)
 }

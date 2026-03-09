@@ -13,6 +13,7 @@ type MessageListOptions struct {
 	Since        time.Time
 	Before       time.Time
 	Limit        int
+	Last         int
 	IncludeEmpty bool
 }
 
@@ -70,7 +71,7 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 		clauses = append(clauses, "trim(coalesce(m.normalized_content, '')) <> ''")
 	}
 
-	query := `
+	baseQuery := `
 		select
 			m.id,
 			m.guild_id,
@@ -98,11 +99,29 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 		left join channels c on c.id = m.channel_id
 		left join members mem on mem.guild_id = m.guild_id and mem.user_id = m.author_id
 		where ` + strings.Join(clauses, " and ") + `
-		order by m.created_at asc, m.id asc
 	`
-	if opts.Limit > 0 {
-		query += ` limit ?`
+
+	query := baseQuery
+	switch {
+	case opts.Last > 0:
+		query = `
+			select * from (` + baseQuery + `
+				order by m.created_at desc, m.id desc
+				limit ?
+			) recent
+			order by created_at asc, id asc
+		`
+		args = append(args, opts.Last)
+	case opts.Limit > 0:
+		query += `
+			order by m.created_at asc, m.id asc
+			limit ?
+		`
 		args = append(args, opts.Limit)
+	default:
+		query += `
+			order by m.created_at asc, m.id asc
+		`
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)

@@ -394,6 +394,7 @@ func TestRuntimeHelpersAndSubcommands(t *testing.T) {
 		require.NoError(t, rt.runMembers([]string{"search", "pet"}))
 		require.NoError(t, rt.runMembers([]string{"list"}))
 		rt.now = func() time.Time { return time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC) }
+		require.NoError(t, rt.runMessages([]string{"--channel", "#general", "--hours", "6", "--last", "1"}))
 		require.NoError(t, rt.runMessages([]string{"--channel", "#general", "--days", "7", "--all"}))
 		require.NoError(t, rt.runMessages([]string{"--channel", "#general", "--days", "7", "--all", "--include-empty"}))
 		require.NoError(t, rt.runMentions([]string{"--channel", "#general", "--target", "u2"}))
@@ -405,12 +406,186 @@ func TestRuntimeHelpersAndSubcommands(t *testing.T) {
 	}))
 }
 
+func TestRunMembersShowUsesDefaultGuildForAmbiguousQuery(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.DefaultGuildID = "g1"
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	s, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{
+		GuildID:     "g1",
+		UserID:      "u1",
+		Username:    "same",
+		DisplayName: "Same",
+		RoleIDsJSON: `[]`,
+		RawJSON:     `{"github":"steipete"}`,
+	}))
+	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{
+		GuildID:     "g2",
+		UserID:      "u2",
+		Username:    "same",
+		DisplayName: "Same",
+		RoleIDsJSON: `[]`,
+		RawJSON:     `{"github":"other"}`,
+	}))
+	require.NoError(t, s.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "m1",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Same",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		Content:           "hello",
+		NormalizedContent: "hello",
+		RawJSON:           `{}`,
+	}))
+	require.NoError(t, s.Close())
+
+	var out bytes.Buffer
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &out,
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+	}
+	require.NoError(t, rt.withServices(false, func() error {
+		return rt.runMembers([]string{"show", "same"})
+	}))
+	require.Contains(t, out.String(), "guild=g1")
+	require.Contains(t, out.String(), "github=steipete")
+}
+
+func TestRunMembersShowReturnsListWhenStillAmbiguous(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	s, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{GuildID: "g1", UserID: "u1", Username: "same", DisplayName: "Same", RoleIDsJSON: `[]`, RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{GuildID: "g2", UserID: "u2", Username: "same", DisplayName: "Same", RoleIDsJSON: `[]`, RawJSON: `{}`}))
+	require.NoError(t, s.Close())
+
+	var out bytes.Buffer
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &out,
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+	}
+	require.NoError(t, rt.withServices(false, func() error {
+		return rt.runMembers([]string{"show", "same"})
+	}))
+	require.Contains(t, out.String(), "GUILD")
+	require.Contains(t, out.String(), "u1")
+	require.Contains(t, out.String(), "u2")
+}
+
+func TestRunMessagesSyncTargetsResolvedChannel(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+	t.Setenv(config.DefaultTokenEnv, "env-token")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.DefaultGuildID = "g1"
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	s, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.Close())
+
+	fakeSync := &fakeSyncService{}
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &bytes.Buffer{},
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+		openStore:  store.Open,
+		newDiscord: func(config.Config) (discordClient, error) { return &fakeDiscordClient{}, nil },
+		newSyncer: func(syncer.Client, *store.Store, *slog.Logger) syncService {
+			return fakeSync
+		},
+	}
+	rt.now = func() time.Time { return time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC) }
+
+	require.NoError(t, rt.withServices(true, func() error {
+		return rt.runMessages([]string{"--channel", "#general", "--hours", "6", "--last", "1", "--sync"})
+	}))
+	require.Equal(t, []string{"g1"}, fakeSync.lastSync.GuildIDs)
+	require.Equal(t, []string{"c1"}, fakeSync.lastSync.ChannelIDs)
+}
+
+func TestRunMessagesSyncFallsBackToGuildSyncForUnknownChannel(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+	t.Setenv(config.DefaultTokenEnv, "env-token")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.DefaultGuildID = "g1"
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	fakeSync := &fakeSyncService{}
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &bytes.Buffer{},
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+		openStore:  store.Open,
+		newDiscord: func(config.Config) (discordClient, error) { return &fakeDiscordClient{}, nil },
+		newSyncer: func(syncer.Client, *store.Store, *slog.Logger) syncService {
+			return fakeSync
+		},
+	}
+
+	require.NoError(t, rt.withServices(true, func() error {
+		return rt.runMessages([]string{"--channel", "new-channel", "--days", "1", "--sync"})
+	}))
+	require.Equal(t, []string{"g1"}, fakeSync.lastSync.GuildIDs)
+	require.Empty(t, fakeSync.lastSync.ChannelIDs)
+}
+
 func TestRunMentionsValidation(t *testing.T) {
 	t.Parallel()
 
 	rt := &runtime{stderr: &bytes.Buffer{}}
 	rt.now = func() time.Time { return time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC) }
 
+	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--hours", "-1", "--channel", "general"})))
+	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--hours", "1", "--days", "1", "--channel", "general"})))
+	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--hours", "1", "--since", "2026-03-01T00:00:00Z", "--channel", "general"})))
+	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--last", "-1", "--channel", "general"})))
+	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--last", "1", "--limit", "20", "--channel", "general"})))
+	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--last", "1", "--all", "--channel", "general"})))
 	require.Equal(t, 2, ExitCode(rt.runMentions([]string{"--days", "-1", "--target", "u1"})))
 	require.Equal(t, 2, ExitCode(rt.runMentions([]string{"--days", "1", "--since", "2026-03-01T00:00:00Z", "--target", "u1"})))
 	require.Equal(t, 2, ExitCode(rt.runMentions([]string{"--since", "bad", "--target", "u1"})))

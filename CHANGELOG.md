@@ -8,6 +8,9 @@ All notable changes to `discrawl` will be documented in this file.
 - `members search` now matches archived profile fields in addition to names
 - `members show` now accepts ids or queries and shows recent messages plus message stats when uniquely resolved
 - profile extraction surfaces stored fields like `bio`, `website`, `x`, `github`, and other archived URLs when present
+- `messages --sync` now blocks on a targeted pre-query refresh for channel/guild scope
+- `messages --hours` adds recent-hour slices without manual RFC3339 timestamps
+- `messages --last` returns the newest matching rows while preserving oldest-to-newest output order
 
 ## 0.1.0 - 2026-03-08
 

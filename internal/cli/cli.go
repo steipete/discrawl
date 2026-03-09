@@ -125,7 +125,7 @@ func (r *runtime) dispatch(rest []string) error {
 	case "search":
 		return r.withServices(false, func() error { return r.runSearch(rest[1:]) })
 	case "messages":
-		return r.withServices(false, func() error { return r.runMessages(rest[1:]) })
+		return r.withServices(hasBoolFlag(rest[1:], "--sync"), func() error { return r.runMessages(rest[1:]) })
 	case "mentions":
 		return r.withServices(false, func() error { return r.runMentions(rest[1:]) })
 	case "sql":

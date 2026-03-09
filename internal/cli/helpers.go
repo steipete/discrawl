@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"flag"
 	"strings"
 	"time"
 )
@@ -41,6 +42,16 @@ func csvList(raw string) []string {
 		out = append(out, part)
 	}
 	return out
+}
+
+func flagPassed(fs *flag.FlagSet, name string) bool {
+	found := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func mustDuration(raw string) time.Duration {

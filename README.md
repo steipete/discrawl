@@ -181,8 +181,10 @@ Lists exact message slices by channel, author, and time range.
 
 ```bash
 bin/discrawl messages --channel maintainers --days 7 --all
+bin/discrawl messages --channel maintainers --hours 6 --all
 bin/discrawl messages --channel "#maintainers" --since 2026-03-01T00:00:00Z
 bin/discrawl messages --channel 1456744319972282449 --author steipete --limit 50
+bin/discrawl messages --channel maintainers --last 100 --sync
 bin/discrawl messages --channel maintainers --days 7 --all --include-empty
 bin/discrawl --json messages --channel maintainers --days 3
 ```
@@ -190,8 +192,11 @@ bin/discrawl --json messages --channel maintainers --days 3
 Notes:
 
 - `--channel` accepts a channel id, exact name, `#name`, or partial name match
+- `--hours` is shorthand for "since now minus N hours"
 - `--days` is shorthand for "since now minus N days"
+- `--last` returns the newest `N` matching messages, then prints them oldest-to-newest
 - `--all` removes the safety limit; default is `200`
+- `--sync` runs a blocking pre-query sync for the matching channel or guild scope before reading the local DB
 - rows with no displayable/searchable content are skipped by default; `--include-empty` opts back in
 - at least one filter is required
 
