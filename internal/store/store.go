@@ -292,6 +292,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		`create index if not exists idx_members_guild_id on members(guild_id);`,
 		`create index if not exists idx_messages_channel_id on messages(channel_id);`,
 		`create index if not exists idx_messages_guild_id on messages(guild_id);`,
+		`create index if not exists idx_messages_guild_created on messages(guild_id, created_at);`,
 		`create index if not exists idx_events_message_id on message_events(message_id);`,
 		`create index if not exists idx_attachments_message_id on message_attachments(message_id);`,
 		`create index if not exists idx_attachments_channel_id on message_attachments(channel_id);`,

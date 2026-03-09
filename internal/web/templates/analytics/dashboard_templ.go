@@ -45,20 +45,20 @@ func Dashboard(guildID string, guildName string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"analytics-page\"><div class=\"analytics-header\"><h2>Analytics</h2><div class=\"analytics-controls\"><label for=\"days-filter\">Period:</label> <select id=\"days-filter\" onchange=\"refreshCharts()\"><option value=\"7\">Last 7 days</option> <option value=\"30\" selected>Last 30 days</option> <option value=\"90\">Last 90 days</option></select></div></div><input type=\"hidden\" id=\"guild-id\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"analytics-page\"><div class=\"analytics-header\"><h2>Analytics</h2><div class=\"analytics-controls\"><label for=\"days-filter\">Period:</label> <select id=\"days-filter\" onchange=\"refreshCharts()\"><option value=\"7\">Last 7 days</option> <option value=\"30\" selected>Last 30 days</option> <option value=\"90\">Last 90 days</option></select> <button id=\"custom-range-toggle\" type=\"button\" onclick=\"toggleCustomRange()\">Custom Range</button></div></div><div id=\"custom-range-picker\" class=\"custom-range-picker\" style=\"display:none;\"><label for=\"date-from\">From:</label> <input type=\"date\" id=\"date-from\" name=\"date-from\"> <label for=\"date-to\">To:</label> <input type=\"date\" id=\"date-to\" name=\"date-to\"> <button type=\"button\" onclick=\"applyCustomRange()\">Apply</button></div><input type=\"hidden\" id=\"guild-id\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(guildID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/analytics/dashboard.templ`, Line: 21, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/analytics/dashboard.templ`, Line: 29, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><div class=\"analytics-grid\"><div class=\"chart-card chart-card--wide\"><h3 class=\"chart-title\">Message Volume</h3><canvas id=\"msg-volume\"></canvas></div><div class=\"chart-card\"><h3 class=\"chart-title\">Top Members</h3><canvas id=\"top-members\"></canvas></div><div class=\"chart-card\"><h3 class=\"chart-title\">Channel Activity</h3><canvas id=\"channel-activity\"></canvas></div></div></div><script src=\"https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js\"></script> <script src=\"/static/js/analytics.js\"></script>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><div id=\"overview-cards\" class=\"overview-cards\"></div><div class=\"analytics-grid\"><div class=\"chart-card chart-card--wide\"><h3 class=\"chart-title\">Message Volume</h3><canvas id=\"msg-volume\"></canvas></div><div class=\"chart-card chart-card--wide\"><h3 class=\"chart-title\">Activity Heatmap</h3><canvas id=\"activity-heatmap\"></canvas></div><div class=\"chart-card\"><h3 class=\"chart-title\">Top Members</h3><canvas id=\"top-members\"></canvas></div><div class=\"chart-card\"><h3 class=\"chart-title\">Channel Activity</h3><canvas id=\"channel-activity\"></canvas></div></div></div><script src=\"https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js\"></script> <script src=\"/static/js/analytics.js\"></script>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

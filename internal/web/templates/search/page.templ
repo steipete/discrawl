@@ -5,6 +5,7 @@ import (
 	"github.com/steipete/discrawl/internal/web/templates/layout"
 )
 
+// Pass query to SearchResults for highlighting
 templ Page(guildID string, guildName string, results []store.SearchResult, query string, channel string, author string) {
 	@layout.AppShell("Search", guildID, guildName) {
 		<div class="search-page">
@@ -38,13 +39,13 @@ templ Page(guildID string, guildName string, results []store.SearchResult, query
 				</div>
 			</form>
 			<div id="search-results">
-				@SearchResults(guildID, results)
+				@SearchResults(guildID, results, query)
 			</div>
 		</div>
 	}
 }
 
-templ SearchResults(guildID string, results []store.SearchResult) {
+templ SearchResults(guildID string, results []store.SearchResult, query string) {
 	if len(results) == 0 {
 		<p>No results.</p>
 	} else {
@@ -52,11 +53,11 @@ templ SearchResults(guildID string, results []store.SearchResult) {
 			for _, r := range results {
 				<div class="search-result">
 					<div class="search-result-meta">
-						<a href={ templ.SafeURL("/app/g/" + guildID + "/c/" + r.ChannelID) } class="result-channel">#{ r.ChannelName }</a>
+						<a href={ templ.SafeURL("/app/g/" + guildID + "/c/" + r.ChannelID + "#msg-" + r.MessageID) } class="result-channel">#{ r.ChannelName }</a>
 						<span class="result-author">{ r.AuthorName }</span>
 						<span class="result-time">{ r.CreatedAt.Format("2006-01-02 15:04") }</span>
 					</div>
-					<div class="search-result-content">{ r.Content }</div>
+					<div class="search-result-content" data-search-highlight>@templ.Raw(HighlightText(r.Content, query))</div>
 				</div>
 			}
 		</div>

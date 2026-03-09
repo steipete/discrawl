@@ -16,13 +16,26 @@ templ Dashboard(guildID string, guildName string) {
 						<option value="30" selected>Last 30 days</option>
 						<option value="90">Last 90 days</option>
 					</select>
+					<button id="custom-range-toggle" type="button" onclick="toggleCustomRange()">Custom Range</button>
 				</div>
 			</div>
+			<div id="custom-range-picker" class="custom-range-picker" style="display:none;">
+				<label for="date-from">From:</label>
+				<input type="date" id="date-from" name="date-from"/>
+				<label for="date-to">To:</label>
+				<input type="date" id="date-to" name="date-to"/>
+				<button type="button" onclick="applyCustomRange()">Apply</button>
+			</div>
 			<input type="hidden" id="guild-id" value={ guildID }/>
+			<div id="overview-cards" class="overview-cards"></div>
 			<div class="analytics-grid">
 				<div class="chart-card chart-card--wide">
 					<h3 class="chart-title">Message Volume</h3>
 					<canvas id="msg-volume"></canvas>
+				</div>
+				<div class="chart-card chart-card--wide">
+					<h3 class="chart-title">Activity Heatmap</h3>
+					<canvas id="activity-heatmap"></canvas>
 				</div>
 				<div class="chart-card">
 					<h3 class="chart-title">Top Members</h3>

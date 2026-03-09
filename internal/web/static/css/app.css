@@ -232,6 +232,186 @@ html, body {
     color: var(--text-muted);
 }
 
+/* Search highlighting */
+mark {
+    background-color: #fbbf24;
+    color: #1e1f22;
+    padding: 0.1em 0.2em;
+    border-radius: 2px;
+    font-weight: 500;
+}
+
+/* Smooth scroll for deep links */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Highlight target message when jumped to via hash */
+.message-row:target {
+    background-color: var(--bg-secondary);
+    animation: highlight-fade 2s ease-out;
+}
+
+@keyframes highlight-fade {
+    0% {
+        background-color: var(--accent);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+/* Analytics Dashboard */
+.analytics-page {
+    padding: 1.5rem;
+}
+
+.analytics-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.analytics-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.analytics-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.analytics-controls label {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.analytics-controls select,
+.analytics-controls button {
+    padding: 0.4rem 0.8rem;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+}
+
+.analytics-controls select:hover,
+.analytics-controls button:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent);
+}
+
+.custom-range-picker {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 1.5rem;
+}
+
+.custom-range-picker label {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.custom-range-picker input[type="date"] {
+    padding: 0.4rem 0.8rem;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.custom-range-picker button {
+    padding: 0.4rem 1rem;
+    background: var(--accent);
+    color: var(--text-primary);
+    border: none;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.custom-range-picker button:hover {
+    background: var(--accent-hover);
+}
+
+.overview-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.metric-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    text-align: center;
+}
+
+.metric-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 0.25rem;
+}
+
+.metric-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 1.5rem;
+}
+
+.chart-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    min-height: 300px;
+}
+
+.chart-card--wide {
+    grid-column: span 2;
+}
+
+.chart-title {
+    margin: 0 0 1rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+@media (max-width: 1024px) {
+    .chart-card--wide {
+        grid-column: span 1;
+    }
+    .analytics-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Utilities */
 .text-muted { color: var(--text-muted); }
 .htmx-indicator { display: none; }

@@ -15,6 +15,7 @@ import (
 	"github.com/steipete/discrawl/internal/config"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/web/auth"
+	"github.com/steipete/discrawl/internal/web/ratelimit"
 	"github.com/steipete/discrawl/internal/web/sse"
 	"golang.org/x/oauth2"
 )
@@ -28,16 +29,20 @@ type Server struct {
 	sessionManager *scs.SessionManager
 	oauthCfg       *oauth2.Config
 	sseBroker      *sse.Broker
+	rateLimiter    *ratelimit.PerUserLimiter
 }
 
 // NewServer creates a new Server.
 func NewServer(cfg config.Config, registry *store.Registry, logger *slog.Logger) *Server {
 	broker := sse.NewBroker()
+	// 10 requests per second per user, burst of 20.
+	limiter := ratelimit.NewPerUserLimiter(10.0, 20)
 	s := &Server{
-		cfg:       cfg,
-		registry:  registry,
-		logger:    logger,
-		sseBroker: broker,
+		cfg:         cfg,
+		registry:    registry,
+		logger:      logger,
+		sseBroker:   broker,
+		rateLimiter: limiter,
 	}
 
 	// Initialise session manager backed by meta.db SQLite store.

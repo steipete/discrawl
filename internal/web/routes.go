@@ -25,7 +25,7 @@ func (s *Server) routes(r chi.Router) {
 	// Auth routes.
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/login", auth.HandleLogin(s.sessionManager, s.oauthCfg))
-		r.Get("/callback", auth.HandleCallback(s.sessionManager, s.oauthCfg, s.registry.Meta()))
+		r.Get("/callback", auth.HandleCallback(s.sessionManager, s.oauthCfg, s.registry.Meta(), s.cfg.Web.SessionSecret))
 		r.Get("/logout", auth.HandleLogout(s.sessionManager))
 	})
 
@@ -43,7 +43,9 @@ func (s *Server) routes(r chi.Router) {
 			r.Get("/channels", handlers.HandleChannelSidebar(s.registry))
 			r.Get("/members", handlers.HandleMemberList(s.registry))
 			r.Get("/members/{userID}", handlers.HandleMemberProfile())
-			r.Get("/search", handlers.HandleSearch(s.registry))
+
+			// Rate-limited endpoints.
+			r.With(s.rateLimiter.Middleware).Get("/search", handlers.HandleSearch(s.registry))
 			r.Get("/analytics", handlers.HandleAnalyticsDashboard())
 
 			r.Route("/c/{channelID}", func(r chi.Router) {
@@ -70,8 +72,8 @@ func (s *Server) routes(r chi.Router) {
 				r.Get("/stats/channel-activity", handlers.HandleChannelActivity())
 				r.Get("/stats/overview", handlers.HandleOverviewStats())
 
-				// Export.
-				r.Get("/export/messages", handlers.HandleExportMessages())
+				// Export (rate-limited).
+				r.With(s.rateLimiter.Middleware).Get("/export/messages", handlers.HandleExportMessages())
 			})
 
 			// Live SSE stream (no timeout -- long-lived connection).

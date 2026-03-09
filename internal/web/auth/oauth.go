@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/alexedwards/scs/v2"
+	"github.com/steipete/discrawl/internal/crypto"
 	"github.com/steipete/discrawl/internal/store"
 	"golang.org/x/oauth2"
 )
@@ -59,7 +60,7 @@ func HandleLogin(sm *scs.SessionManager, oauthCfg *oauth2.Config) http.HandlerFu
 }
 
 // HandleCallback exchanges code for token, fetches user+guilds, creates session.
-func HandleCallback(sm *scs.SessionManager, oauthCfg *oauth2.Config, meta *store.MetaStore) http.HandlerFunc {
+func HandleCallback(sm *scs.SessionManager, oauthCfg *oauth2.Config, meta *store.MetaStore, encryptionKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		storedState := sm.GetString(r.Context(), sessionKeyState)
 		if storedState == "" || storedState != r.URL.Query().Get("state") {
@@ -94,13 +95,25 @@ func HandleCallback(sm *scs.SessionManager, oauthCfg *oauth2.Config, meta *store
 			guilds = nil
 		}
 
+		// Encrypt tokens before storing.
+		encAccessToken, err := crypto.Encrypt(token.AccessToken, encryptionKey)
+		if err != nil {
+			http.Error(w, "failed to encrypt access token", http.StatusInternalServerError)
+			return
+		}
+		encRefreshToken, err := crypto.Encrypt(token.RefreshToken, encryptionKey)
+		if err != nil {
+			http.Error(w, "failed to encrypt refresh token", http.StatusInternalServerError)
+			return
+		}
+
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		if err := meta.UpsertUser(r.Context(), store.UserRecord{
 			ID:           user.ID,
 			Username:     user.Username,
 			Avatar:       user.Avatar,
-			AccessToken:  token.AccessToken,
-			RefreshToken: token.RefreshToken,
+			AccessToken:  encAccessToken,
+			RefreshToken: encRefreshToken,
 			TokenExpiry:  token.Expiry.UTC().Format(time.RFC3339Nano),
 			CreatedAt:    now,
 			UpdatedAt:    now,

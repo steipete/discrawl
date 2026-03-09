@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -460,4 +462,26 @@ func uniqueStrings(in []string) []string {
 		out = append(out, item)
 	}
 	return out
+}
+
+// GenerateSessionSecret generates a cryptographically secure random 32-byte session secret.
+func GenerateSessionSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate session secret: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
+}
+
+// EnsureSessionSecret generates a session secret if one doesn't exist and saves the config.
+func EnsureSessionSecret(path string, cfg *Config) error {
+	if cfg.Web.SessionSecret != "" {
+		return nil
+	}
+	secret, err := GenerateSessionSecret()
+	if err != nil {
+		return err
+	}
+	cfg.Web.SessionSecret = secret
+	return Write(path, *cfg)
 }

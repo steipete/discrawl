@@ -26,6 +26,11 @@ func (r *runtime) runServe(args []string) error {
 		return configErr(err)
 	}
 
+	// Generate and save session secret on first init if missing.
+	if err := config.EnsureSessionSecret(r.configPath, &cfg); err != nil {
+		return configErr(fmt.Errorf("session secret: %w", err))
+	}
+
 	dataDir, err := config.ExpandPath(cfg.EffectiveDataDir())
 	if err != nil {
 		return configErr(fmt.Errorf("data dir: %w", err))

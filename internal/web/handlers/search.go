@@ -44,7 +44,7 @@ func HandleSearch(registry *store.Registry) http.HandlerFunc {
 
 		// HTMX partial: return only results fragment.
 		if r.Header.Get("HX-Request") == "true" {
-			_ = searchtmpl.SearchResults(guildID, results).Render(r.Context(), w)
+			_ = searchtmpl.SearchResults(guildID, results, q).Render(r.Context(), w)
 			return
 		}
 
