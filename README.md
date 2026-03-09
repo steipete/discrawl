@@ -1,6 +1,6 @@
 # discrawl
 
-![discrawl banner](https://ghrb.waren.build/banner?header=%21%5Bdiscord%5D+discrawl&subheader=Mirror+Discord+guild+history+into+local+SQLite&bg=5865F2-6D7CFF&color=ffffff)
+![banner](https://ghrb.waren.build/banner?header=%21%5Bdiscord%5D+discrawl&subheader=Mirror+Discord+guild+history+into+local+SQLite&bg=5865F2-6D7CFF&color=ffffff)
 
 `discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search.
 
