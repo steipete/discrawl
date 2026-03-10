@@ -41,28 +41,28 @@ func Home(loggedIn bool) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<main class=\"container\" style=\"text-align:center; padding-top:4rem;\"><h1>discrawl</h1><p>Discord Server Visualizer</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<main class=\"landing\"><section class=\"hero\"><div class=\"hero-content\"><div class=\"hero-badge\">Open Source</div><h1 class=\"hero-title\"><span class=\"hero-accent\">Open</span>Discord</h1><p class=\"hero-subtitle\">Explore your Discord servers like never before.<br>Search messages, analyze activity, track members — all in a beautiful dark UI.</p><div class=\"hero-actions\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if loggedIn {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a href=\"/app/guilds\" role=\"button\">View Guilds</a>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a href=\"/app/guilds\" class=\"btn-primary\">Open Dashboard</a> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<a href=\"/auth/login\" role=\"button\">Login with Discord</a>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<a href=\"/auth/login\" class=\"btn-primary\">Login with Discord</a> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</main>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<a href=\"https://github.com/steipete/discrawl\" class=\"btn-secondary\" target=\"_blank\" rel=\"noopener\">View on GitHub</a></div></div></section><section class=\"features\"><div class=\"features-grid\"><div class=\"feature-card\"><div class=\"feature-icon\">💬</div><h3>Message Browser</h3><p>Browse channel messages with Discord-like UI. Newest-first, infinite scroll, jump-to-message links.</p></div><div class=\"feature-card\"><div class=\"feature-icon\">🔍</div><h3>Full-Text Search</h3><p>FTS5-powered search across all messages. Find anything in seconds with highlighted results.</p></div><div class=\"feature-card\"><div class=\"feature-icon\">📊</div><h3>Analytics Dashboard</h3><p>Message volume, activity heatmaps, top members, channel stats — with interactive charts.</p></div><div class=\"feature-card\"><div class=\"feature-icon\">⚡</div><h3>Live Updates</h3><p>Server-Sent Events stream new messages in real-time. Keyword alerts notify you instantly.</p></div><div class=\"feature-card\"><div class=\"feature-icon\">👥</div><h3>Member Profiles</h3><p>View member activity, roles, and message history. Track community engagement at a glance.</p></div><div class=\"feature-card\"><div class=\"feature-icon\">🔒</div><h3>Secure by Design</h3><p>Discord OAuth2 login, encrypted token storage, per-user rate limiting, NSFW content gates.</p></div></div></section><section class=\"tech-section\"><h2>Built Different</h2><p class=\"tech-subtitle\">Single binary. No Node.js. No Docker. Just run it.</p><div class=\"tech-pills\"><span class=\"tech-pill\">Go</span> <span class=\"tech-pill\">SQLite</span> <span class=\"tech-pill\">HTMX</span> <span class=\"tech-pill\">SSE</span> <span class=\"tech-pill\">Chart.js</span> <span class=\"tech-pill\">Zero JS Build Step</span></div></section><footer class=\"landing-footer\"><p>OpenDiscord — Discord Server Visualizer</p></footer></main>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = Base("Home").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Base("OpenDiscord").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

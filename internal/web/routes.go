@@ -74,6 +74,14 @@ func (s *Server) routes(r chi.Router) {
 
 				// Export (rate-limited).
 				r.With(s.rateLimiter.Middleware).Get("/export/messages", handlers.HandleExportMessages())
+
+				// Alerts CRUD.
+				alertsHandler := handlers.NewAlertsHandler(s.registry.Meta())
+				r.Post("/alerts", alertsHandler.CreateAlert)
+				r.Get("/alerts", alertsHandler.ListAlerts)
+				r.Get("/alerts/{alertID}", alertsHandler.GetAlert)
+				r.Put("/alerts/{alertID}", alertsHandler.UpdateAlert)
+				r.Delete("/alerts/{alertID}", alertsHandler.DeleteAlert)
 			})
 
 			// Live SSE stream (no timeout -- long-lived connection).
@@ -83,14 +91,11 @@ func (s *Server) routes(r chi.Router) {
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
-	// Dev mode: skip login, go straight to guild list.
-	if os.Getenv("DISCRAWL_DEV") == "1" {
-		http.Redirect(w, r, "/app/guilds", http.StatusSeeOther)
-		return
-	}
+	devMode := os.Getenv("DISCRAWL_DEV") == "1"
 	userID := s.sessionManager.GetString(r.Context(), "user_id")
+	loggedIn := userID != "" || devMode
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = layout.Home(userID != "").Render(r.Context(), w)
+	_ = layout.Home(loggedIn).Render(r.Context(), w)
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {

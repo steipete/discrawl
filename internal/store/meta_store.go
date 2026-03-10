@@ -103,6 +103,14 @@ func (ms *MetaStore) migrate(ctx context.Context) error {
 			expiry real not null
 		);`,
 		`create index if not exists idx_sessions_expiry on sessions(expiry);`,
+		`create table if not exists alerts (
+			id text primary key,
+			guild_id text not null,
+			user_id text not null,
+			keywords text not null,
+			created_at text not null
+		);`,
+		`create index if not exists idx_alerts_guild on alerts(guild_id);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := ms.db.ExecContext(ctx, stmt); err != nil {
@@ -265,6 +273,73 @@ func (ms *MetaStore) UserHasGuild(ctx context.Context, userID, guildID string) (
 // DB returns the underlying database connection.
 func (ms *MetaStore) DB() *sql.DB {
 	return ms.db
+}
+
+// AlertRecord represents a keyword alert configuration.
+type AlertRecord struct {
+	ID        string
+	GuildID   string
+	UserID    string
+	Keywords  string // comma-separated list
+	CreatedAt string
+}
+
+// CreateAlert inserts a new alert.
+func (ms *MetaStore) CreateAlert(ctx context.Context, alert AlertRecord) error {
+	now := time.Now().UTC().Format(timeLayout)
+	_, err := ms.db.ExecContext(ctx, `
+		insert into alerts(id, guild_id, user_id, keywords, created_at)
+		values(?, ?, ?, ?, ?)
+	`, alert.ID, alert.GuildID, alert.UserID, alert.Keywords, now)
+	return err
+}
+
+// GetAlert retrieves an alert by ID.
+func (ms *MetaStore) GetAlert(ctx context.Context, id string) (AlertRecord, error) {
+	var alert AlertRecord
+	err := ms.db.QueryRowContext(ctx, `
+		select id, guild_id, user_id, keywords, created_at
+		from alerts where id = ?
+	`, id).Scan(&alert.ID, &alert.GuildID, &alert.UserID, &alert.Keywords, &alert.CreatedAt)
+	if err != nil {
+		return AlertRecord{}, err
+	}
+	return alert, nil
+}
+
+// ListAlerts returns all alerts for a guild.
+func (ms *MetaStore) ListAlerts(ctx context.Context, guildID string) ([]AlertRecord, error) {
+	rows, err := ms.db.QueryContext(ctx, `
+		select id, guild_id, user_id, keywords, created_at
+		from alerts where guild_id = ? order by created_at desc
+	`, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []AlertRecord
+	for rows.Next() {
+		var alert AlertRecord
+		if err := rows.Scan(&alert.ID, &alert.GuildID, &alert.UserID, &alert.Keywords, &alert.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, alert)
+	}
+	return out, rows.Err()
+}
+
+// UpdateAlert updates an alert's keywords.
+func (ms *MetaStore) UpdateAlert(ctx context.Context, id, keywords string) error {
+	_, err := ms.db.ExecContext(ctx, `
+		update alerts set keywords = ? where id = ?
+	`, keywords, id)
+	return err
+}
+
+// DeleteAlert removes an alert.
+func (ms *MetaStore) DeleteAlert(ctx context.Context, id string) error {
+	_, err := ms.db.ExecContext(ctx, `delete from alerts where id = ?`, id)
+	return err
 }
 
 // Close closes the meta database.

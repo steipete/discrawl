@@ -1,0 +1,55 @@
+package components
+
+import "time"
+
+// SyncStatus renders a live sync status indicator.
+templ SyncStatus(guildID string, lastSyncTime time.Time, isSyncing bool) {
+	<div
+		id="sync-status"
+		class="sync-status"
+		hx-ext="sse"
+		sse-connect={ "/api/v1/g/" + guildID + "/live" }
+		sse-swap="sync_status"
+		hx-swap="outerHTML"
+	>
+		<div class="sync-indicator">
+			if isSyncing {
+				<span class="sync-dot syncing"></span>
+				<span class="sync-text">Syncing...</span>
+			} else {
+				<span class="sync-dot idle"></span>
+				<span class="sync-text">
+					Last sync:
+					if !lastSyncTime.IsZero() {
+						{ lastSyncTime.Format("3:04 PM") }
+					} else {
+						Never
+					}
+				</span>
+			}
+		</div>
+	</div>
+}
+
+// SyncStatusUpdate renders just the status update (for SSE swap).
+templ SyncStatusUpdate(lastSyncTime time.Time, isSyncing bool, messagesDelta int) {
+	<div class="sync-indicator">
+		if isSyncing {
+			<span class="sync-dot syncing"></span>
+			<span class="sync-text">Syncing...</span>
+		} else {
+			<span class="sync-dot idle"></span>
+			<span class="sync-text">
+				Last sync:
+				if !lastSyncTime.IsZero() {
+					{ lastSyncTime.Format("3:04 PM") }
+				} else {
+					Never
+				}
+				if messagesDelta > 0 {
+					<span class="sync-delta">+{ string(rune(messagesDelta)) } new</span>
+				}
+			</span>
+		}
+	</div>
+}

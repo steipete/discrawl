@@ -27,11 +27,18 @@ type Client interface {
 	Tail(context.Context, discordclient.EventHandler) error
 }
 
+// EventHook is called after successful database writes during tail operations.
+type EventHook interface {
+	OnMessageWrite(ctx context.Context, guildID, channelID, messageID, eventType string) error
+	OnMemberWrite(ctx context.Context, guildID, userID, eventType string) error
+}
+
 type Syncer struct {
 	client                Client
 	store                 store.DataStore
 	logger                *slog.Logger
 	attachmentTextEnabled bool
+	eventHook             EventHook
 }
 
 type SyncOptions struct {
@@ -66,6 +73,10 @@ func New(client Client, store store.DataStore, logger *slog.Logger) *Syncer {
 
 func (s *Syncer) SetAttachmentTextEnabled(enabled bool) {
 	s.attachmentTextEnabled = enabled
+}
+
+func (s *Syncer) SetEventHook(hook EventHook) {
+	s.eventHook = hook
 }
 
 func (s *Syncer) DiscoverGuilds(ctx context.Context) ([]*discordgo.UserGuild, error) {

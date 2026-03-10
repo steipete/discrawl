@@ -1,21 +1,133 @@
 package guild
 
 import (
+	"fmt"
+	"time"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/web/templates/layout"
 )
 
+func getGuildGradient(id string) string {
+	gradients := []string{
+		"linear-gradient(135deg, #5865f2 0%, #9333ea 100%)",
+		"linear-gradient(135deg, #f97316 0%, #dc2626 100%)",
+		"linear-gradient(135deg, #22c55e 0%, #14b8a6 100%)",
+		"linear-gradient(135deg, #ec4899 0%, #9333ea 100%)",
+		"linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%)",
+		"linear-gradient(135deg, #eab308 0%, #f97316 100%)",
+	}
+	hash := 0
+	for _, c := range id {
+		hash += int(c)
+	}
+	return gradients[hash%len(gradients)]
+}
+
+func getGuildIcon(id string) string {
+	icons := []string{"🎮", "🚀", "💻", "🎨", "🎵", "📚", "🌟", "🔥", "⚡", "💬"}
+	hash := 0
+	for _, c := range id {
+		hash += int(c)
+	}
+	return icons[hash%len(icons)]
+}
+
+func getSyncStatus(updatedAt time.Time) string {
+	elapsed := time.Since(updatedAt)
+	if elapsed < 10*time.Minute {
+		return "Active"
+	} else if elapsed < 1*time.Hour {
+		return "Syncing"
+	}
+	return "Idle"
+}
+
+func getSyncStatusClass(status string) string {
+	switch status {
+	case "Active":
+		return "status-active"
+	case "Syncing":
+		return "status-syncing"
+	default:
+		return "status-idle"
+	}
+}
+
+func formatTimeAgo(t time.Time) string {
+	elapsed := time.Since(t)
+	if elapsed < time.Minute {
+		return "just now"
+	} else if elapsed < time.Hour {
+		mins := int(elapsed.Minutes())
+		if mins == 1 {
+			return "1 min ago"
+		}
+		return fmt.Sprintf("%d min ago", mins)
+	} else if elapsed < 24*time.Hour {
+		hours := int(elapsed.Hours())
+		if hours == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", hours)
+	} else {
+		days := int(elapsed.Hours() / 24)
+		if days == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	}
+}
+
 templ Selector(guilds []store.MetaGuild) {
 	@layout.Base("Guilds") {
-		<main class="container" style="padding-top:2rem;">
-			<h1>Your Guilds</h1>
+		<main class="guild-selector-page">
+			<div class="guild-selector-header">
+				<div>
+					<h2>Your Guilds</h2>
+					<p class="guild-selector-subtitle">Select a server to explore messages, analytics, and member activity</p>
+				</div>
+			</div>
+			<div class="guild-selector-filters">
+				<div class="search-container">
+					<svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+					</svg>
+					<input type="text" placeholder="Search guilds..." class="search-input"/>
+				</div>
+				<select class="filter-select">
+					<option>All Guilds</option>
+					<option>Most Active</option>
+					<option>Recently Synced</option>
+					<option>Alphabetical</option>
+				</select>
+			</div>
 			if len(guilds) == 0 {
-				<p>No guilds found. Make sure discrawl has synced at least one guild.</p>
+				<div class="guild-empty-state">
+					<div class="guild-empty-icon">📭</div>
+					<h3>No guilds found</h3>
+					<p>Make sure discrawl has synced at least one guild.</p>
+				</div>
 			} else {
-				<div class="guild-grid">
+				<div class="guild-grid-enhanced">
 					for _, g := range guilds {
-						<a href={ templ.SafeURL("/app/g/" + g.ID) } class="guild-card">
-							<div class="guild-card-name">{ g.Name }</div>
+						<a href={ templ.SafeURL("/app/g/" + g.ID) } class="guild-card-enhanced">
+							<div class="guild-card-banner" style={ fmt.Sprintf("background: %s;", getGuildGradient(g.ID)) }>
+								<div class="guild-card-icon">{ getGuildIcon(g.ID) }</div>
+								<div class={ "guild-card-status " + getSyncStatusClass(getSyncStatus(g.UpdatedAt)) }>
+									{ getSyncStatus(g.UpdatedAt) }
+								</div>
+							</div>
+							<div class="guild-card-content">
+								<h3 class="guild-card-title">{ g.Name }</h3>
+								<div class="guild-card-meta">
+									<div class="guild-meta-row">
+										<svg class="guild-meta-icon" fill="currentColor" viewBox="0 0 20 20">
+											<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+										</svg>
+										<span>Synced { formatTimeAgo(g.UpdatedAt) }</span>
+									</div>
+								</div>
+							</div>
 						</a>
 					}
 				</div>

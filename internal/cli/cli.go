@@ -138,6 +138,8 @@ func (r *runtime) dispatch(rest []string) error {
 		return r.withServices(false, func() error { return r.runStatus(rest[1:]) })
 	case "serve":
 		return r.runServe(rest[1:])
+	case "seed":
+		return r.runSeed(rest[1:])
 	case "migrate-db":
 		return r.runMigrateDB(rest[1:])
 	case "doctor":

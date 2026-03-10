@@ -15,6 +15,7 @@ func (s *Syncer) RunTail(ctx context.Context, guildIDs []string, repairEvery tim
 		store:                 s.store,
 		client:                s.client,
 		attachmentTextEnabled: s.attachmentTextEnabled,
+		eventHook:             s.eventHook,
 	}
 	if repairEvery <= 0 {
 		return s.client.Tail(ctx, handler)
@@ -44,6 +45,7 @@ type tailHandler struct {
 	store                 store.DataStore
 	client                Client
 	attachmentTextEnabled bool
+	eventHook             EventHook
 }
 
 func (t *tailHandler) OnMessageCreate(ctx context.Context, msg *discordgo.Message) error {
@@ -63,7 +65,15 @@ func (t *tailHandler) OnMessageCreate(ctx context.Context, msg *discordgo.Messag
 	if err := t.store.SetSyncState(ctx, "tail:last_event", msg.ID); err != nil {
 		return err
 	}
-	return t.store.SetSyncState(ctx, channelLatestScope(msg.ChannelID), msg.ID)
+	if err := t.store.SetSyncState(ctx, channelLatestScope(msg.ChannelID), msg.ID); err != nil {
+		return err
+	}
+	if t.eventHook != nil {
+		if err := t.eventHook.OnMessageWrite(ctx, msg.GuildID, msg.ChannelID, msg.ID, "create"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (t *tailHandler) OnMessageUpdate(ctx context.Context, msg *discordgo.Message) error {
@@ -80,7 +90,15 @@ func (t *tailHandler) OnMessageUpdate(ctx context.Context, msg *discordgo.Messag
 	if err := t.store.AppendMessageEvent(ctx, msg.GuildID, msg.ChannelID, msg.ID, "update", msg); err != nil {
 		return err
 	}
-	return t.store.SetSyncState(ctx, "tail:last_event", msg.ID)
+	if err := t.store.SetSyncState(ctx, "tail:last_event", msg.ID); err != nil {
+		return err
+	}
+	if t.eventHook != nil {
+		if err := t.eventHook.OnMessageWrite(ctx, msg.GuildID, msg.ChannelID, msg.ID, "update"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (t *tailHandler) OnMessageDelete(ctx context.Context, evt *discordgo.MessageDelete) error {
@@ -105,14 +123,30 @@ func (t *tailHandler) OnMemberUpsert(ctx context.Context, guildID string, member
 	if !t.allowGuild(guildID) || member == nil || member.User == nil {
 		return nil
 	}
-	return t.store.UpsertMember(ctx, toMemberRecord(guildID, member))
+	if err := t.store.UpsertMember(ctx, toMemberRecord(guildID, member)); err != nil {
+		return err
+	}
+	if t.eventHook != nil {
+		if err := t.eventHook.OnMemberWrite(ctx, guildID, member.User.ID, "join"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (t *tailHandler) OnMemberDelete(ctx context.Context, guildID, userID string) error {
 	if !t.allowGuild(guildID) {
 		return nil
 	}
-	return t.store.DeleteMember(ctx, guildID, userID)
+	if err := t.store.DeleteMember(ctx, guildID, userID); err != nil {
+		return err
+	}
+	if t.eventHook != nil {
+		if err := t.eventHook.OnMemberWrite(ctx, guildID, userID, "leave"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (t *tailHandler) allowGuild(guildID string) bool {

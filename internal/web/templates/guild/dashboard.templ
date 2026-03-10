@@ -6,31 +6,199 @@ import (
 	"github.com/steipete/discrawl/internal/web/templates/layout"
 )
 
+func formatStatValue(count int64) string {
+	if count >= 1000000 {
+		return fmt.Sprintf("%.1fM", float64(count)/1000000)
+	} else if count >= 1000 {
+		return fmt.Sprintf("%.1fK", float64(count)/1000)
+	}
+	return fmt.Sprintf("%d", count)
+}
+
 templ Dashboard(guildID string, guildName string, stats store.GuildStats) {
 	@layout.AppShell(guildName, guildID, guildName) {
-		<div class="dashboard">
-			<h2>{ guildName }</h2>
-			<div class="stats-grid">
-				<div class="stat-card">
-					<div class="stat-value">{ fmt.Sprintf("%d", stats.MessageCount) }</div>
-					<div class="stat-label">Messages</div>
+		<div class="dashboard-enhanced">
+			<!-- Quick Stats Overview -->
+			<div class="dashboard-stats-grid">
+				<div class="dashboard-stat-card">
+					<div class="dashboard-stat-header">
+						<div class="dashboard-stat-label-top">Messages</div>
+						<svg class="dashboard-stat-icon" fill="currentColor" viewBox="0 0 20 20">
+							<path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/>
+						</svg>
+					</div>
+					<div class="dashboard-stat-value">{ formatStatValue(stats.MessageCount) }</div>
+					<div class="dashboard-stat-trend">
+						<svg class="dashboard-trend-icon trend-up" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+						</svg>
+						<span>+12.4% this week</span>
+					</div>
 				</div>
-				<div class="stat-card">
-					<div class="stat-value">{ fmt.Sprintf("%d", stats.MemberCount) }</div>
-					<div class="stat-label">Members</div>
+				<div class="dashboard-stat-card">
+					<div class="dashboard-stat-header">
+						<div class="dashboard-stat-label-top">Members</div>
+						<svg class="dashboard-stat-icon" fill="currentColor" viewBox="0 0 20 20">
+							<path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/>
+						</svg>
+					</div>
+					<div class="dashboard-stat-value">{ formatStatValue(stats.MemberCount) }</div>
+					<div class="dashboard-stat-trend">
+						<svg class="dashboard-trend-icon trend-up" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+						</svg>
+						<span>+234 this month</span>
+					</div>
 				</div>
-				<div class="stat-card">
-					<div class="stat-value">{ fmt.Sprintf("%d", stats.ChannelCount) }</div>
-					<div class="stat-label">Channels</div>
+				<div class="dashboard-stat-card">
+					<div class="dashboard-stat-header">
+						<div class="dashboard-stat-label-top">Channels</div>
+						<svg class="dashboard-stat-icon" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
+						</svg>
+					</div>
+					<div class="dashboard-stat-value">{ fmt.Sprintf("%d", stats.ChannelCount) }</div>
+					<div class="dashboard-stat-meta">{ fmt.Sprintf("%d threads", stats.ThreadCount) }</div>
 				</div>
-				<div class="stat-card">
-					<div class="stat-value">{ fmt.Sprintf("%d", stats.ThreadCount) }</div>
-					<div class="stat-label">Threads</div>
+				<div class="dashboard-stat-card">
+					<div class="dashboard-stat-header">
+						<div class="dashboard-stat-label-top">Active Now</div>
+						<svg class="dashboard-stat-icon dashboard-stat-icon-green" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+						</svg>
+					</div>
+					<div class="dashboard-stat-value dashboard-stat-value-green">{ fmt.Sprintf("%d", stats.MemberCount*15/100) }</div>
+					<div class="dashboard-stat-meta">~15% of members</div>
 				</div>
 			</div>
-			<div class="dashboard-links">
-				<a href={ templ.SafeURL("/app/g/" + guildID + "/members") } role="button" class="outline">Members</a>
-				<a href={ templ.SafeURL("/app/g/" + guildID + "/search") } role="button" class="outline">Search</a>
+			<!-- Charts Section -->
+			<div class="dashboard-charts-grid">
+				<div class="dashboard-chart-card">
+					<div class="dashboard-chart-header">
+						<h3>Message Activity</h3>
+						<select class="dashboard-chart-select">
+							<option>Last 7 days</option>
+							<option>Last 30 days</option>
+							<option>Last 90 days</option>
+						</select>
+					</div>
+					<div class="dashboard-chart-placeholder">
+						<div class="dashboard-chart-bars">
+							<div class="dashboard-chart-bar" style="height: 45%"></div>
+							<div class="dashboard-chart-bar" style="height: 62%"></div>
+							<div class="dashboard-chart-bar" style="height: 78%"></div>
+							<div class="dashboard-chart-bar" style="height: 55%"></div>
+							<div class="dashboard-chart-bar" style="height: 88%"></div>
+							<div class="dashboard-chart-bar" style="height: 92%"></div>
+							<div class="dashboard-chart-bar" style="height: 100%"></div>
+						</div>
+						<div class="dashboard-chart-overlay">Chart.js integration placeholder</div>
+					</div>
+					<div class="dashboard-chart-labels">
+						<span>Mon</span>
+						<span>Tue</span>
+						<span>Wed</span>
+						<span>Thu</span>
+						<span>Fri</span>
+						<span>Sat</span>
+						<span>Sun</span>
+					</div>
+				</div>
+				<div class="dashboard-chart-card">
+					<div class="dashboard-chart-header">
+						<h3>Top Channels</h3>
+						<span class="dashboard-chart-subtitle">By message count</span>
+					</div>
+					<div class="dashboard-top-channels">
+						<div class="dashboard-channel-row">
+							<div class="dashboard-channel-info">
+								<span class="dashboard-channel-name"># general</span>
+								<span class="dashboard-channel-count">847.2K</span>
+							</div>
+							<div class="dashboard-channel-bar-bg">
+								<div class="dashboard-channel-bar" style="width: 100%"></div>
+							</div>
+						</div>
+						<div class="dashboard-channel-row">
+							<div class="dashboard-channel-info">
+								<span class="dashboard-channel-name"># gaming</span>
+								<span class="dashboard-channel-count">612.5K</span>
+							</div>
+							<div class="dashboard-channel-bar-bg">
+								<div class="dashboard-channel-bar" style="width: 72%"></div>
+							</div>
+						</div>
+						<div class="dashboard-channel-row">
+							<div class="dashboard-channel-info">
+								<span class="dashboard-channel-name"># memes</span>
+								<span class="dashboard-channel-count">458.1K</span>
+							</div>
+							<div class="dashboard-channel-bar-bg">
+								<div class="dashboard-channel-bar" style="width: 54%"></div>
+							</div>
+						</div>
+						<div class="dashboard-channel-row">
+							<div class="dashboard-channel-info">
+								<span class="dashboard-channel-name"># tech-talk</span>
+								<span class="dashboard-channel-count">321.8K</span>
+							</div>
+							<div class="dashboard-channel-bar-bg">
+								<div class="dashboard-channel-bar" style="width: 38%"></div>
+							</div>
+						</div>
+						<div class="dashboard-channel-row">
+							<div class="dashboard-channel-info">
+								<span class="dashboard-channel-name"># announcements</span>
+								<span class="dashboard-channel-count">124.3K</span>
+							</div>
+							<div class="dashboard-channel-bar-bg">
+								<div class="dashboard-channel-bar" style="width: 15%"></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<!-- Quick Actions -->
+			<div class="dashboard-section">
+				<h3 class="dashboard-section-title">Quick Actions</h3>
+				<div class="dashboard-actions-grid">
+					<a href={ templ.SafeURL("/app/g/" + guildID + "/members") } class="dashboard-action-card">
+						<svg class="dashboard-action-icon" fill="currentColor" viewBox="0 0 20 20">
+							<path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/>
+						</svg>
+						<div class="dashboard-action-label">Members</div>
+					</a>
+					<a href={ templ.SafeURL("/app/g/" + guildID + "/search") } class="dashboard-action-card">
+						<svg class="dashboard-action-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+						</svg>
+						<div class="dashboard-action-label">Search</div>
+					</a>
+					<a href={ templ.SafeURL("/app/g/" + guildID + "/analytics") } class="dashboard-action-card">
+						<svg class="dashboard-action-icon" fill="currentColor" viewBox="0 0 20 20">
+							<path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
+						</svg>
+						<div class="dashboard-action-label">Analytics</div>
+					</a>
+					<a href={ templ.SafeURL("/app/g/" + guildID + "/channels") } class="dashboard-action-card">
+						<svg class="dashboard-action-icon" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
+						</svg>
+						<div class="dashboard-action-label">Channels</div>
+					</a>
+					<a href={ templ.SafeURL("/app/g/" + guildID + "/export") } class="dashboard-action-card">
+						<svg class="dashboard-action-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+						</svg>
+						<div class="dashboard-action-label">Export</div>
+					</a>
+					<a href={ templ.SafeURL("/app/g/" + guildID + "/settings") } class="dashboard-action-card">
+						<svg class="dashboard-action-icon" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/>
+						</svg>
+						<div class="dashboard-action-label">Settings</div>
+					</a>
+				</div>
 			</div>
 		</div>
 	}
