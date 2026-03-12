@@ -55,7 +55,8 @@ func (s *Server) routes(r chi.Router) {
 			r.Get("/analytics", handlers.HandleAnalyticsDashboard(s.registry))
 
 			r.Route("/c/{channelID}", func(r chi.Router) {
-				r.Get("/", handlers.HandleMessageViewer(s.registry))
+				r.Get("/", handlers.HandleMessageViewer(s.registry, s.sessionManager))
+				r.Post("/nsfw-accept", handlers.HandleNSFWAccept(s.sessionManager))
 				r.Get("/messages", handlers.HandleMessageList(s.registry))
 			})
 		})

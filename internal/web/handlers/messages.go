@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -12,8 +13,14 @@ import (
 
 const messagesPerPage = 50
 
+// SessionManager abstracts session operations.
+type SessionManager interface {
+	GetBool(ctx context.Context, key string) bool
+	Put(ctx context.Context, key string, val interface{})
+}
+
 // HandleMessageViewer renders the message viewer page for a channel.
-func HandleMessageViewer(registry *store.Registry) http.HandlerFunc {
+func HandleMessageViewer(registry *store.Registry, sm SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		gs := webctx.GetGuildStore(r.Context())
 		if gs == nil {
@@ -25,12 +32,14 @@ func HandleMessageViewer(registry *store.Registry) http.HandlerFunc {
 
 		channelName := channelID
 		channelTopic := ""
+		isNSFW := false
 		channels, err := gs.Channels(r.Context(), guildID)
 		if err == nil {
 			for _, ch := range channels {
 				if ch.ID == channelID {
 					channelName = ch.Name
 					channelTopic = ch.Topic
+					isNSFW = ch.IsNSFW
 					break
 				}
 			}
@@ -38,8 +47,11 @@ func HandleMessageViewer(registry *store.Registry) http.HandlerFunc {
 
 		guildName := resolveGuildName(r, registry, guildID)
 
+		// Check NSFW opt-in preference
+		nsfwAccepted := sm.GetBool(r.Context(), "nsfw_accepted")
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = messagetmpl.Viewer(guildID, guildName, channelID, channelName, channelTopic).Render(r.Context(), w)
+		_ = messagetmpl.Viewer(guildID, guildName, channelID, channelName, channelTopic, isNSFW, nsfwAccepted).Render(r.Context(), w)
 	}
 }
 
@@ -129,4 +141,19 @@ func lastMessageTime(g messagetmpl.MessageGroup) time.Time {
 		return time.Time{}
 	}
 	return g.Messages[len(g.Messages)-1].CreatedAt
+}
+
+// HandleNSFWAccept sets the NSFW acceptance flag in the session.
+func HandleNSFWAccept(sm SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		sm.Put(r.Context(), "nsfw_accepted", true)
+
+		// Return HTMX trigger to reload messages
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+	}
 }

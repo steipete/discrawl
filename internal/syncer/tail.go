@@ -9,6 +9,12 @@ import (
 	"github.com/steipete/discrawl/internal/store"
 )
 
+// SyncStatusHook is an optional interface that EventHook implementations can provide
+// to receive sync status notifications.
+type SyncStatusHook interface {
+	PublishSyncStatus(guildID, status string)
+}
+
 func (s *Syncer) RunTail(ctx context.Context, guildIDs []string, repairEvery time.Duration) error {
 	handler := &tailHandler{
 		guilds:                makeGuildSet(guildIDs),
@@ -33,8 +39,21 @@ func (s *Syncer) RunTail(ctx context.Context, guildIDs []string, repairEvery tim
 		case err := <-errCh:
 			return err
 		case <-ticker.C:
+			// Notify sync start if hook supports it
+			if hook, ok := s.eventHook.(SyncStatusHook); ok {
+				for _, guildID := range guildIDs {
+					hook.PublishSyncStatus(guildID, "syncing")
+				}
+			}
 			if _, err := s.Sync(ctx, SyncOptions{GuildIDs: guildIDs, Full: false, RepairReason: "tail_repair"}); err != nil {
 				s.logger.Warn("repair sync failed", "err", err)
+			} else {
+				// Notify sync complete if hook supports it
+				if hook, ok := s.eventHook.(SyncStatusHook); ok {
+					for _, guildID := range guildIDs {
+						hook.PublishSyncStatus(guildID, time.Now().Format("15:04:05"))
+					}
+				}
 			}
 		}
 	}

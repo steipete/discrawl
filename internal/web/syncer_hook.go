@@ -42,3 +42,14 @@ func (h *SyncerSSEHook) OnMemberWrite(ctx context.Context, guildID, userID, even
 	})
 	return nil
 }
+
+// PublishSyncStatus publishes a sync status event to all guild subscribers.
+func (h *SyncerSSEHook) PublishSyncStatus(guildID, status string) {
+	if h.broker == nil {
+		return
+	}
+	h.broker.Publish(guildID, sse.Event{
+		Type: "sync_status",
+		Data: status, // "syncing", "synced", or timestamp
+	})
+}

@@ -14,6 +14,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// mockSessionManager implements SessionManager for testing.
+type mockSessionManager struct {
+	data map[string]interface{}
+}
+
+func newMockSessionManager() *mockSessionManager {
+	return &mockSessionManager{data: make(map[string]interface{})}
+}
+
+func (m *mockSessionManager) GetBool(ctx context.Context, key string) bool {
+	v, ok := m.data[key]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
+}
+
+func (m *mockSessionManager) Put(ctx context.Context, key string, val interface{}) {
+	m.data[key] = val
+}
+
 func setupMessagesTestDB(t *testing.T) (*store.Registry, *store.GuildStore) {
 	t.Helper()
 	ctx := context.Background()
@@ -45,8 +67,9 @@ func setupMessagesTestDB(t *testing.T) (*store.Registry, *store.GuildStore) {
 
 func TestHandleMessageViewer(t *testing.T) {
 	reg, gs := setupMessagesTestDB(t)
+	sm := newMockSessionManager()
 
-	handler := HandleMessageViewer(reg)
+	handler := HandleMessageViewer(reg, sm)
 
 	t.Run("success", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/g/test-guild/channels/ch1", nil)

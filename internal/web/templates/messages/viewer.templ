@@ -4,7 +4,42 @@ import (
 	"github.com/steipete/discrawl/internal/web/templates/layout"
 )
 
-templ Viewer(guildID string, guildName string, channelID string, channelName string, channelTopic string) {
+templ NSFWWarning(guildID string, channelID string) {
+	<div class="flex items-center justify-center h-full">
+		<div class="bg-discord-secondary border border-discord-border rounded-lg p-8 max-w-md text-center">
+			<svg class="w-16 h-16 mx-auto mb-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+			</svg>
+			<h2 class="text-xl font-bold mb-2">NSFW Channel</h2>
+			<p class="text-discord-muted mb-6">
+				This channel may contain content that is not suitable for all audiences.
+				By continuing, you acknowledge that you are of legal age to view such content.
+			</p>
+			<button
+				hx-post={ "/app/g/" + guildID + "/c/" + channelID + "/nsfw-accept" }
+				class="px-6 py-2 bg-discord-accent hover:bg-discord-accentHover rounded transition font-semibold"
+			>
+				I Understand, Continue
+			</button>
+		</div>
+	</div>
+}
+
+templ SyncStatusBadge(guildID string) {
+	<div
+		id="sync-status"
+		class="flex items-center gap-1.5 px-2 py-1 rounded bg-discord-tertiary text-xs"
+		hx-ext="sse"
+		sse-connect={ "/api/v1/g/" + guildID + "/live" }
+		sse-swap="sync_status"
+		sse-close="sync_closed"
+	>
+		<div class="w-2 h-2 rounded-full bg-green-500"></div>
+		<span class="text-discord-muted">Synced</span>
+	</div>
+}
+
+templ Viewer(guildID string, guildName string, channelID string, channelName string, channelTopic string, isNSFW bool, nsfwAccepted bool) {
 	@layout.Base(channelName + " - " + guildName) {
 		<div class="flex h-screen overflow-hidden">
 			<!-- Channel Sidebar -->
@@ -39,6 +74,8 @@ templ Viewer(guildID string, guildName string, channelID string, channelName str
 							<div class="h-4 w-px bg-discord-border"></div>
 							<span class="text-sm text-discord-muted">{ channelTopic }</span>
 						}
+						<div class="h-4 w-px bg-discord-border"></div>
+						@SyncStatusBadge(guildID)
 					</div>
 					<div class="flex items-center gap-3">
 						<a href={ templ.SafeURL("/app/g/" + guildID + "/search") } class="p-2 hover:bg-discord-tertiary rounded transition" title="Search">
@@ -55,17 +92,21 @@ templ Viewer(guildID string, guildName string, channelID string, channelName str
 				</div>
 				<!-- Messages Container -->
 				<div class="flex-1 overflow-y-auto px-4 py-4 space-y-4" id="message-container">
-					<div
-						id="message-list"
-						hx-get={ "/app/g/" + guildID + "/c/" + channelID + "/messages" }
-						hx-trigger="load"
-						hx-swap="innerHTML"
-						hx-ext="sse"
-						sse-connect={ "/api/v1/g/" + guildID + "/live" }
-						sse-swap="message"
-					>
-						<div class="text-center py-4 text-discord-muted">Loading messages...</div>
-					</div>
+					if isNSFW && !nsfwAccepted {
+						@NSFWWarning(guildID, channelID)
+					} else {
+						<div
+							id="message-list"
+							hx-get={ "/app/g/" + guildID + "/c/" + channelID + "/messages" }
+							hx-trigger="load"
+							hx-swap="innerHTML"
+							hx-ext="sse"
+							sse-connect={ "/api/v1/g/" + guildID + "/live" }
+							sse-swap="message"
+						>
+							<div class="text-center py-4 text-discord-muted">Loading messages...</div>
+						</div>
+					}
 				</div>
 				<!-- Message Input (Read-only in viewer) -->
 				<div class="p-4 bg-discord-secondary border-t border-discord-border">
