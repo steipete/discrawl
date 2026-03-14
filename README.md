@@ -9,6 +9,7 @@ It is a bot-token crawler. No user-token hacks. Data stays local.
 - discovers every guild the configured bot can access
 - syncs channels, threads, members, and message history into SQLite
 - maintains FTS5 search indexes for fast local text search
+- builds an offline member directory from archived profile payloads
 - extracts small text-like attachments into the local search index
 - records structured user and role mentions for direct querying
 - tails Gateway events for live updates, with periodic repair syncs
@@ -234,12 +235,51 @@ bin/discrawl members show 123456789012345678
 bin/discrawl members show --messages 10 steipete
 bin/discrawl members search "peter"
 bin/discrawl members search "github"
+bin/discrawl members search "https://github.com/steipete"
 ```
 
 Notes:
 
 - `search` matches names plus any offline profile fields present in the archived member payload
 - `show` accepts a user id or query; if it resolves to one member, it also shows recent messages
+- extracted profile fields may include `bio`, `pronouns`, `location`, `website`, `x`, `github`, and discovered URLs
+- if the bot cannot see a field from Discord, `discrawl` cannot invent it; this is strictly archive-based offline data
+
+Typical workflow:
+
+```bash
+bin/discrawl sync --full
+bin/discrawl members search "design engineer"
+bin/discrawl members search "github"
+bin/discrawl members show --messages 25 steipete
+bin/discrawl messages --author steipete --days 30 --all
+```
+
+Typical `members show` output:
+
+```text
+guild=1456350064065904867
+user=37658261826043904
+username=steipete
+display=Peter Steinberger
+joined=2026-03-08T16:03:14Z
+bot=false
+x=steipete
+github=steipete
+website=https://steipete.me
+bio=Builds native apps and tooling.
+urls=https://steipete.me, https://github.com/steipete
+message_count=1284
+first_message=2026-02-01T09:00:00Z
+last_message=2026-03-08T15:59:58Z
+```
+
+Searchable member data comes from:
+
+- Discord member/user payload fields archived into `members.raw_json`
+- explicit profile fields when Discord exposes them
+- URLs and social handles inferred from archived profile text
+- current member snapshot data such as names, nick, roles, and join time
 
 ### `channels`
 
