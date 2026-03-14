@@ -17,6 +17,7 @@ func TestNormalizeFillsDefaults(t *testing.T) {
 	require.Equal(t, "openclaw", cfg.Discord.TokenSource)
 	require.Equal(t, "default", cfg.Discord.Account)
 	require.Equal(t, DefaultTokenEnv, cfg.Discord.TokenEnv)
+	require.Equal(t, DefaultTokenKind, cfg.Discord.TokenKind)
 	require.Equal(t, defaultSyncConcurrency(), cfg.Sync.Concurrency)
 	require.GreaterOrEqual(t, cfg.Sync.Concurrency, 8)
 	require.LessOrEqual(t, cfg.Sync.Concurrency, 32)
@@ -43,8 +44,9 @@ func TestResolveDiscordTokenPrefersOpenClaw(t *testing.T) {
 
 	token, err := ResolveDiscordToken(cfg)
 	require.NoError(t, err)
-	require.Equal(t, "config-token", token.Token)
+	require.Equal(t, "Bot config-token", token.Token)
 	require.Equal(t, "openclaw", token.Source)
+	require.Equal(t, "bot", token.Kind)
 }
 
 func TestResolveDiscordTokenFallsBackToEnv(t *testing.T) {
@@ -55,8 +57,21 @@ func TestResolveDiscordTokenFallsBackToEnv(t *testing.T) {
 
 	token, err := ResolveDiscordToken(cfg)
 	require.NoError(t, err)
-	require.Equal(t, "env-token", token.Token)
+	require.Equal(t, "Bot env-token", token.Token)
 	require.Equal(t, "env", token.Source)
+	require.Equal(t, "bot", token.Kind)
+}
+
+func TestResolveDiscordTokenUserKind(t *testing.T) {
+	cfg := Default()
+	cfg.Discord.TokenSource = "env"
+	cfg.Discord.TokenKind = "user"
+	t.Setenv(DefaultTokenEnv, "user-token")
+
+	token, err := ResolveDiscordToken(cfg)
+	require.NoError(t, err)
+	require.Equal(t, "user-token", token.Token)
+	require.Equal(t, "user", token.Kind)
 }
 
 func TestLoadOpenClawDiscordFromAccount(t *testing.T) {
@@ -175,4 +190,10 @@ func TestConfigErrorsAndBackupFallback(t *testing.T) {
 	info, err := LoadOpenClawDiscord(base, "default")
 	require.NoError(t, err)
 	require.Equal(t, "backup-token", info.Token)
+}
+
+func TestNormalizeRejectsInvalidTokenKind(t *testing.T) {
+	cfg := Default()
+	cfg.Discord.TokenKind = "auto"
+	require.ErrorContains(t, cfg.Normalize(), "discord.token_kind")
 }

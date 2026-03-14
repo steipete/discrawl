@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -155,6 +156,76 @@ func TestTailRequiresHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, client.Tail(context.Background(), nil))
 	require.NoError(t, (&Client{}).Close())
+}
+
+func TestClientSelfUsesUserTokenAsProvided(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		headers []string
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v10/users/@me", func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		mu.Lock()
+		headers = append(headers, auth)
+		mu.Unlock()
+		if auth == "token" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "user"})
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": "401: Unauthorized", "code": 0})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	restore := patchDiscordEndpoints(server.URL + "/api/v10/")
+	defer restore()
+
+	client, err := New("token")
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	self, err := client.Self(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "user", self.ID)
+	require.Equal(t, "token", client.session.Token)
+	require.Equal(t, []string{"token"}, headers)
+}
+
+func TestClientSelfUsesBotTokenAsProvided(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		headers []string
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v10/users/@me", func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		mu.Lock()
+		headers = append(headers, auth)
+		mu.Unlock()
+		if auth != "Bot token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"message": "401: Unauthorized", "code": 0})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "bot"})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	restore := patchDiscordEndpoints(server.URL + "/api/v10/")
+	defer restore()
+
+	client, err := New("Bot token")
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	self, err := client.Self(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "bot", self.ID)
+	require.Equal(t, "Bot token", client.session.Token)
+	require.Equal(t, []string{"Bot token"}, headers)
 }
 
 func TestClientChannelMessagesTimesOut(t *testing.T) {

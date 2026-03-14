@@ -84,6 +84,7 @@ func (r *runtime) runInit(args []string) error {
 		"config_path":       r.configPath,
 		"db_path":           cfg.DBPath,
 		"token_source":      token.Source,
+		"token_kind":        token.Kind,
 		"default_guild_id":  cfg.DefaultGuildID,
 		"discovered_guilds": cfg.GuildIDs,
 	})
@@ -173,6 +174,7 @@ func (r *runtime) runDoctor(args []string) error {
 		report["discord_token"] = err.Error()
 	} else {
 		report["discord_token"] = token.Source
+		report["token_kind"] = token.Kind
 		discordFactory := r.newDiscord
 		if discordFactory == nil {
 			discordFactory = func(cfg config.Config) (discordClient, error) {
@@ -187,7 +189,7 @@ func (r *runtime) runDoctor(args []string) error {
 				report["discord_auth"] = authErr.Error()
 			} else {
 				report["discord_auth"] = "ok"
-				report["bot_user_id"] = self.ID
+				report["discord_user_id"] = self.ID
 			}
 			guilds, guildErr := client.Guilds(r.ctx)
 			if guildErr != nil {

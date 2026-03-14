@@ -68,7 +68,7 @@ An agent should assume:
 - Go is installed and modern
 - user is Peter
 - user keeps many secrets in `~/.profile`
-- an existing OpenClaw install may already contain usable Discord bot config
+- an existing OpenClaw install may already contain usable Discord token config
 
 ### Key file paths
 
@@ -78,9 +78,9 @@ An agent should assume:
 - `~/.openclaw/openclaw.json`
 - `~/.openclaw/openclaw.json.bak*`
 
-### Existing bot config
+### Existing Discord token config
 
-The current bot token source is expected in:
+The current token source is expected in:
 
 - `~/.openclaw/openclaw.json`
 
@@ -559,6 +559,7 @@ log_dir = "~/.discrawl/logs"
 token_source = "openclaw"
 openclaw_config = "~/.openclaw/openclaw.json"
 channel_account = "discord"
+token_kind = "bot"
 
 [sync]
 concurrency = 4
@@ -591,13 +592,14 @@ Environment variables:
 
 Do not:
 
-- put bot tokens in git
+- put Discord tokens in git
 - put API keys in git
 - print secrets in normal logs
 
 Do:
 
-- load bot token from OpenClaw config path
+- load Discord token from OpenClaw config path
+- choose auth style explicitly via `discord.token_kind = "bot" | "user"`
 - load OpenAI key from env
 - redact secrets in debug and doctor output
 
@@ -607,7 +609,7 @@ Do:
 
 1. load config
 2. resolve token
-3. fetch bot identity
+3. fetch authenticated identity
 4. fetch guild metadata
 5. fetch guild channels
 6. fetch active threads

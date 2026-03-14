@@ -2,7 +2,7 @@
 
 `discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search.
 
-It is a bot-token crawler. No user-token hacks. Data stays local.
+It supports both bot tokens and user tokens. Data stays local.
 
 ## What It Does
 
@@ -21,12 +21,22 @@ Search defaults to all guilds. `sync` and `tail` default to the configured defau
 ## Requirements
 
 - Go `1.26+`
-- a Discord bot token the bot can use to read the target guilds
-- bot permissions for the channels you want archived
+- a Discord token (bot or user) that can read the target guilds
+- for bot tokens: bot permissions for the channels you want archived
 
-### Discord Bot Setup
+### Discord Auth Setup
 
-`discrawl` needs a real bot token. Not a user token.
+`discrawl` can authenticate with either:
+
+- a bot token (`Bot <token>` or raw token text)
+- a user token (raw token text)
+
+Choose auth mode with `discord.token_kind` in config:
+
+- `bot`: sends `Authorization: Bot <token>`
+- `user`: sends `Authorization: <token>`
+
+### Discord Bot Setup (optional)
 
 Minimum practical setup:
 
@@ -42,14 +52,15 @@ Minimum practical setup:
 
 Without those intents/permissions, `sync`, `tail`, member snapshots, or message content archiving will be partial or fail.
 
-### Bot Token Sources
+### Token Sources
 
 Token resolution:
 
 1. OpenClaw config, if `discord.token_source` is not `env`
 2. `DISCORD_BOT_TOKEN` or the configured `discord.token_env`
 
-`discrawl` accepts either raw token text or a value prefixed with `Bot `. It normalizes that automatically.
+`discrawl` accepts either raw token text or a value prefixed with `Bot `.
+In `bot` mode, `discrawl` normalizes to `Bot <token>`. In `user` mode, it sends raw token auth.
 
 Fastest env-only path:
 
@@ -96,7 +107,7 @@ brew install steipete/tap/discrawl
 
 ## Quick Start
 
-Reuse an existing OpenClaw Discord bot config:
+Reuse an existing OpenClaw Discord config:
 
 ```bash
 bin/discrawl init --from-openclaw ~/.openclaw/openclaw.json
@@ -121,8 +132,8 @@ bin/discrawl sync --full
 
 - confirms config can be loaded
 - shows where the token was resolved from
-- verifies bot auth
-- shows how many guilds the bot can access
+- verifies Discord auth
+- shows how many guilds the token can access
 - verifies DB + FTS wiring
 
 ## Commands
@@ -323,6 +334,7 @@ token_source = "openclaw"
 openclaw_config = "~/.openclaw/openclaw.json"
 account = "default"
 token_env = "DISCORD_BOT_TOKEN"
+token_kind = "bot"
 
 [sync]
 concurrency = 16
@@ -348,6 +360,7 @@ Config override rules:
 - `--config` beats everything
 - `DISCRAWL_CONFIG` overrides the default config path
 - `discord.token_source = "env"` forces env-only token lookup
+- `discord.token_kind = "bot" | "user"` chooses auth header style
 
 ## Embeddings
 
@@ -377,7 +390,7 @@ Set `sync.attachment_text = false` if you want to keep attachment metadata and f
 
 ## Security
 
-- do not commit bot tokens or API keys
+- do not commit Discord tokens or API keys
 - default config lives in your home directory, not inside the repo
 - CI runs secret scanning with `gitleaks`
 - `doctor` reports token source, not token contents

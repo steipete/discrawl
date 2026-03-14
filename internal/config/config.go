@@ -16,6 +16,7 @@ import (
 const (
 	DefaultConfigEnv = "DISCRAWL_CONFIG"
 	DefaultTokenEnv  = "DISCORD_BOT_TOKEN"
+	DefaultTokenKind = "bot"
 )
 
 type Config struct {
@@ -36,6 +37,7 @@ type DiscordConfig struct {
 	OpenClawConfig string `toml:"openclaw_config"`
 	Account        string `toml:"account"`
 	TokenEnv       string `toml:"token_env"`
+	TokenKind      string `toml:"token_kind"`
 }
 
 type SyncConfig struct {
@@ -62,6 +64,7 @@ type TokenResolution struct {
 	Token  string
 	Source string
 	Path   string
+	Kind   string
 }
 
 type OpenClawDiscord struct {
@@ -101,6 +104,7 @@ func Default() Config {
 			OpenClawConfig: filepath.Join(home, ".openclaw", "openclaw.json"),
 			Account:        "default",
 			TokenEnv:       DefaultTokenEnv,
+			TokenKind:      DefaultTokenKind,
 		},
 		Sync: SyncConfig{
 			Concurrency:    defaultSyncConcurrency(),
@@ -212,6 +216,14 @@ func (c *Config) Normalize() error {
 	if c.Discord.TokenEnv == "" {
 		c.Discord.TokenEnv = DefaultTokenEnv
 	}
+	if c.Discord.TokenKind == "" {
+		c.Discord.TokenKind = DefaultTokenKind
+	}
+	switch c.Discord.TokenKind {
+	case "bot", "user":
+	default:
+		return fmt.Errorf("invalid discord.token_kind %q: expected bot or user", c.Discord.TokenKind)
+	}
 	if c.Sync.Concurrency <= 0 {
 		c.Sync.Concurrency = defaultSyncConcurrency()
 	}
@@ -297,14 +309,17 @@ func ResolveDiscordToken(cfg Config) (TokenResolution, error) {
 	if cfg.Discord.TokenSource != "env" {
 		openClaw, err := LoadOpenClawDiscord(cfg.Discord.OpenClawConfig, cfg.Discord.Account)
 		if err == nil && openClaw.Token != "" {
-			return TokenResolution{Token: openClaw.Token, Source: "openclaw", Path: openClaw.Path}, nil
+			token := formatTokenForKind(openClaw.Token, cfg.Discord.TokenKind)
+			if token != "" {
+				return TokenResolution{Token: token, Source: "openclaw", Path: openClaw.Path, Kind: cfg.Discord.TokenKind}, nil
+			}
 		}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return TokenResolution{}, err
 		}
 	}
-	if envToken := NormalizeBotToken(os.Getenv(cfg.Discord.TokenEnv)); envToken != "" {
-		return TokenResolution{Token: envToken, Source: "env", Path: cfg.Discord.TokenEnv}, nil
+	if envToken := formatTokenForKind(os.Getenv(cfg.Discord.TokenEnv), cfg.Discord.TokenKind); envToken != "" {
+		return TokenResolution{Token: envToken, Source: "env", Path: cfg.Discord.TokenEnv, Kind: cfg.Discord.TokenKind}, nil
 	}
 	return TokenResolution{}, errors.New("discord token not found in env or openclaw config")
 }
@@ -340,14 +355,14 @@ func loadOpenClawDiscordFile(path, account string) (OpenClawDiscord, error) {
 		return OpenClawDiscord{}, fmt.Errorf("parse openclaw config: %w", err)
 	}
 	discord := payload.Channels.Discord
-	token := NormalizeBotToken(discord.Token)
+	token := normalizeToken(discord.Token)
 	guildIDs := mapKeys(discord.Guilds)
 	if token == "" {
 		acct := discord.Accounts[normalizeAccount(account)]
 		if acct.Token == "" && account != normalizeAccount(account) {
 			acct = discord.Accounts[account]
 		}
-		token = NormalizeBotToken(acct.Token)
+		token = normalizeToken(acct.Token)
 		if len(guildIDs) == 0 {
 			guildIDs = mapKeys(acct.Guilds)
 		}
@@ -374,10 +389,27 @@ func openClawCandidates(path string) ([]string, error) {
 	return uniqueStrings(candidates), nil
 }
 
-func NormalizeBotToken(raw string) string {
+func normalizeToken(raw string) string {
 	raw = strings.TrimSpace(raw)
-	raw = strings.TrimPrefix(raw, "Bot ")
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "bot ") {
+		raw = strings.TrimSpace(raw[len("Bot "):])
+	}
+	if strings.HasPrefix(lower, "bearer ") {
+		raw = strings.TrimSpace(raw[len("Bearer "):])
+	}
 	return strings.TrimSpace(raw)
+}
+
+func formatTokenForKind(raw, kind string) string {
+	token := normalizeToken(raw)
+	if token == "" {
+		return ""
+	}
+	if kind == "user" {
+		return token
+	}
+	return "Bot " + token
 }
 
 func normalizeAccount(account string) string {
