@@ -84,7 +84,7 @@ func (s *Syncer) liveChannelList(ctx context.Context, guildID string) ([]*discor
 		if err := s.appendThreadCatalog(ctx, allChannels, parentIDs); err != nil {
 			return nil, err
 		}
-	} else if err := s.appendActiveThreadCatalog(ctx, allChannels, parentIDs); err != nil {
+	} else if err := s.appendActiveThreadCatalog(ctx, allChannels, guildID, parentIDs); err != nil {
 		return nil, err
 	}
 	return mapsToSlice(allChannels), nil
@@ -113,15 +113,30 @@ func (s *Syncer) appendThreadCatalog(ctx context.Context, allChannels map[string
 	return nil
 }
 
-func (s *Syncer) appendActiveThreadCatalog(ctx context.Context, allChannels map[string]*discordgo.Channel, parents []string) error {
+func (s *Syncer) appendActiveThreadCatalog(ctx context.Context, allChannels map[string]*discordgo.Channel, guildID string, parents []string) error {
+	allowedParents := make(map[string]struct{}, len(parents))
 	for _, parentID := range uniqueIDs(parents) {
 		channel := allChannels[parentID]
 		if !isThreadParent(channel) {
 			continue
 		}
-		if err := s.appendActiveThreads(ctx, allChannels, channel.ID); err != nil {
-			return err
+		allowedParents[parentID] = struct{}{}
+	}
+	if len(allowedParents) == 0 {
+		return nil
+	}
+	active, err := s.client.GuildThreadsActive(ctx, guildID)
+	if err != nil {
+		return err
+	}
+	for _, thread := range active {
+		if thread == nil {
+			continue
 		}
+		if _, ok := allowedParents[thread.ParentID]; !ok {
+			continue
+		}
+		allChannels[thread.ID] = thread
 	}
 	return nil
 }

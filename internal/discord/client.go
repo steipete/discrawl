@@ -102,6 +102,16 @@ func (c *Client) ThreadsActive(ctx context.Context, channelID string) ([]*discor
 	return list.Threads, nil
 }
 
+func (c *Client) GuildThreadsActive(ctx context.Context, guildID string) ([]*discordgo.Channel, error) {
+	reqCtx, cancel := c.requestContext(ctx)
+	defer cancel()
+	list, err := c.session.GuildThreadsActive(guildID, discordgo.WithContext(reqCtx))
+	if err != nil {
+		return nil, err
+	}
+	return list.Threads, nil
+}
+
 func (c *Client) ThreadsArchived(ctx context.Context, channelID string, private bool) ([]*discordgo.Channel, error) {
 	var out []*discordgo.Channel
 	var before *time.Time

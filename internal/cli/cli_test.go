@@ -157,6 +157,10 @@ func (f *fakeDiscordClient) ThreadsActive(context.Context, string) ([]*discordgo
 	return nil, nil
 }
 
+func (f *fakeDiscordClient) GuildThreadsActive(context.Context, string) ([]*discordgo.Channel, error) {
+	return nil, nil
+}
+
 func (f *fakeDiscordClient) ThreadsArchived(context.Context, string, bool) ([]*discordgo.Channel, error) {
 	return nil, nil
 }

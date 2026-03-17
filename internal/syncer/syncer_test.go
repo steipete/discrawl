@@ -16,25 +16,27 @@ import (
 )
 
 type fakeClient struct {
-	guilds         []*discordgo.UserGuild
-	guildByID      map[string]*discordgo.Guild
-	channels       map[string][]*discordgo.Channel
-	activeThreads  map[string][]*discordgo.Channel
-	publicArchived map[string][]*discordgo.Channel
-	privateArchive map[string][]*discordgo.Channel
-	members        map[string][]*discordgo.Member
-	messages       map[string][]*discordgo.Message
-	messageErrors  map[string]error
-	messageCalls   map[string]int
-	beforeErrors   map[string]map[string]error
-	tailCalls      int
-	messageDelay   time.Duration
-	guildChanCalls int
-	threadCalls    int
-	memberCalls    int
-	mu             sync.Mutex
-	inFlight       int
-	maxInFlight    int
+	guilds           []*discordgo.UserGuild
+	guildByID        map[string]*discordgo.Guild
+	channels         map[string][]*discordgo.Channel
+	activeThreads    map[string][]*discordgo.Channel
+	guildThreads     map[string][]*discordgo.Channel
+	publicArchived   map[string][]*discordgo.Channel
+	privateArchive   map[string][]*discordgo.Channel
+	members          map[string][]*discordgo.Member
+	messages         map[string][]*discordgo.Message
+	messageErrors    map[string]error
+	messageCalls     map[string]int
+	beforeErrors     map[string]map[string]error
+	tailCalls        int
+	messageDelay     time.Duration
+	guildChanCalls   int
+	threadCalls      int
+	guildThreadCalls int
+	memberCalls      int
+	mu               sync.Mutex
+	inFlight         int
+	maxInFlight      int
 }
 
 func (f *fakeClient) Self(context.Context) (*discordgo.User, error) {
@@ -57,6 +59,18 @@ func (f *fakeClient) GuildChannels(_ context.Context, guildID string) ([]*discor
 func (f *fakeClient) ThreadsActive(_ context.Context, channelID string) ([]*discordgo.Channel, error) {
 	f.threadCalls++
 	return f.activeThreads[channelID], nil
+}
+
+func (f *fakeClient) GuildThreadsActive(_ context.Context, guildID string) ([]*discordgo.Channel, error) {
+	f.guildThreadCalls++
+	if f.guildThreads != nil {
+		return f.guildThreads[guildID], nil
+	}
+	var out []*discordgo.Channel
+	for _, threads := range f.activeThreads {
+		out = append(out, threads...)
+	}
+	return out, nil
 }
 
 func (f *fakeClient) ThreadsArchived(_ context.Context, channelID string, private bool) ([]*discordgo.Channel, error) {

@@ -244,6 +244,63 @@ func TestFullSyncReusesStoredThreadParents(t *testing.T) {
 	require.Equal(t, 1, client.messageCalls["t1"])
 }
 
+func TestFullSyncUsesGuildActiveThreadsForStoredParents(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{
+		ID:      "c1",
+		GuildID: "g1",
+		Kind:    "text",
+		Name:    "general",
+		RawJSON: `{"id":"c1"}`,
+	}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{
+		ID:       "t1",
+		GuildID:  "g1",
+		ParentID: "c1",
+		Kind:     "thread_public",
+		Name:     "bug-report",
+		RawJSON:  `{"id":"t1"}`,
+	}))
+	require.NoError(t, s.SetSyncState(ctx, channelHistoryCompleteScope("c1"), "1"))
+	require.NoError(t, s.SetSyncState(ctx, channelHistoryCompleteScope("t1"), "1"))
+	require.NoError(t, s.SetSyncState(ctx, channelLatestScope("t1"), "10"))
+
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {
+				{ID: "c1", GuildID: "g1", Name: "general", Type: discordgo.ChannelTypeGuildText},
+			},
+		},
+		guildThreads: map[string][]*discordgo.Channel{
+			"g1": {{
+				ID:            "t1",
+				GuildID:       "g1",
+				ParentID:      "c1",
+				Name:          "bug-report",
+				Type:          discordgo.ChannelTypeGuildPublicThread,
+				LastMessageID: "10",
+			}},
+		},
+	}
+
+	svc := New(client, s, nil)
+	_, err = svc.Sync(ctx, SyncOptions{Full: true, GuildIDs: []string{"g1"}})
+	require.NoError(t, err)
+	require.Equal(t, 1, client.guildThreadCalls)
+	require.Zero(t, client.threadCalls)
+}
+
 func TestFullSyncFallsBackToBroadThreadDiscoveryWithoutStoredThreads(t *testing.T) {
 	t.Parallel()
 
