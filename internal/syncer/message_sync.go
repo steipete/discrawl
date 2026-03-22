@@ -69,7 +69,7 @@ func requestedMessageTarget(channel *discordgo.Channel, channelByID map[string]*
 func (s *Syncer) syncMessageChannelsSerial(ctx context.Context, guildID string, channels []*discordgo.Channel, opts SyncOptions, progress *messageSyncProgress) (int, error) {
 	total := 0
 	for _, channel := range channels {
-		count, err := s.syncChannelMessages(ctx, guildID, channel, opts.Full, opts.Embeddings)
+		count, err := s.syncChannelMessages(ctx, guildID, channel, opts.Full, opts.Embeddings, opts.Since)
 		total += count
 		if err != nil {
 			if s.skipSyncError(ctx, channel, err) {
@@ -115,7 +115,7 @@ func (s *Syncer) syncMessageChannelsConcurrent(
 				if ctx.Err() != nil {
 					return
 				}
-				count, err := s.syncChannelMessages(ctx, guildID, channel, opts.Full, opts.Embeddings)
+				count, err := s.syncChannelMessages(ctx, guildID, channel, opts.Full, opts.Embeddings, opts.Since)
 				succeeded := err == nil
 				if err != nil && s.skipSyncError(ctx, channel, err) {
 					err = nil
@@ -171,7 +171,7 @@ func (s *Syncer) clearUnavailableChannel(ctx context.Context, channelID string) 
 	return s.store.DeleteSyncState(ctx, "channel:"+channelID+":unavailable")
 }
 
-func (s *Syncer) syncChannelMessages(ctx context.Context, guildID string, channel *discordgo.Channel, full bool, embeddings bool) (int, error) {
+func (s *Syncer) syncChannelMessages(ctx context.Context, guildID string, channel *discordgo.Channel, full bool, embeddings bool, since time.Time) (int, error) {
 	state, err := s.loadChannelSyncState(ctx, channel.ID)
 	if err != nil {
 		return 0, err
@@ -183,12 +183,12 @@ func (s *Syncer) syncChannelMessages(ctx context.Context, guildID string, channe
 		if shouldSkipChannelSync(channel, state) {
 			return 0, nil
 		}
-		return s.syncFullChannelHistory(ctx, channel, state, embeddings)
+		return s.syncFullChannelHistory(ctx, channel, state, embeddings, since)
 	}
 	if shouldSkipChannelSync(channel, state) {
 		return 0, nil
 	}
-	return s.syncIncrementalChannelHistory(ctx, channel, state, embeddings)
+	return s.syncIncrementalChannelHistory(ctx, channel, state, embeddings, since)
 }
 
 type channelSyncState struct {
@@ -254,7 +254,7 @@ func (s *Syncer) seedChannelSyncState(ctx context.Context, channelID string, sta
 	return nil
 }
 
-func (s *Syncer) syncFullChannelHistory(ctx context.Context, channel *discordgo.Channel, state channelSyncState, embeddings bool) (int, error) {
+func (s *Syncer) syncFullChannelHistory(ctx context.Context, channel *discordgo.Channel, state channelSyncState, embeddings bool, since time.Time) (int, error) {
 	messageCount := 0
 	newest := state.Latest
 	if state.Latest != "" {
@@ -273,7 +273,7 @@ func (s *Syncer) syncFullChannelHistory(ctx context.Context, channel *discordgo.
 		if before == "" && state.Latest != "" {
 			before = state.Latest
 		}
-		count, latest, err := s.syncBackfillPages(ctx, channel, before, channel.Name, embeddings)
+		count, latest, err := s.syncBackfillPages(ctx, channel, before, channel.Name, embeddings, since)
 		messageCount += count
 		newest = maxSnowflake(newest, latest)
 		if err != nil {
@@ -288,9 +288,9 @@ func (s *Syncer) syncFullChannelHistory(ctx context.Context, channel *discordgo.
 	return messageCount, nil
 }
 
-func (s *Syncer) syncIncrementalChannelHistory(ctx context.Context, channel *discordgo.Channel, state channelSyncState, embeddings bool) (int, error) {
+func (s *Syncer) syncIncrementalChannelHistory(ctx context.Context, channel *discordgo.Channel, state channelSyncState, embeddings bool, since time.Time) (int, error) {
 	if state.Latest == "" {
-		return s.bootstrapChannelHistory(ctx, channel, embeddings)
+		return s.bootstrapChannelHistory(ctx, channel, embeddings, since)
 	}
 	count, newest, err := s.syncForwardPages(ctx, channel, state.Latest, channel.Name, embeddings)
 	if err != nil {
@@ -305,7 +305,7 @@ func (s *Syncer) syncIncrementalChannelHistory(ctx context.Context, channel *dis
 	return count, nil
 }
 
-func (s *Syncer) bootstrapChannelHistory(ctx context.Context, channel *discordgo.Channel, embeddings bool) (int, error) {
+func (s *Syncer) bootstrapChannelHistory(ctx context.Context, channel *discordgo.Channel, embeddings bool, since time.Time) (int, error) {
 	messageCount := 0
 	before := ""
 	newest := ""
@@ -317,14 +317,29 @@ func (s *Syncer) bootstrapChannelHistory(ctx context.Context, channel *discordgo
 		if len(page) == 0 {
 			break
 		}
-		pageNewest, err := s.persistMessagePage(ctx, page, channel.Name, embeddings)
+		eligible, reachedSince := filterMessagesSince(page, since)
+		pageNewest, err := s.persistMessagePage(ctx, eligible, channel.Name, embeddings)
 		if err != nil {
 			return messageCount, err
 		}
 		newest = maxSnowflake(newest, pageNewest)
-		messageCount += len(page)
+		messageCount += len(eligible)
+		if reachedSince {
+			if len(eligible) > 0 {
+				before = eligible[len(eligible)-1].ID
+				if err := s.store.SetSyncState(ctx, channelBackfillScope(channel.ID), before); err != nil {
+					return messageCount, err
+				}
+			}
+			break
+		}
 		before = page[len(page)-1].ID
 		if len(page) < 100 {
+			if newest != "" {
+				if err := s.store.SetSyncState(ctx, channelHistoryCompleteScope(channel.ID), "1"); err != nil {
+					return messageCount, err
+				}
+			}
 			break
 		}
 	}
@@ -364,7 +379,7 @@ func (s *Syncer) syncForwardPages(ctx context.Context, channel *discordgo.Channe
 	return messageCount, newest, nil
 }
 
-func (s *Syncer) syncBackfillPages(ctx context.Context, channel *discordgo.Channel, before, channelName string, embeddings bool) (int, string, error) {
+func (s *Syncer) syncBackfillPages(ctx context.Context, channel *discordgo.Channel, before, channelName string, embeddings bool, since time.Time) (int, string, error) {
 	messageCount := 0
 	newest := ""
 	for {
@@ -378,16 +393,26 @@ func (s *Syncer) syncBackfillPages(ctx context.Context, channel *discordgo.Chann
 			}
 			break
 		}
-		pageNewest, err := s.persistMessagePage(ctx, page, channelName, embeddings)
+		eligible, reachedSince := filterMessagesSince(page, since)
+		pageNewest, err := s.persistMessagePage(ctx, eligible, channelName, embeddings)
 		if err != nil {
 			return messageCount, newest, err
 		}
 		newest = maxSnowflake(newest, pageNewest)
-		messageCount += len(page)
+		messageCount += len(eligible)
 		if newest != "" {
 			if err := s.store.SetSyncState(ctx, channelLatestScope(channel.ID), newest); err != nil {
 				return messageCount, newest, err
 			}
+		}
+		if reachedSince {
+			if len(eligible) > 0 {
+				before = eligible[len(eligible)-1].ID
+				if err := s.store.SetSyncState(ctx, channelBackfillScope(channel.ID), before); err != nil {
+					return messageCount, newest, err
+				}
+			}
+			break
 		}
 		before = page[len(page)-1].ID
 		if err := s.store.SetSyncState(ctx, channelBackfillScope(channel.ID), before); err != nil {
@@ -404,6 +429,9 @@ func (s *Syncer) syncBackfillPages(ctx context.Context, channel *discordgo.Chann
 }
 
 func (s *Syncer) persistMessagePage(ctx context.Context, messages []*discordgo.Message, channelName string, embeddings bool) (string, error) {
+	if len(messages) == 0 {
+		return "", nil
+	}
 	mutations, newest, err := buildMessageMutations(ctx, messages, channelName, embeddings, s.attachmentTextEnabled)
 	if err != nil {
 		return "", err
@@ -426,6 +454,22 @@ func buildMessageMutations(ctx context.Context, messages []*discordgo.Message, c
 		newest = maxSnowflake(newest, message.ID)
 	}
 	return mutations, newest, nil
+}
+
+func filterMessagesSince(messages []*discordgo.Message, since time.Time) ([]*discordgo.Message, bool) {
+	if since.IsZero() || len(messages) == 0 {
+		return messages, false
+	}
+	out := make([]*discordgo.Message, 0, len(messages))
+	reachedSince := false
+	for _, message := range messages {
+		if message.Timestamp.Before(since) {
+			reachedSince = true
+			break
+		}
+		out = append(out, message)
+	}
+	return out, reachedSince
 }
 
 type messageSyncProgress struct {

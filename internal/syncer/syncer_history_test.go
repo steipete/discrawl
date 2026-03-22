@@ -252,3 +252,169 @@ func TestSyncMarksEmptyChannelComplete(t *testing.T) {
 	require.Equal(t, []string{"count(*)"}, cols)
 	require.Equal(t, [][]string{{"1"}}, rows)
 }
+
+func TestSyncSinceLimitsInitialBootstrap(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	now := time.Now().UTC()
+	cutoff := now.Add(-3 * time.Hour)
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {{ID: "c1", GuildID: "g1", Name: "general", Type: discordgo.ChannelTypeGuildText}},
+		},
+		messages: map[string][]*discordgo.Message{
+			"c1": {
+				{
+					ID:        "300",
+					GuildID:   "g1",
+					ChannelID: "c1",
+					Content:   "msg-300",
+					Timestamp: now.Add(-1 * time.Hour),
+					Author:    &discordgo.User{ID: "u1", Username: "user"},
+				},
+				{
+					ID:        "200",
+					GuildID:   "g1",
+					ChannelID: "c1",
+					Content:   "msg-200",
+					Timestamp: now.Add(-2 * time.Hour),
+					Author:    &discordgo.User{ID: "u1", Username: "user"},
+				},
+				{
+					ID:        "100",
+					GuildID:   "g1",
+					ChannelID: "c1",
+					Content:   "msg-100",
+					Timestamp: now.Add(-5 * time.Hour),
+					Author:    &discordgo.User{ID: "u1", Username: "user"},
+				},
+			},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{Since: cutoff})
+	require.NoError(t, err)
+	require.Equal(t, 2, stats.Messages)
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select id from messages order by id desc")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"300"}, {"200"}}, rows)
+
+	latest, err := s.GetSyncState(ctx, channelLatestScope("c1"))
+	require.NoError(t, err)
+	require.Equal(t, "300", latest)
+
+	backfill, err := s.GetSyncState(ctx, channelBackfillScope("c1"))
+	require.NoError(t, err)
+	require.Equal(t, "200", backfill)
+
+	complete, err := s.GetSyncState(ctx, channelHistoryCompleteScope("c1"))
+	require.NoError(t, err)
+	require.Empty(t, complete)
+}
+
+func TestSyncFullSinceStopsBackfillAtCutoff(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	now := time.Now().UTC()
+	cutoff := now.Add(-4 * time.Hour)
+	messages := []*discordgo.Message{
+		{
+			ID:        "300",
+			GuildID:   "g1",
+			ChannelID: "c1",
+			Content:   "msg-300",
+			Timestamp: now.Add(-1 * time.Hour),
+			Author:    &discordgo.User{ID: "u1", Username: "user"},
+		},
+		{
+			ID:        "250",
+			GuildID:   "g1",
+			ChannelID: "c1",
+			Content:   "msg-250",
+			Timestamp: now.Add(-2 * time.Hour),
+			Author:    &discordgo.User{ID: "u1", Username: "user"},
+		},
+		{
+			ID:        "200",
+			GuildID:   "g1",
+			ChannelID: "c1",
+			Content:   "msg-200",
+			Timestamp: now.Add(-3 * time.Hour),
+			Author:    &discordgo.User{ID: "u1", Username: "user"},
+		},
+		{
+			ID:        "150",
+			GuildID:   "g1",
+			ChannelID: "c1",
+			Content:   "msg-150",
+			Timestamp: now.Add(-4 * time.Hour),
+			Author:    &discordgo.User{ID: "u1", Username: "user"},
+		},
+		{
+			ID:        "100",
+			GuildID:   "g1",
+			ChannelID: "c1",
+			Content:   "msg-100",
+			Timestamp: now.Add(-5 * time.Hour),
+			Author:    &discordgo.User{ID: "u1", Username: "user"},
+		},
+	}
+
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {{ID: "c1", GuildID: "g1", Name: "general", Type: discordgo.ChannelTypeGuildText}},
+		},
+		messages: map[string][]*discordgo.Message{
+			"c1": messages,
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{Full: true, Since: cutoff, Concurrency: 1})
+	require.NoError(t, err)
+	require.Equal(t, 4, stats.Messages)
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select id from messages order by id desc")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"300"}, {"250"}, {"200"}, {"150"}}, rows)
+
+	backfill, err := s.GetSyncState(ctx, channelBackfillScope("c1"))
+	require.NoError(t, err)
+	require.Equal(t, "150", backfill)
+
+	complete, err := s.GetSyncState(ctx, channelHistoryCompleteScope("c1"))
+	require.NoError(t, err)
+	require.Empty(t, complete)
+
+	stats, err = svc.Sync(ctx, SyncOptions{Full: true, Concurrency: 1})
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.Messages)
+
+	_, rows, err = s.ReadOnlyQuery(ctx, "select id from messages order by id desc")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"300"}, {"250"}, {"200"}, {"150"}, {"100"}}, rows)
+
+	complete, err = s.GetSyncState(ctx, channelHistoryCompleteScope("c1"))
+	require.NoError(t, err)
+	require.Equal(t, "1", complete)
+}

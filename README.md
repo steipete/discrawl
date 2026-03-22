@@ -151,6 +151,7 @@ bin/discrawl sync --channels 111,222 --since 2026-03-01T00:00:00Z
 
 `sync` already uses parallel channel workers. `--concurrency` overrides the default, and the default is auto-sized from `GOMAXPROCS` with a floor of `8` and a cap of `32`.
 When `--channels` includes a forum channel id, `discrawl` expands that forum's threads and syncs their messages as part of the targeted run.
+`--since` limits initial history/bootstrap and full-history backfill to messages at or after the given RFC3339 timestamp. It does not mark older history as complete, so a later `sync --full` without `--since` can continue the backfill.
 Long runs now emit periodic progress logs to stderr so large backfills do not look hung.
 
 ### `tail`
