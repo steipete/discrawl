@@ -55,8 +55,10 @@ type SyncStats struct {
 	Messages int `json:"messages"`
 }
 
-const fullSyncBatchSize = 25
-const defaultMemberRefreshTimeout = 2 * time.Minute
+const (
+	fullSyncBatchSize           = 25
+	defaultMemberRefreshTimeout = 2 * time.Minute
+)
 
 func New(client Client, store *store.Store, logger *slog.Logger) *Syncer {
 	if logger == nil {
