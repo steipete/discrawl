@@ -154,6 +154,8 @@ When `--channels` includes a forum channel id, `discrawl` expands that forum's t
 `--since` limits initial history/bootstrap and full-history backfill to messages at or after the given RFC3339 timestamp. It does not mark older history as complete, so a later `sync --full` without `--since` can continue the backfill.
 Long runs now emit periodic progress logs to stderr so large backfills do not look hung.
 Full sync member refresh is best-effort and currently gives up after two minutes without a caller-supplied deadline, so message sync completion is not held hostage by a slow guild member crawl.
+When the archive is already complete, `sync --full` now reuses the stored backlog markers and limits steady-state refresh to live top-level channels plus active threads instead of revisiting every stored archived thread.
+If a guild already has a local member snapshot, routine syncs reuse it and skip another full member crawl until that snapshot ages out.
 
 ### `tail`
 

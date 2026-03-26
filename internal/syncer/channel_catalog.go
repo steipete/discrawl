@@ -11,9 +11,16 @@ import (
 	"github.com/steipete/discrawl/internal/store"
 )
 
-func (s *Syncer) channelList(ctx context.Context, guildID string, requested []string) ([]*discordgo.Channel, bool, error) {
+type channelCatalogMode int
+
+const (
+	channelCatalogFull channelCatalogMode = iota
+	channelCatalogIncremental
+)
+
+func (s *Syncer) channelList(ctx context.Context, guildID string, requested []string, mode channelCatalogMode) ([]*discordgo.Channel, bool, error) {
 	if len(requested) == 0 {
-		channels, err := s.liveChannelList(ctx, guildID)
+		channels, err := s.liveChannelList(ctx, guildID, mode)
 		if err != nil {
 			return nil, false, err
 		}
@@ -61,7 +68,7 @@ func (s *Syncer) channelList(ctx context.Context, guildID string, requested []st
 	return selected, true, nil
 }
 
-func (s *Syncer) liveChannelList(ctx context.Context, guildID string) ([]*discordgo.Channel, error) {
+func (s *Syncer) liveChannelList(ctx context.Context, guildID string, mode channelCatalogMode) ([]*discordgo.Channel, error) {
 	channels, err := s.client.GuildChannels(ctx, guildID)
 	if err != nil {
 		return nil, fmt.Errorf("fetch channels for guild %s: %w", guildID, err)
@@ -69,6 +76,12 @@ func (s *Syncer) liveChannelList(ctx context.Context, guildID string) ([]*discor
 	allChannels := make(map[string]*discordgo.Channel, len(channels))
 	for _, channel := range channels {
 		allChannels[channel.ID] = channel
+	}
+	if mode == channelCatalogIncremental {
+		if err := s.appendActiveThreadCatalog(ctx, allChannels, guildID, threadParentIDs(channels)); err != nil {
+			return nil, err
+		}
+		return mapsToSlice(allChannels), nil
 	}
 	var storedRows []store.ChannelRow
 	if s.store != nil {

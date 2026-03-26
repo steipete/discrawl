@@ -35,6 +35,7 @@ type Syncer struct {
 	logger                *slog.Logger
 	attachmentTextEnabled bool
 	memberRefreshTimeout  time.Duration
+	memberRefreshInterval time.Duration
 }
 
 type SyncOptions struct {
@@ -56,8 +57,9 @@ type SyncStats struct {
 }
 
 const (
-	fullSyncBatchSize           = 25
-	defaultMemberRefreshTimeout = 2 * time.Minute
+	fullSyncBatchSize            = 25
+	defaultMemberRefreshTimeout  = 2 * time.Minute
+	defaultMemberRefreshInterval = 24 * time.Hour
 )
 
 func New(client Client, store *store.Store, logger *slog.Logger) *Syncer {
@@ -70,6 +72,7 @@ func New(client Client, store *store.Store, logger *slog.Logger) *Syncer {
 		logger:                logger,
 		attachmentTextEnabled: true,
 		memberRefreshTimeout:  defaultMemberRefreshTimeout,
+		memberRefreshInterval: defaultMemberRefreshInterval,
 	}
 }
 
@@ -121,6 +124,7 @@ func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions
 	}
 
 	stats := SyncStats{}
+	catalogMode := channelCatalogFull
 	if opts.Full && len(opts.ChannelIDs) == 0 {
 		batched, ok, err := s.syncGuildIncompleteBatches(ctx, guildID, opts)
 		if err != nil {
@@ -133,8 +137,11 @@ func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions
 			stats.Messages += batched.Messages
 			return stats, nil
 		}
+		if s.shouldUseIncrementalFullCatalog(ctx, guildID) {
+			catalogMode = channelCatalogIncremental
+		}
 	}
-	channelList, targeted, err := s.channelList(ctx, guildID, opts.ChannelIDs)
+	channelList, targeted, err := s.channelList(ctx, guildID, opts.ChannelIDs, catalogMode)
 	if err != nil {
 		return stats, err
 	}
@@ -201,6 +208,9 @@ func (s *Syncer) syncGuildIncompleteBatches(ctx context.Context, guildID string,
 }
 
 func (s *Syncer) refreshGuildMembers(ctx context.Context, guildID string) int {
+	if !s.shouldRefreshMembers(ctx, guildID) {
+		return 0
+	}
 	memberCtx := ctx
 	cancel := func() {}
 	if s.memberRefreshTimeout > 0 {
@@ -234,6 +244,11 @@ func (s *Syncer) refreshGuildMembers(ctx context.Context, guildID string) int {
 		s.logger.Warn("member replace failed", "guild_id", guildID, "err", err)
 		return 0
 	}
+	if s.store != nil {
+		if err := s.store.SetSyncState(ctx, guildMemberSyncSuccessScope(guildID), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			s.logger.Warn("member sync state update failed", "guild_id", guildID, "err", err)
+		}
+	}
 	s.logger.Info(
 		"member sync completed",
 		"guild_id", guildID,
@@ -241,6 +256,74 @@ func (s *Syncer) refreshGuildMembers(ctx context.Context, guildID string) int {
 		"elapsed", time.Since(startedAt).Round(time.Second).String(),
 	)
 	return len(converted)
+}
+
+func (s *Syncer) shouldUseIncrementalFullCatalog(ctx context.Context, guildID string) bool {
+	if s == nil || s.store == nil || guildID == "" {
+		return false
+	}
+	count, err := s.store.GuildChannelCount(ctx, guildID)
+	if err != nil {
+		s.logger.Warn("channel count lookup failed", "guild_id", guildID, "err", err)
+		return false
+	}
+	return count > 0
+}
+
+func (s *Syncer) shouldRefreshMembers(ctx context.Context, guildID string) bool {
+	if s == nil || s.store == nil || guildID == "" {
+		return true
+	}
+	scope := guildMemberSyncSuccessScope(guildID)
+	lastSuccess, err := s.store.GetSyncState(ctx, scope)
+	if err != nil {
+		s.logger.Warn("member sync state lookup failed", "guild_id", guildID, "err", err)
+		return true
+	}
+	if lastSuccess == "" {
+		count, err := s.store.GuildMemberCount(ctx, guildID)
+		if err != nil {
+			s.logger.Warn("member count lookup failed", "guild_id", guildID, "err", err)
+			return true
+		}
+		if count > 0 {
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			if err := s.store.SetSyncState(ctx, scope, now); err != nil {
+				s.logger.Warn("member sync state seed failed", "guild_id", guildID, "err", err)
+				return true
+			}
+			s.logger.Info(
+				"member sync skipped",
+				"guild_id", guildID,
+				"reason", "reused_existing_snapshot",
+				"members", count,
+			)
+			return false
+		}
+		return true
+	}
+	if s.memberRefreshInterval <= 0 {
+		return true
+	}
+	lastAt, err := time.Parse(time.RFC3339Nano, lastSuccess)
+	if err != nil {
+		return true
+	}
+	age := time.Since(lastAt)
+	if age < s.memberRefreshInterval {
+		s.logger.Info(
+			"member sync skipped",
+			"guild_id", guildID,
+			"reason", "fresh_snapshot",
+			"age", age.Round(time.Second).String(),
+		)
+		return false
+	}
+	return true
+}
+
+func guildMemberSyncSuccessScope(guildID string) string {
+	return "guild:" + guildID + ":members:last_success"
 }
 
 func timeoutLabel(d time.Duration) string {

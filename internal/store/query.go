@@ -241,6 +241,30 @@ func (s *Store) Channels(ctx context.Context, guildID string) ([]ChannelRow, err
 	return out, rows.Err()
 }
 
+func (s *Store) GuildChannelCount(ctx context.Context, guildID string) (int, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `
+		select count(*)
+		from channels
+		where guild_id = ?
+	`, guildID).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *Store) GuildMemberCount(ctx context.Context, guildID string) (int, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `
+		select count(*)
+		from members
+		where guild_id = ?
+	`, guildID).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *Store) IncompleteMessageChannelIDs(ctx context.Context, guildID string) ([]string, error) {
 	args := []any{}
 	query := `

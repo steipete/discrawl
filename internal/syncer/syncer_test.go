@@ -334,6 +334,57 @@ func TestSyncMemberRefreshTimeoutStillMarksSuccess(t *testing.T) {
 	require.NotEmpty(t, lastSync)
 }
 
+func TestSyncSkipsMemberRefreshWhenExistingSnapshotPresent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{
+		GuildID:     "g1",
+		UserID:      "u1",
+		Username:    "user",
+		DisplayName: "User",
+		RoleIDsJSON: "[]",
+		RawJSON:     `{"user":{"id":"u1"}}`,
+	}))
+
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {
+				{ID: "c1", GuildID: "g1", Name: "general", Type: discordgo.ChannelTypeGuildText},
+			},
+		},
+		messages: map[string][]*discordgo.Message{
+			"c1": {{
+				ID:        "100",
+				GuildID:   "g1",
+				ChannelID: "c1",
+				Content:   "hello",
+				Timestamp: time.Now().UTC(),
+				Author:    &discordgo.User{ID: "u1", Username: "user"},
+			}},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{Full: true})
+	require.NoError(t, err)
+	require.Equal(t, 0, stats.Members)
+	require.Zero(t, client.memberCalls)
+
+	lastSuccess, err := s.GetSyncState(ctx, guildMemberSyncSuccessScope("g1"))
+	require.NoError(t, err)
+	require.NotEmpty(t, lastSuccess)
+}
+
 func TestSyncFullAutoBatchesIncompleteStoredChannels(t *testing.T) {
 	t.Parallel()
 
@@ -380,6 +431,61 @@ func TestSyncFullAutoBatchesIncompleteStoredChannels(t *testing.T) {
 	require.Zero(t, client.threadCalls)
 	require.Equal(t, 1, client.messageCalls["t1"])
 	require.Equal(t, 1, client.messageCalls["t2"])
+}
+
+func TestSyncFullUsesIncrementalCatalogWhenArchiveAlreadyComplete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{
+		ID:      "c1",
+		GuildID: "g1",
+		Kind:    "text",
+		Name:    "general",
+		RawJSON: `{"id":"c1"}`,
+	}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{
+		ID:       "t1",
+		GuildID:  "g1",
+		ParentID: "c1",
+		Kind:     "thread_public",
+		Name:     "archived-thread",
+		RawJSON:  `{"id":"t1"}`,
+	}))
+	require.NoError(t, s.SetSyncState(ctx, channelLatestScope("c1"), "200"))
+	require.NoError(t, s.SetSyncState(ctx, channelHistoryCompleteScope("c1"), "1"))
+	require.NoError(t, s.SetSyncState(ctx, channelLatestScope("t1"), "300"))
+	require.NoError(t, s.SetSyncState(ctx, channelHistoryCompleteScope("t1"), "1"))
+
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {{
+				ID:            "c1",
+				GuildID:       "g1",
+				Name:          "general",
+				Type:          discordgo.ChannelTypeGuildText,
+				LastMessageID: "200",
+			}},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{Full: true, GuildIDs: []string{"g1"}})
+	require.NoError(t, err)
+	require.Zero(t, stats.Messages)
+	require.Equal(t, 1, stats.Channels)
+	require.Zero(t, client.messageCalls["t1"])
+	require.Zero(t, client.threadCalls)
+	require.Equal(t, 1, client.guildThreadCalls)
 }
 
 func TestSetAttachmentTextEnabled(t *testing.T) {
