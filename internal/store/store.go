@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	timeLayout        = time.RFC3339Nano
-	messageFTSVersion = "2"
-	memberFTSVersion  = "1"
+	timeLayout         = time.RFC3339Nano
+	messageFTSVersion  = "2"
+	memberFTSVersion   = "1"
+	storeSchemaVersion = 1
 )
 
 type Store struct {
@@ -187,6 +188,56 @@ func (s *Store) DB() *sql.DB {
 }
 
 func (s *Store) migrate(ctx context.Context) error {
+	currentVersion, err := s.schemaVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if currentVersion > storeSchemaVersion {
+		return fmt.Errorf("database schema version %d is newer than supported version %d", currentVersion, storeSchemaVersion)
+	}
+	if currentVersion < 1 {
+		if err := s.applyBaselineSchema(ctx); err != nil {
+			return err
+		}
+		if err := s.setSchemaVersion(ctx, storeSchemaVersion); err != nil {
+			return err
+		}
+	}
+	if version, err := s.schemaVersion(ctx); err != nil {
+		return err
+	} else if version != storeSchemaVersion {
+		return fmt.Errorf("database schema version mismatch: got %d want %d", version, storeSchemaVersion)
+	}
+	if err := s.ensureFTSRowIDs(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureMemberFTSRowIDs(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) schemaVersion(ctx context.Context) (int, error) {
+	var version int
+	if err := s.db.QueryRowContext(ctx, `pragma user_version`).Scan(&version); err != nil {
+		return 0, fmt.Errorf("read schema version: %w", err)
+	}
+	return version, nil
+}
+
+func (s *Store) setSchemaVersion(ctx context.Context, version int) error {
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("pragma user_version = %d", version)); err != nil {
+		return fmt.Errorf("set schema version %d: %w", version, err)
+	}
+	return nil
+}
+
+func (s *Store) applyBaselineSchema(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
 	stmts := []string{
 		`create table if not exists guilds (
 			id text primary key,
@@ -319,17 +370,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		`create index if not exists idx_mentions_author on mention_events(author_id, event_at);`,
 	}
 	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("migrate: %w", err)
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("migrate baseline schema: %w", err)
 		}
 	}
-	if err := s.ensureFTSRowIDs(ctx); err != nil {
-		return err
-	}
-	if err := s.ensureMemberFTSRowIDs(ctx); err != nil {
-		return err
-	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) ensureFTSRowIDs(ctx context.Context) error {

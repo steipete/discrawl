@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -135,6 +136,65 @@ func TestStoreReadWriteAndSearch(t *testing.T) {
 	require.Len(t, messageRows, 1)
 	require.Equal(t, "m1", messageRows[0].MessageID)
 	require.Equal(t, "Peter", messageRows[0].AuthorName)
+}
+
+func TestOpenSetsSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	var version int
+	require.NoError(t, s.DB().QueryRowContext(ctx, `pragma user_version`).Scan(&version))
+	require.Equal(t, storeSchemaVersion, version)
+}
+
+func TestOpenFailsOnFutureSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `pragma user_version = 999`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	_, err = Open(ctx, dbPath)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "newer than supported")
+}
+
+func TestOpenBackfillsMissingSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `pragma user_version = 0`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s, err = Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	var version int
+	require.NoError(t, s.DB().QueryRowContext(ctx, `pragma user_version`).Scan(&version))
+	require.Equal(t, storeSchemaVersion, version)
 }
 
 func TestReadOnlyQueryGuards(t *testing.T) {
