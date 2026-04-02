@@ -58,7 +58,7 @@ type SyncStats struct {
 
 const (
 	fullSyncBatchSize            = 25
-	defaultMemberRefreshTimeout  = 2 * time.Minute
+	defaultMemberRefreshTimeout  = 5 * time.Minute
 	defaultMemberRefreshInterval = 24 * time.Hour
 )
 
