@@ -237,12 +237,13 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	}
 
 	rt := newRuntime()
-	require.NoError(t, rt.runInit([]string{"--db", dbPath, "--with-embeddings", "--guild", "g2"}))
+	require.NoError(t, rt.runInit([]string{"--db", dbPath, "--with-embeddings", "--guild", "g2", "--account", "atlas"}))
 
 	cfg, err := config.Load(cfgPath)
 	require.NoError(t, err)
 	require.Equal(t, []string{"g1", "g2"}, cfg.GuildIDs)
 	require.Equal(t, "g2", cfg.DefaultGuildID)
+	require.Equal(t, "atlas", cfg.Discord.Account)
 	require.True(t, cfg.Search.Embeddings.Enabled)
 
 	rt = newRuntime()

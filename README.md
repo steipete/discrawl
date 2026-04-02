@@ -108,6 +108,12 @@ discrawl search "panic: nil pointer"
 discrawl tail
 ```
 
+Multi-account OpenClaw setup:
+
+```bash
+discrawl init --from-openclaw ~/.openclaw/openclaw.json --account atlas
+```
+
 Env-only setup:
 
 ```bash
@@ -136,9 +142,12 @@ Creates the local config and discovers accessible guilds.
 ```bash
 discrawl init
 discrawl init --from-openclaw ~/.openclaw/openclaw.json
+discrawl init --from-openclaw ~/.openclaw/openclaw.json --account atlas
 discrawl init --guild 123456789012345678
 discrawl init --db ~/data/discrawl.db
 ```
+
+When OpenClaw config tokens use `${ENV_VAR}` placeholders, `init` and `doctor` resolve them before auth.
 
 ### `sync`
 
@@ -377,6 +386,8 @@ discrawl sync --with-embeddings
 - append-only message event records
 - FTS index rows
 - optional embedding backlog metadata
+
+SQLite schema migrations are versioned with `PRAGMA user_version`. Startup now fails fast when a local DB schema is newer than the supported binary.
 
 Attachment binaries are not stored in SQLite.
 

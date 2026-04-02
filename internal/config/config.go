@@ -340,14 +340,14 @@ func loadOpenClawDiscordFile(path, account string) (OpenClawDiscord, error) {
 		return OpenClawDiscord{}, fmt.Errorf("parse openclaw config: %w", err)
 	}
 	discord := payload.Channels.Discord
-	token := NormalizeBotToken(discord.Token)
+	token := expandOpenClawToken(discord.Token)
 	guildIDs := mapKeys(discord.Guilds)
 	if token == "" {
 		acct := discord.Accounts[normalizeAccount(account)]
 		if acct.Token == "" && account != normalizeAccount(account) {
 			acct = discord.Accounts[account]
 		}
-		token = NormalizeBotToken(acct.Token)
+		token = expandOpenClawToken(acct.Token)
 		if len(guildIDs) == 0 {
 			guildIDs = mapKeys(acct.Guilds)
 		}
@@ -378,6 +378,10 @@ func NormalizeBotToken(raw string) string {
 	raw = strings.TrimSpace(raw)
 	raw = strings.TrimPrefix(raw, "Bot ")
 	return strings.TrimSpace(raw)
+}
+
+func expandOpenClawToken(raw string) string {
+	return NormalizeBotToken(os.ExpandEnv(raw))
 }
 
 func normalizeAccount(account string) string {

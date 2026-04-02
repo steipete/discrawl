@@ -83,6 +83,29 @@ func TestLoadOpenClawDiscordFromAccount(t *testing.T) {
 	require.Equal(t, []string{"g3"}, info.GuildIDs)
 }
 
+func TestLoadOpenClawDiscordExpandsEnvToken(t *testing.T) {
+	dir := t.TempDir()
+	openClawPath := filepath.Join(dir, "openclaw.json")
+	t.Setenv("DISCRAWL_TEST_TOKEN", "Bot env-expanded-token")
+	require.NoError(t, os.WriteFile(openClawPath, []byte(`{
+		"channels": {
+			"discord": {
+				"accounts": {
+					"default": {
+						"token": "${DISCRAWL_TEST_TOKEN}",
+						"guilds": { "g3": {} }
+					}
+				}
+			}
+		}
+	}`), 0o600))
+
+	info, err := LoadOpenClawDiscord(openClawPath, "default")
+	require.NoError(t, err)
+	require.Equal(t, "env-expanded-token", info.Token)
+	require.Equal(t, []string{"g3"}, info.GuildIDs)
+}
+
 func TestWriteAndLoadRoundTrip(t *testing.T) {
 	t.Parallel()
 
