@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/steipete/discrawl/internal/store"
 )
+
+func errMissingAccess() error {
+	return fmt.Errorf("HTTP 403 Forbidden, {\"message\": \"Missing Access\", \"code\": 50001}")
+}
 
 func TestSyncChannelSubsetExpandsRequestedForumThreads(t *testing.T) {
 	t.Parallel()
@@ -75,6 +80,54 @@ func TestSyncChannelSubsetExpandsRequestedForumThreads(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "t1", results[0].ChannelID)
+}
+
+func TestSyncSkipsInaccessibleForumThreadCatalog(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {
+				{ID: "c1", GuildID: "g1", Name: "general", Type: discordgo.ChannelTypeGuildText},
+				{ID: "f1", GuildID: "g1", Name: "private-forum", Type: discordgo.ChannelTypeGuildForum},
+			},
+		},
+		threadErrors: map[string]error{
+			"f1": errMissingAccess(),
+		},
+		messages: map[string][]*discordgo.Message{
+			"c1": {{
+				ID:        "10",
+				GuildID:   "g1",
+				ChannelID: "c1",
+				Content:   "still syncs accessible channels",
+				Timestamp: time.Now().UTC(),
+				Author:    &discordgo.User{ID: "u1", Username: "user"},
+			}},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{Full: true, GuildIDs: []string{"g1"}})
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.Messages)
+	require.Equal(t, 1, client.messageCalls["c1"])
+	require.GreaterOrEqual(t, client.threadCalls, 1)
+
+	cursor, err := s.GetSyncState(ctx, "channel:f1:unavailable")
+	require.NoError(t, err)
+	require.Equal(t, "missing_access", cursor)
 }
 
 func TestSyncChannelSubsetMergesStoredAndLiveTargets(t *testing.T) {

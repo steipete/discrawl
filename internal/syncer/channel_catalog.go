@@ -140,6 +140,10 @@ func (s *Syncer) appendActiveThreadCatalog(ctx context.Context, allChannels map[
 	}
 	active, err := s.client.GuildThreadsActive(ctx, guildID)
 	if err != nil {
+		if isMissingAccess(err) {
+			s.logger.Warn("guild active thread crawl skipped", "guild_id", guildID, "err", err)
+			return nil
+		}
 		return err
 	}
 	for _, thread := range active {
@@ -157,6 +161,9 @@ func (s *Syncer) appendActiveThreadCatalog(ctx context.Context, allChannels map[
 func (s *Syncer) appendActiveThreads(ctx context.Context, allChannels map[string]*discordgo.Channel, channelID string) error {
 	active, err := s.client.ThreadsActive(ctx, channelID)
 	if err != nil {
+		if s.skipUnavailableChannelByID(ctx, channelID, err, "channel thread crawl skipped") {
+			return nil
+		}
 		return err
 	}
 	for _, thread := range active {

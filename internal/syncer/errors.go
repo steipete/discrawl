@@ -21,13 +21,20 @@ func (s *Syncer) skipSyncError(ctx context.Context, channel *discordgo.Channel, 
 }
 
 func (s *Syncer) skipUnavailableChannel(ctx context.Context, channel *discordgo.Channel, err error) bool {
+	if channel == nil {
+		return false
+	}
+	return s.skipUnavailableChannelByID(ctx, channel.ID, err, "channel message crawl skipped")
+}
+
+func (s *Syncer) skipUnavailableChannelByID(ctx context.Context, channelID string, err error, logMsg string) bool {
 	reason := unavailableReason(err)
 	if reason == "" {
 		return false
 	}
-	s.logger.Warn("channel message crawl skipped", "channel_id", channel.ID, "err", err)
-	if s.store != nil {
-		_ = s.store.SetSyncState(ctx, "channel:"+channel.ID+":unavailable", reason)
+	s.logger.Warn(logMsg, "channel_id", channelID, "err", err)
+	if s.store != nil && channelID != "" {
+		_ = s.store.SetSyncState(ctx, "channel:"+channelID+":unavailable", reason)
 	}
 	return true
 }
