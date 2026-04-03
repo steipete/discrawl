@@ -104,7 +104,7 @@ func (f *fakeClient) GuildMembers(ctx context.Context, guildID string) ([]*disco
 	return f.members[guildID], nil
 }
 
-func (f *fakeClient) ChannelMessages(_ context.Context, channelID string, limit int, beforeID, afterID string) ([]*discordgo.Message, error) {
+func (f *fakeClient) ChannelMessages(ctx context.Context, channelID string, limit int, beforeID, afterID string) ([]*discordgo.Message, error) {
 	f.mu.Lock()
 	if f.messageCalls == nil {
 		f.messageCalls = make(map[string]int)
@@ -124,7 +124,16 @@ func (f *fakeClient) ChannelMessages(_ context.Context, channelID string, limit 
 			f.maxInFlight = f.inFlight
 		}
 		f.mu.Unlock()
-		time.Sleep(f.messageDelay)
+		timer := time.NewTimer(f.messageDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			f.mu.Lock()
+			f.inFlight--
+			f.mu.Unlock()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 		f.mu.Lock()
 		f.inFlight--
 		f.mu.Unlock()
