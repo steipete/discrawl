@@ -36,6 +36,8 @@ type Syncer struct {
 	attachmentTextEnabled bool
 	memberRefreshTimeout  time.Duration
 	memberRefreshInterval time.Duration
+	messageSyncLogEvery   time.Duration
+	messageSyncWaitEvery  time.Duration
 }
 
 type SyncOptions struct {
@@ -60,6 +62,8 @@ const (
 	fullSyncBatchSize            = 25
 	defaultMemberRefreshTimeout  = 5 * time.Minute
 	defaultMemberRefreshInterval = 24 * time.Hour
+	defaultMessageSyncLogEvery   = 15 * time.Second
+	defaultMessageSyncWaitEvery  = 30 * time.Second
 )
 
 func New(client Client, store *store.Store, logger *slog.Logger) *Syncer {
@@ -73,6 +77,8 @@ func New(client Client, store *store.Store, logger *slog.Logger) *Syncer {
 		attachmentTextEnabled: true,
 		memberRefreshTimeout:  defaultMemberRefreshTimeout,
 		memberRefreshInterval: defaultMemberRefreshInterval,
+		messageSyncLogEvery:   defaultMessageSyncLogEvery,
+		messageSyncWaitEvery:  defaultMessageSyncWaitEvery,
 	}
 }
 

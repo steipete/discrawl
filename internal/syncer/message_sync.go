@@ -23,9 +23,17 @@ func (s *Syncer) syncMessageChannels(
 	progress := newMessageSyncProgress(s, guildID, len(messageChannels), opts)
 	workers := opts.Concurrency
 	if workers <= 1 {
-		return s.syncMessageChannelsSerial(ctx, guildID, messageChannels, opts, progress)
+		total, err := s.syncMessageChannelsSerial(ctx, guildID, messageChannels, opts, progress)
+		if progress != nil {
+			progress.finish(err)
+		}
+		return total, err
 	}
-	return s.syncMessageChannelsConcurrent(ctx, guildID, messageChannels, opts, workers, progress)
+	total, err := s.syncMessageChannelsConcurrent(ctx, guildID, messageChannels, opts, workers, progress)
+	if progress != nil {
+		progress.finish(err)
+	}
+	return total, err
 }
 
 func filterMessageChannels(channels []*discordgo.Channel, requested []string) []*discordgo.Channel {
@@ -69,10 +77,12 @@ func requestedMessageTarget(channel *discordgo.Channel, channelByID map[string]*
 func (s *Syncer) syncMessageChannelsSerial(ctx context.Context, guildID string, channels []*discordgo.Channel, opts SyncOptions, progress *messageSyncProgress) (int, error) {
 	total := 0
 	for _, channel := range channels {
+		progress.start(channel)
 		count, err := s.syncChannelMessages(ctx, guildID, channel, opts.Full, opts.Embeddings, opts.Since)
 		total += count
 		if err != nil {
 			if s.skipSyncError(ctx, channel, err) {
+				progress.recordSkip(channel, err)
 				continue
 			}
 			return total, fmt.Errorf("sync channel %s: %w", channel.ID, err)
@@ -98,6 +108,7 @@ func (s *Syncer) syncMessageChannelsConcurrent(
 		channel   *discordgo.Channel
 		count     int
 		err       error
+		skipped   error
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -115,16 +126,19 @@ func (s *Syncer) syncMessageChannelsConcurrent(
 				if ctx.Err() != nil {
 					return
 				}
+				progress.start(channel)
 				count, err := s.syncChannelMessages(ctx, guildID, channel, opts.Full, opts.Embeddings, opts.Since)
 				succeeded := err == nil
+				var skipped error
 				if err != nil && s.skipSyncError(ctx, channel, err) {
+					skipped = err
 					err = nil
 				}
 				if succeeded {
 					err = s.clearUnavailableChannel(ctx, channel.ID)
 				}
 				select {
-				case results <- result{channelID: channel.ID, channel: channel, count: count, err: err}:
+				case results <- result{channelID: channel.ID, channel: channel, count: count, err: err, skipped: skipped}:
 				case <-ctx.Done():
 					return
 				}
@@ -156,7 +170,11 @@ func (s *Syncer) syncMessageChannelsConcurrent(
 	var firstErr error
 	for result := range results {
 		total += result.count
-		progress.record(result.channel, result.count)
+		if result.skipped != nil {
+			progress.recordSkip(result.channel, result.skipped)
+		} else {
+			progress.record(result.channel, result.count)
+		}
 		if result.err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("sync channel %s: %w", result.channelID, result.err)
 		}
@@ -473,25 +491,47 @@ func filterMessagesSince(messages []*discordgo.Message, since time.Time) ([]*dis
 }
 
 type messageSyncProgress struct {
-	syncer        *Syncer
-	guildID       string
-	totalChannels int
-	startedAt     time.Time
-	lastLogAt     time.Time
-	processed     int
-	messages      int
+	syncer                *Syncer
+	guildID               string
+	totalChannels         int
+	startedAt             time.Time
+	lastLogAt             time.Time
+	lastProgressAt        time.Time
+	processed             int
+	messages              int
+	deferredRetryable     int
+	skippedMissingAccess  int
+	skippedUnknownChannel int
+	logEvery              time.Duration
+	waitEvery             time.Duration
+	done                  chan struct{}
+	once                  sync.Once
+	mu                    sync.Mutex
+	inflight              map[string]messageSyncInFlight
+}
+
+type messageSyncInFlight struct {
+	id        string
+	name      string
+	startedAt time.Time
 }
 
 func newMessageSyncProgress(s *Syncer, guildID string, totalChannels int, opts SyncOptions) *messageSyncProgress {
 	if s == nil || s.logger == nil || totalChannels == 0 {
 		return nil
 	}
+	now := time.Now()
 	progress := &messageSyncProgress{
-		syncer:        s,
-		guildID:       guildID,
-		totalChannels: totalChannels,
-		startedAt:     time.Now(),
-		lastLogAt:     time.Now(),
+		syncer:         s,
+		guildID:        guildID,
+		totalChannels:  totalChannels,
+		startedAt:      now,
+		lastLogAt:      now,
+		lastProgressAt: now,
+		logEvery:       s.messageSyncLogEvery,
+		waitEvery:      s.messageSyncWaitEvery,
+		done:           make(chan struct{}),
+		inflight:       make(map[string]messageSyncInFlight, totalChannels),
 	}
 	s.logger.Info(
 		"message sync started",
@@ -500,21 +540,60 @@ func newMessageSyncProgress(s *Syncer, guildID string, totalChannels int, opts S
 		"full", opts.Full,
 		"concurrency", max(1, opts.Concurrency),
 	)
+	go progress.runWaitHeartbeat()
 	return progress
 }
 
+func (p *messageSyncProgress) start(channel *discordgo.Channel) {
+	if p == nil || channel == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.inflight[channel.ID] = messageSyncInFlight{
+		id:        channel.ID,
+		name:      channel.Name,
+		startedAt: time.Now(),
+	}
+}
+
 func (p *messageSyncProgress) record(channel *discordgo.Channel, count int) {
+	p.complete(channel, count, "ok")
+}
+
+func (p *messageSyncProgress) recordSkip(channel *discordgo.Channel, err error) {
+	outcome := syncErrorOutcome(err)
+	p.mu.Lock()
+	switch outcome {
+	case "deferred_retryable":
+		p.deferredRetryable++
+	case "skipped_missing_access":
+		p.skippedMissingAccess++
+	case "skipped_unknown_channel":
+		p.skippedUnknownChannel++
+	}
+	p.mu.Unlock()
+	p.complete(channel, 0, outcome)
+}
+
+func (p *messageSyncProgress) complete(channel *discordgo.Channel, count int, outcome string) {
 	if p == nil || p.syncer == nil || p.syncer.logger == nil {
 		return
 	}
+	now := time.Now()
+	p.mu.Lock()
+	if channel != nil {
+		delete(p.inflight, channel.ID)
+	}
 	p.processed++
 	p.messages += count
-	now := time.Now()
+	p.lastProgressAt = now
 	shouldLog := p.processed == p.totalChannels ||
 		p.processed == 1 ||
 		p.processed%100 == 0 ||
-		now.Sub(p.lastLogAt) >= 15*time.Second
+		now.Sub(p.lastLogAt) >= p.logEvery
 	if !shouldLog {
+		p.mu.Unlock()
 		return
 	}
 	p.lastLogAt = now
@@ -524,15 +603,159 @@ func (p *messageSyncProgress) record(channel *discordgo.Channel, count int) {
 		channelID = channel.ID
 		channelName = channel.Name
 	}
+	activeChannels := len(p.inflight)
+	deferred := p.deferredRetryable
+	missingAccess := p.skippedMissingAccess
+	unknownChannel := p.skippedUnknownChannel
+	processed := p.processed
+	totalChannels := p.totalChannels
+	messages := p.messages
+	elapsed := now.Sub(p.startedAt).Round(time.Second).String()
+	p.mu.Unlock()
 	p.syncer.logger.Info(
 		"message sync progress",
 		"guild_id", p.guildID,
-		"processed_channels", p.processed,
-		"total_channels", p.totalChannels,
-		"remaining_channels", p.totalChannels-p.processed,
-		"messages_written", p.messages,
+		"processed_channels", processed,
+		"total_channels", totalChannels,
+		"remaining_channels", totalChannels-processed,
+		"active_channels", activeChannels,
+		"messages_written", messages,
+		"deferred_channels", deferred,
+		"skipped_missing_access_channels", missingAccess,
+		"skipped_unknown_channel_channels", unknownChannel,
 		"last_channel_id", channelID,
 		"last_channel_name", channelName,
-		"elapsed", now.Sub(p.startedAt).Round(time.Second).String(),
+		"last_outcome", outcome,
+		"elapsed", elapsed,
 	)
+}
+
+func (p *messageSyncProgress) finish(err error) {
+	if p == nil || p.syncer == nil || p.syncer.logger == nil {
+		return
+	}
+	p.once.Do(func() {
+		close(p.done)
+		now := time.Now()
+		p.mu.Lock()
+		activeChannels := len(p.inflight)
+		deferred := p.deferredRetryable
+		missingAccess := p.skippedMissingAccess
+		unknownChannel := p.skippedUnknownChannel
+		processed := p.processed
+		totalChannels := p.totalChannels
+		messages := p.messages
+		elapsed := now.Sub(p.startedAt).Round(time.Second).String()
+		oldestID, oldestName, oldestElapsed := oldestInflightDetails(p.inflight, now)
+		p.mu.Unlock()
+		attrs := []any{
+			"guild_id", p.guildID,
+			"processed_channels", processed,
+			"total_channels", totalChannels,
+			"remaining_channels", totalChannels - processed,
+			"active_channels", activeChannels,
+			"messages_written", messages,
+			"deferred_channels", deferred,
+			"skipped_missing_access_channels", missingAccess,
+			"skipped_unknown_channel_channels", unknownChannel,
+			"elapsed", elapsed,
+		}
+		if oldestID != "" {
+			attrs = append(attrs,
+				"oldest_active_channel_id", oldestID,
+				"oldest_active_channel_name", oldestName,
+				"oldest_active_elapsed", oldestElapsed,
+			)
+		}
+		if err != nil {
+			attrs = append(attrs, "err", err)
+			p.syncer.logger.Warn("message sync finished with error", attrs...)
+			return
+		}
+		p.syncer.logger.Info("message sync finished", attrs...)
+	})
+}
+
+func (p *messageSyncProgress) runWaitHeartbeat() {
+	if p == nil || p.waitEvery <= 0 {
+		return
+	}
+	ticker := time.NewTicker(p.waitEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.done:
+			return
+		case <-ticker.C:
+			p.logWaitHeartbeat()
+		}
+	}
+}
+
+func (p *messageSyncProgress) logWaitHeartbeat() {
+	if p == nil || p.syncer == nil || p.syncer.logger == nil {
+		return
+	}
+	now := time.Now()
+	p.mu.Lock()
+	if len(p.inflight) == 0 || now.Sub(p.lastProgressAt) < p.waitEvery {
+		p.mu.Unlock()
+		return
+	}
+	activeChannels := len(p.inflight)
+	deferred := p.deferredRetryable
+	missingAccess := p.skippedMissingAccess
+	unknownChannel := p.skippedUnknownChannel
+	processed := p.processed
+	totalChannels := p.totalChannels
+	messages := p.messages
+	idleFor := now.Sub(p.lastProgressAt).Round(time.Second).String()
+	elapsed := now.Sub(p.startedAt).Round(time.Second).String()
+	oldestID, oldestName, oldestElapsed := oldestInflightDetails(p.inflight, now)
+	p.mu.Unlock()
+	p.syncer.logger.Info(
+		"message sync waiting",
+		"guild_id", p.guildID,
+		"processed_channels", processed,
+		"total_channels", totalChannels,
+		"remaining_channels", totalChannels-processed,
+		"active_channels", activeChannels,
+		"messages_written", messages,
+		"deferred_channels", deferred,
+		"skipped_missing_access_channels", missingAccess,
+		"skipped_unknown_channel_channels", unknownChannel,
+		"idle_for", idleFor,
+		"oldest_active_channel_id", oldestID,
+		"oldest_active_channel_name", oldestName,
+		"oldest_active_elapsed", oldestElapsed,
+		"elapsed", elapsed,
+	)
+}
+
+func oldestInflightDetails(channels map[string]messageSyncInFlight, now time.Time) (string, string, string) {
+	var oldest messageSyncInFlight
+	found := false
+	for _, channel := range channels {
+		if !found || channel.startedAt.Before(oldest.startedAt) {
+			oldest = channel
+			found = true
+		}
+	}
+	if !found {
+		return "", "", ""
+	}
+	return oldest.id, oldest.name, now.Sub(oldest.startedAt).Round(time.Second).String()
+}
+
+func syncErrorOutcome(err error) string {
+	switch unavailableReason(err) {
+	case "missing_access":
+		return "skipped_missing_access"
+	case "unknown_channel":
+		return "skipped_unknown_channel"
+	}
+	if isRetryableSyncError(nil, err) {
+		return "deferred_retryable"
+	}
+	return "skipped"
 }
