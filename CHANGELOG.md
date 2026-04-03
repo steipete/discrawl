@@ -4,6 +4,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 ## Unreleased
 
+- `sync --all` now bypasses `default_guild_id` so one run can fan out across every discovered guild without clearing the single-guild default first
 - `sync --full` no longer aborts when forum thread discovery hits Discord `403 Missing Access`; inaccessible channels are skipped and marked unavailable while accessible channels continue syncing
 - startup now validates and stamps SQLite schema version via `PRAGMA user_version`, and fails fast if the local DB schema is newer than the running binary
 - `init --from-openclaw` now supports `--account`, and OpenClaw token fields can use `${ENV_VAR}` placeholders

@@ -252,6 +252,10 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	require.True(t, fakeSync.attachmentTextEnabled)
 
 	rt = newRuntime()
+	require.NoError(t, rt.withServices(true, func() error { return rt.runSync([]string{"--all"}) }))
+	require.Nil(t, fakeSync.lastSync.GuildIDs)
+
+	rt = newRuntime()
 	require.NoError(t, rt.withServices(true, func() error { return rt.runTail([]string{"--repair-every", "30s"}) }))
 	require.Equal(t, []string{"g2"}, fakeSync.lastTail)
 	require.Equal(t, 30*time.Second, fakeSync.lastRepair)
@@ -682,6 +686,7 @@ func TestCommandUsageErrors(t *testing.T) {
 	require.Equal(t, 2, ExitCode(rt.runMessages(nil)))
 	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--days", "-1"})))
 	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--days", "1", "--since", "2026-03-01T00:00:00Z"})))
+	require.Equal(t, 2, ExitCode(rt.runSync([]string{"--all", "--guild", "g1"})))
 	require.Equal(t, 2, ExitCode(rt.runChannels(nil)))
 	require.Equal(t, 2, ExitCode(rt.runStatus([]string{"extra"})))
 	require.NoError(t, (&runtime{stdout: &bytes.Buffer{}}).runDoctor(nil))

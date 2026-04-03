@@ -2,6 +2,7 @@ package cli
 
 import (
 	"flag"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -16,6 +17,16 @@ func (r *runtime) resolveSyncGuilds(guild, guilds string) []string {
 		return []string{defaultGuild}
 	}
 	return nil
+}
+
+func (r *runtime) resolveSyncGuildsAll(guild, guilds string, all bool) ([]string, error) {
+	if !all {
+		return r.resolveSyncGuilds(guild, guilds), nil
+	}
+	if len(csvList(guilds)) > 0 || strings.TrimSpace(guild) != "" {
+		return nil, fmt.Errorf("use either --all or --guild/--guilds")
+	}
+	return nil, nil
 }
 
 func (r *runtime) resolveSearchGuilds(guild, guilds string) []string {

@@ -97,6 +97,7 @@ func (r *runtime) runSync(args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	full := fs.Bool("full", false, "")
+	all := fs.Bool("all", false, "")
 	since := fs.String("since", "", "")
 	channels := fs.String("channels", "", "")
 	concurrency := fs.Int("concurrency", r.cfg.Sync.Concurrency, "")
@@ -114,9 +115,13 @@ func (r *runtime) runSync(args []string) error {
 		}
 		sinceTime = parsed
 	}
+	guildIDs, err := r.resolveSyncGuildsAll(*guildFlag, *guildsFlag, *all)
+	if err != nil {
+		return usageErr(err)
+	}
 	opts := syncer.SyncOptions{
 		Full:        *full,
-		GuildIDs:    r.resolveSyncGuilds(*guildFlag, *guildsFlag),
+		GuildIDs:    guildIDs,
 		ChannelIDs:  csvList(*channels),
 		Concurrency: *concurrency,
 		Since:       sinceTime,
