@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,8 +11,12 @@ import (
 )
 
 const (
-	queryTimeout  = 15 * time.Second
-	queryRowLimit = 50000
+	queryTimeout            = 15 * time.Second
+	queryRowLimit           = 50000
+	searchCandidateFloor    = 200
+	searchCandidateCap      = 5000
+	searchCandidateMultiple = 20
+	messageFTSHealthProbe   = "__discrawl_probe__"
 )
 
 func (s *Store) GetSyncState(ctx context.Context, scope string) (string, error) {
@@ -62,29 +67,44 @@ func (s *Store) SearchMessages(ctx context.Context, opts SearchOptions) ([]Searc
 		clauses = append(clauses, "(message_fts.author_id = ? or message_fts.author_name like ?)")
 		args = append(args, opts.Author, "%"+opts.Author+"%")
 	}
-	if !opts.IncludeEmpty {
-		clauses = append(clauses, "trim(coalesce(m.normalized_content, '')) <> ''")
-	}
-	args = append(args, opts.Limit)
+	args = append(args, searchCandidateLimit(opts.Limit), opts.Limit)
 	query := `
+		with recent_matches as (
+			select
+				rowid,
+				message_id,
+				guild_id,
+				channel_id,
+				author_id,
+				coalesce(author_name, '') as author_name,
+				coalesce(channel_name, '') as channel_name
+			from message_fts
+			where ` + strings.Join(clauses, " and ") + `
+			order by rowid desc
+			limit ?
+		)
 		select
-			m.id, m.guild_id, m.channel_id, coalesce(c.name, ''),
-			coalesce(m.author_id, ''), coalesce(message_fts.author_name, ''),
+			m.id, m.guild_id, m.channel_id, coalesce(c.name, recent_matches.channel_name),
+			coalesce(m.author_id, ''), recent_matches.author_name,
 			case
 				when trim(coalesce(m.content, '')) <> '' then m.content
 				else m.normalized_content
 			end,
 			m.created_at
-		from message_fts
-		join messages m on m.id = message_fts.message_id
+		from recent_matches
+		join messages m on m.id = recent_matches.message_id
 		left join channels c on c.id = m.channel_id
-		where ` + strings.Join(clauses, " and ") + `
-		order by bm25(message_fts), m.created_at desc
+		where (? or trim(coalesce(m.normalized_content, '')) <> '')
+		order by recent_matches.rowid desc
 		limit ?
 	`
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	queryCtx, cancel := withQueryTimeout(ctx)
+	defer cancel()
+	rows, err := s.db.QueryContext(queryCtx, query, append(args[:len(args)-1], opts.IncludeEmpty, args[len(args)-1])...)
 	if err != nil {
-		return s.searchFallback(ctx, opts)
+		fallbackCtx, fallbackCancel := withQueryTimeout(ctx)
+		defer fallbackCancel()
+		return s.searchFallback(fallbackCtx, opts)
 	}
 	defer func() { _ = rows.Close() }()
 	var out []SearchResult
@@ -98,6 +118,29 @@ func (s *Store) SearchMessages(ctx context.Context, opts SearchOptions) ([]Searc
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) CheckMessageFTS(ctx context.Context) error {
+	db, cleanup, err := s.openReadOnlyDB()
+	if err != nil {
+		return err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	queryCtx, cancel := withQueryTimeout(ctx)
+	defer cancel()
+
+	var rowID sql.NullInt64
+	err = db.QueryRowContext(
+		queryCtx,
+		`select rowid from message_fts where message_fts match ? limit 1`,
+		messageFTSHealthProbe,
+	).Scan(&rowID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	return err
 }
 
 func (s *Store) searchFallback(ctx context.Context, opts SearchOptions) ([]SearchResult, error) {
@@ -456,6 +499,20 @@ func withQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc)
 		return context.WithCancel(ctx)
 	}
 	return context.WithTimeout(ctx, queryTimeout)
+}
+
+func searchCandidateLimit(limit int) int {
+	if limit <= 0 {
+		limit = 20
+	}
+	candidates := limit * searchCandidateMultiple
+	if candidates < searchCandidateFloor {
+		return searchCandidateFloor
+	}
+	if candidates > searchCandidateCap {
+		return searchCandidateCap
+	}
+	return candidates
 }
 
 func IsReadOnlySQL(query string) bool {

@@ -213,7 +213,7 @@ func (r *runtime) runDoctor(args []string) error {
 			report["database"] = dbErr.Error()
 		} else {
 			report["database"] = "ok"
-			_, _, ftsErr := db.ReadOnlyQuery(r.ctx, `select count(*) from message_fts`)
+			ftsErr := db.CheckMessageFTS(r.ctx)
 			if ftsErr != nil {
 				report["fts"] = ftsErr.Error()
 			} else {

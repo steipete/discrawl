@@ -195,6 +195,7 @@ discrawl --json search "websocket closed"
 ```
 
 By default, `search` skips rows with no searchable content. Attachment text, attachment filenames, embeds, and replies still count as content. Use `--include-empty` to opt back in.
+Search returns the newest matching messages first so large local archives stay responsive.
 
 ### `messages`
 

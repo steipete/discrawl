@@ -138,6 +138,82 @@ func TestStoreReadWriteAndSearch(t *testing.T) {
 	require.Equal(t, "Peter", messageRows[0].AuthorName)
 }
 
+func TestSearchMessagesPrefersRecentMessageIDs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+
+	base := time.Date(2026, 4, 4, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+		ID:                "1458939673664684210",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         base.Format(time.RFC3339Nano),
+		Content:           "OpenClaw first hit",
+		NormalizedContent: "openclaw first hit",
+		RawJSON:           `{}`,
+	}))
+	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+		ID:                "1489845247147118682",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         base.Add(time.Minute).Format(time.RFC3339Nano),
+		Content:           "OpenClaw newest hit",
+		NormalizedContent: "openclaw newest hit",
+		RawJSON:           `{}`,
+	}))
+
+	results, err := s.SearchMessages(ctx, SearchOptions{Query: "OpenClaw", Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "1489845247147118682", results[0].MessageID)
+	require.Contains(t, results[0].Content, "newest")
+}
+
+func TestCheckMessageFTSProbe(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.CheckMessageFTS(ctx))
+
+	require.NoError(t, s.UpsertGuild(ctx, GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+		ID:                "1458939673664684210",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		Content:           "searchable text",
+		NormalizedContent: "searchable text",
+		RawJSON:           `{}`,
+	}))
+	require.NoError(t, s.CheckMessageFTS(ctx))
+}
+
 func TestOpenSetsSchemaVersion(t *testing.T) {
 	t.Parallel()
 

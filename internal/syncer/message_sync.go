@@ -809,7 +809,7 @@ func syncErrorOutcome(err error) string {
 	case "unknown_channel":
 		return "skipped_unknown_channel"
 	}
-	if isRetryableSyncError(nil, err) {
+	if isRetryableSyncError(context.TODO(), err) {
 		return "deferred_retryable"
 	}
 	return "skipped"
