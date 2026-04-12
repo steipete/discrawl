@@ -172,6 +172,27 @@ func TestCheckProviderWarnsOnLocalProbeFailure(t *testing.T) {
 	require.False(t, result.Probed)
 }
 
+func TestProviderExposesRateLimitErrors(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	provider, err := NewProvider(config.EmbeddingsConfig{
+		Provider:       ProviderOpenAICompatible,
+		Model:          "local-model",
+		BaseURL:        server.URL,
+		RequestTimeout: "5s",
+	})
+	require.NoError(t, err)
+
+	_, err = provider.Embed(context.Background(), []string{"one"})
+	require.ErrorContains(t, err, "HTTP 429")
+	require.True(t, IsRateLimitError(err))
+}
+
 func TestProviderRejectsInvalidResponses(t *testing.T) {
 	t.Parallel()
 

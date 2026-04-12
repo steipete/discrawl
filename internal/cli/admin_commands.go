@@ -168,6 +168,61 @@ func (r *runtime) runStatus(args []string) error {
 	return r.print(status)
 }
 
+func (r *runtime) runEmbed(args []string) error {
+	fs := flag.NewFlagSet("embed", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	limit := fs.Int("limit", store.DefaultEmbedLimit(), "")
+	batchSize := fs.Int("batch-size", r.cfg.Search.Embeddings.BatchSize, "")
+	rebuild := fs.Bool("rebuild", false, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	if fs.NArg() != 0 {
+		return usageErr(fmt.Errorf("embed takes no positional arguments"))
+	}
+	if *limit <= 0 {
+		return usageErr(fmt.Errorf("--limit must be positive"))
+	}
+	if *batchSize <= 0 {
+		return usageErr(fmt.Errorf("--batch-size must be positive"))
+	}
+	if !r.cfg.Search.Embeddings.Enabled {
+		return usageErr(fmt.Errorf("embeddings are disabled in config"))
+	}
+	providerFactory := r.newEmbed
+	if providerFactory == nil {
+		providerFactory = func(cfg config.EmbeddingsConfig) (embed.Provider, error) {
+			return embed.NewProvider(cfg)
+		}
+	}
+	provider, err := providerFactory(r.cfg.Search.Embeddings)
+	if err != nil {
+		return configErr(err)
+	}
+	opts := store.EmbeddingDrainOptions{
+		Provider:      r.cfg.Search.Embeddings.Provider,
+		Model:         r.cfg.Search.Embeddings.Model,
+		InputVersion:  store.EmbeddingInputVersion,
+		Limit:         *limit,
+		BatchSize:     *batchSize,
+		MaxInputChars: r.cfg.Search.Embeddings.MaxInputChars,
+		Now:           r.now,
+	}
+	requeued := 0
+	if *rebuild {
+		requeued, err = r.store.RequeueAllEmbeddingJobs(r.ctx, opts)
+		if err != nil {
+			return err
+		}
+	}
+	stats, err := r.store.DrainEmbeddingJobs(r.ctx, provider, opts)
+	if err != nil {
+		return err
+	}
+	stats.Requeued = requeued
+	return r.print(stats)
+}
+
 func (r *runtime) runDoctor(args []string) error {
 	if len(args) != 0 {
 		return usageErr(fmt.Errorf("doctor takes no arguments"))

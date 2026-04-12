@@ -41,6 +41,20 @@ type EmbeddingBatch struct {
 	Vectors    [][]float32
 }
 
+type HTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("embedding request failed with HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+func IsRateLimitError(err error) bool {
+	var httpErr *HTTPError
+	return errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusTooManyRequests
+}
+
 type CheckResult struct {
 	Provider string
 	Model    string

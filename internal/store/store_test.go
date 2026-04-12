@@ -325,6 +325,88 @@ func TestOpenBackfillsMissingSchemaVersion(t *testing.T) {
 	require.Equal(t, storeSchemaVersion, version)
 }
 
+func TestOpenMigratesSchemaV1ToV2(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+	require.NoError(t, createV1Schema(ctx, dbPath))
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		insert into messages(
+			id, guild_id, channel_id, message_type, created_at, content,
+			normalized_content, raw_json, updated_at
+		) values('m1', 'g1', 'c1', 0, '2026-01-01T00:00:00Z', 'hello', 'hello', '{}', '2026-01-01T00:00:00Z')
+	`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		insert into embedding_jobs(message_id, state, attempts, updated_at)
+		values('m1', 'pending', 1, '2026-01-01T00:00:00Z')
+	`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	var version int
+	require.NoError(t, s.DB().QueryRowContext(ctx, `pragma user_version`).Scan(&version))
+	require.Equal(t, 2, version)
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select provider, model, input_version, last_error, locked_at from embedding_jobs where message_id = 'm1'")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"", "", "", "", ""}}, rows)
+
+	_, rows, err = s.ReadOnlyQuery(ctx, "select count(*) from message_embeddings")
+	require.NoError(t, err)
+	require.Equal(t, "0", rows[0][0])
+}
+
+func TestOpenMigratesUnversionedV1SchemaToV2(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+	require.NoError(t, createV1Schema(ctx, dbPath))
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		insert into messages(
+			id, guild_id, channel_id, message_type, created_at, content,
+			normalized_content, raw_json, updated_at
+		) values('m1', 'g1', 'c1', 0, '2026-01-01T00:00:00Z', 'hello', 'hello', '{}', '2026-01-01T00:00:00Z')
+	`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		insert into embedding_jobs(message_id, state, attempts, updated_at)
+		values('m1', 'pending', 1, '2026-01-01T00:00:00Z')
+	`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `pragma user_version = 0`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	var version int
+	require.NoError(t, s.DB().QueryRowContext(ctx, `pragma user_version`).Scan(&version))
+	require.Equal(t, 2, version)
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select provider, model, input_version, last_error, locked_at from embedding_jobs where message_id = 'm1'")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"", "", "", "", ""}}, rows)
+
+	_, rows, err = s.ReadOnlyQuery(ctx, "select count(*) from message_embeddings")
+	require.NoError(t, err)
+	require.Equal(t, "0", rows[0][0])
+}
+
 func TestReadOnlyQueryGuards(t *testing.T) {
 	t.Parallel()
 
@@ -340,6 +422,142 @@ func TestReadOnlyQueryGuards(t *testing.T) {
 
 	_, _, err = s.ReadOnlyQuery(ctx, "delete from messages")
 	require.Error(t, err)
+}
+
+func createV1Schema(ctx context.Context, path string) error {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	stmts := []string{
+		`create table guilds (
+			id text primary key,
+			name text not null,
+			icon text,
+			raw_json text not null,
+			updated_at text not null
+		);`,
+		`create table channels (
+			id text primary key,
+			guild_id text not null,
+			parent_id text,
+			kind text not null,
+			name text not null,
+			topic text,
+			position integer,
+			is_nsfw integer not null default 0,
+			is_archived integer not null default 0,
+			is_locked integer not null default 0,
+			is_private_thread integer not null default 0,
+			thread_parent_id text,
+			archive_timestamp text,
+			raw_json text not null,
+			updated_at text not null
+		);`,
+		`create table members (
+			guild_id text not null,
+			user_id text not null,
+			username text not null,
+			global_name text,
+			display_name text,
+			nick text,
+			discriminator text,
+			avatar text,
+			bot integer not null default 0,
+			joined_at text,
+			role_ids_json text not null,
+			raw_json text not null,
+			updated_at text not null,
+			primary key (guild_id, user_id)
+		);`,
+		`create table messages (
+			id text primary key,
+			guild_id text not null,
+			channel_id text not null,
+			author_id text,
+			message_type integer not null,
+			created_at text not null,
+			edited_at text,
+			deleted_at text,
+			content text not null,
+			normalized_content text not null,
+			reply_to_message_id text,
+			pinned integer not null default 0,
+			has_attachments integer not null default 0,
+			raw_json text not null,
+			updated_at text not null
+		);`,
+		`create table message_events (
+			event_id integer primary key autoincrement,
+			guild_id text not null,
+			channel_id text not null,
+			message_id text not null,
+			event_type text not null,
+			event_at text not null,
+			payload_json text not null
+		);`,
+		`create table message_attachments (
+			attachment_id text primary key,
+			message_id text not null,
+			guild_id text not null,
+			channel_id text not null,
+			author_id text,
+			filename text not null,
+			content_type text,
+			size integer not null default 0,
+			url text,
+			proxy_url text,
+			text_content text not null default '',
+			updated_at text not null
+		);`,
+		`create table mention_events (
+			event_id integer primary key autoincrement,
+			message_id text not null,
+			guild_id text not null,
+			channel_id text not null,
+			author_id text,
+			target_type text not null,
+			target_id text not null,
+			target_name text not null default '',
+			event_at text not null
+		);`,
+		`create table sync_state (
+			scope text primary key,
+			cursor text,
+			updated_at text not null
+		);`,
+		`create table embedding_jobs (
+			message_id text primary key,
+			state text not null,
+			attempts integer not null default 0,
+			updated_at text not null
+		);`,
+		`create virtual table message_fts using fts5(
+			message_id unindexed,
+			guild_id unindexed,
+			channel_id unindexed,
+			author_id unindexed,
+			author_name,
+			channel_name,
+			content
+		);`,
+		`create virtual table member_fts using fts5(
+			member_key unindexed,
+			guild_id unindexed,
+			user_id unindexed,
+			username,
+			display_name,
+			profile_text
+		);`,
+		`pragma user_version = 1;`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func TestQueryAndExec(t *testing.T) {

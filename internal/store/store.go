@@ -211,6 +211,15 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err := s.setSchemaVersion(ctx, storeSchemaVersion); err != nil {
 			return err
 		}
+		currentVersion = storeSchemaVersion
+	}
+	if currentVersion == 1 {
+		if err := s.applySchemaV2(ctx); err != nil {
+			return err
+		}
+		if err := s.setSchemaVersion(ctx, 2); err != nil {
+			return err
+		}
 	}
 	if version, err := s.schemaVersion(ctx); err != nil {
 		return err
@@ -368,7 +377,22 @@ func (s *Store) applyBaselineSchema(ctx context.Context) error {
 			message_id text primary key,
 			state text not null,
 			attempts integer not null default 0,
+			provider text not null default '',
+			model text not null default '',
+			input_version text not null default '',
+			last_error text not null default '',
+			locked_at text,
 			updated_at text not null
+		);`,
+		`create table if not exists message_embeddings (
+			message_id text not null,
+			provider text not null,
+			model text not null,
+			input_version text not null,
+			dimensions integer not null,
+			embedding_blob blob not null,
+			embedded_at text not null,
+			primary key (message_id, provider, model, input_version)
 		);`,
 		`create virtual table if not exists message_fts using fts5(
 			message_id unindexed,
@@ -402,6 +426,7 @@ func (s *Store) applyBaselineSchema(ctx context.Context) error {
 		`create index if not exists idx_mentions_channel_event on mention_events(channel_id, event_at, event_id);`,
 		`create index if not exists idx_mentions_target on mention_events(target_type, target_id, event_at);`,
 		`create index if not exists idx_mentions_author on mention_events(author_id, event_at);`,
+		`create index if not exists idx_embedding_jobs_state_updated on embedding_jobs(state, updated_at);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -431,7 +456,6 @@ func (s *Store) applyQueryIndexMigration(ctx context.Context) error {
 	}
 	return tx.Commit()
 }
-
 func (s *Store) ensureFTSRowIDs(ctx context.Context) error {
 	var version sql.NullString
 	err := s.db.QueryRowContext(ctx, `
