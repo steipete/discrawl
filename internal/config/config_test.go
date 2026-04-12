@@ -29,6 +29,13 @@ func TestNormalizeFillsDefaults(t *testing.T) {
 	require.False(t, cfg.ShareEnabled())
 	cfg.Share.Remote = "git@example.com:org/archive.git"
 	require.True(t, cfg.ShareEnabled())
+	require.Equal(t, "openai", cfg.Search.Embeddings.Provider)
+	require.Equal(t, "text-embedding-3-small", cfg.Search.Embeddings.Model)
+	require.Empty(t, cfg.Search.Embeddings.BaseURL)
+	require.Equal(t, "OPENAI_API_KEY", cfg.Search.Embeddings.APIKeyEnv)
+	require.Equal(t, 64, cfg.Search.Embeddings.BatchSize)
+	require.Equal(t, 12000, cfg.Search.Embeddings.MaxInputChars)
+	require.Equal(t, "2m", cfg.Search.Embeddings.RequestTimeout)
 }
 
 func TestResolveDiscordTokenPrefersOpenClaw(t *testing.T) {
@@ -136,6 +143,78 @@ func TestWriteAndLoadRoundTrip(t *testing.T) {
 	require.Equal(t, []string{"g1", "g2"}, loaded.GuildIDs)
 	require.NotNil(t, loaded.Sync.AttachmentText)
 	require.True(t, *loaded.Sync.AttachmentText)
+}
+
+func TestNormalizeEmbeddingProviderDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Search.Embeddings.Provider = "OLLAMA"
+	require.NoError(t, cfg.Normalize())
+	require.Equal(t, "ollama", cfg.Search.Embeddings.Provider)
+	require.Equal(t, "text-embedding-3-small", cfg.Search.Embeddings.Model)
+	require.Empty(t, cfg.Search.Embeddings.APIKeyEnv)
+	require.Empty(t, cfg.Search.Embeddings.BaseURL)
+	require.Equal(t, "2m", cfg.Search.Embeddings.RequestTimeout)
+
+	cfg = Config{}
+	cfg.Search.Embeddings.Provider = "llamacpp"
+	require.NoError(t, cfg.Normalize())
+	require.Equal(t, "nomic-embed-text", cfg.Search.Embeddings.Model)
+	require.Empty(t, cfg.Search.Embeddings.APIKeyEnv)
+
+	cfg = Config{}
+	cfg.Search.Embeddings.Provider = "openai_compatible"
+	cfg.Search.Embeddings.BaseURL = " http://127.0.0.1:9999/v1/ "
+	require.NoError(t, cfg.Normalize())
+	require.Equal(t, "openai_compatible", cfg.Search.Embeddings.Provider)
+	require.Equal(t, "http://127.0.0.1:9999/v1", cfg.Search.Embeddings.BaseURL)
+	require.Equal(t, "text-embedding-3-small", cfg.Search.Embeddings.Model)
+	require.Empty(t, cfg.Search.Embeddings.APIKeyEnv)
+
+	cfg = Config{}
+	cfg.Search.Embeddings.Provider = "openai_compatible"
+	cfg.Search.Embeddings.APIKeyEnv = "OPENAI_API_KEY"
+	require.NoError(t, cfg.Normalize())
+	require.Equal(t, "OPENAI_API_KEY", cfg.Search.Embeddings.APIKeyEnv)
+}
+
+func TestLoadLegacyEmbeddingConfigDefaults(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+db_path = "/tmp/discrawl.db"
+cache_dir = "/tmp/discrawl-cache"
+log_dir = "/tmp/discrawl-logs"
+
+[search.embeddings]
+enabled = true
+provider = "openai"
+model = "text-embedding-3-small"
+api_key_env = "OPENAI_API_KEY"
+batch_size = 64
+`), 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.True(t, cfg.Search.Embeddings.Enabled)
+	require.Equal(t, "openai", cfg.Search.Embeddings.Provider)
+	require.Empty(t, cfg.Search.Embeddings.BaseURL)
+	require.Equal(t, 12000, cfg.Search.Embeddings.MaxInputChars)
+	require.Equal(t, "2m", cfg.Search.Embeddings.RequestTimeout)
+}
+
+func TestNormalizeRejectsInvalidEmbeddingTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Search.Embeddings.RequestTimeout = "0s"
+	require.ErrorContains(t, cfg.Normalize(), "must be positive")
+
+	cfg = Default()
+	cfg.Search.Embeddings.RequestTimeout = "soon"
+	require.ErrorContains(t, cfg.Normalize(), "parse search.embeddings.request_timeout")
 }
 
 func TestAttachmentTextExplicitFalseSurvivesNormalize(t *testing.T) {

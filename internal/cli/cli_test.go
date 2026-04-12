@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -669,6 +671,93 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	rt.stdout = &out
 	require.NoError(t, rt.runDoctor(nil))
 	require.Contains(t, out.String(), "discord_auth=ok")
+}
+
+func TestDoctorChecksEnabledLocalEmbeddingProvider(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/embed", r.URL.Path)
+		_, _ = w.Write([]byte(`{"model":"nomic-embed-text","embeddings":[[1,2,3]]}`))
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Search.Embeddings.Enabled = true
+	cfg.Search.Embeddings.Provider = "ollama"
+	cfg.Search.Embeddings.Model = "nomic-embed-text"
+	cfg.Search.Embeddings.BaseURL = server.URL
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	var out bytes.Buffer
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &out,
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+	}
+	require.NoError(t, rt.runDoctor(nil))
+	require.Contains(t, out.String(), "embeddings=ok")
+	require.Contains(t, out.String(), "embeddings_provider=ollama")
+	require.Contains(t, out.String(), "embeddings_probe=ok")
+}
+
+func TestDoctorReportsEmbeddingProviderWarningsNonFatally(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Search.Embeddings.Enabled = true
+	cfg.Search.Embeddings.Provider = "openai"
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	var out bytes.Buffer
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &out,
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+	}
+	require.NoError(t, rt.runDoctor(nil))
+	require.Contains(t, out.String(), "embeddings=warning")
+	require.Contains(t, out.String(), "embeddings_warning=embedding provider \"openai\" requires API key env OPENAI_API_KEY")
+}
+
+func TestDoctorReportsUnsupportedEmbeddingProviderNonFatally(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Search.Embeddings.Enabled = true
+	cfg.Search.Embeddings.Provider = "bogus"
+	cfg.Search.Embeddings.Model = "custom"
+	cfg.Search.Embeddings.APIKeyEnv = ""
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	var out bytes.Buffer
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &out,
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+	}
+	require.NoError(t, rt.runDoctor(nil))
+	require.Contains(t, out.String(), "embeddings=warning")
+	require.Contains(t, out.String(), "embeddings_warning=unsupported embedding provider \"bogus\"")
 }
 
 func TestRuntimeConfiguresAttachmentTextOnSyncer(t *testing.T) {
