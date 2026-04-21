@@ -79,7 +79,7 @@ func (s *Syncer) syncMessageChannelsSerial(ctx context.Context, guildID string, 
 	for _, channel := range channels {
 		progress.start(channel)
 		channelCtx, cancel := s.messageChannelContext(ctx)
-		count, err := s.syncChannelMessages(channelCtx, guildID, channel, opts.Full, opts.Embeddings, opts.Since, progress)
+		count, err := s.syncChannelMessages(channelCtx, guildID, channel, opts.Full, opts.Embeddings, opts.Since, opts.LatestOnly, progress)
 		cancel()
 		total += count
 		if err != nil {
@@ -130,7 +130,7 @@ func (s *Syncer) syncMessageChannelsConcurrent(
 				}
 				progress.start(channel)
 				channelCtx, cancel := s.messageChannelContext(ctx)
-				count, err := s.syncChannelMessages(channelCtx, guildID, channel, opts.Full, opts.Embeddings, opts.Since, progress)
+				count, err := s.syncChannelMessages(channelCtx, guildID, channel, opts.Full, opts.Embeddings, opts.Since, opts.LatestOnly, progress)
 				cancel()
 				succeeded := err == nil
 				var skipped error
@@ -203,7 +203,7 @@ func (s *Syncer) messageChannelContext(ctx context.Context) (context.Context, co
 	return context.WithTimeout(ctx, s.messageChannelTimeout)
 }
 
-func (s *Syncer) syncChannelMessages(ctx context.Context, guildID string, channel *discordgo.Channel, full bool, embeddings bool, since time.Time, progress *messageSyncProgress) (int, error) {
+func (s *Syncer) syncChannelMessages(ctx context.Context, guildID string, channel *discordgo.Channel, full bool, embeddings bool, since time.Time, latestOnly bool, progress *messageSyncProgress) (int, error) {
 	state, err := s.loadChannelSyncState(ctx, channel.ID)
 	if err != nil {
 		return 0, err
@@ -217,7 +217,10 @@ func (s *Syncer) syncChannelMessages(ctx context.Context, guildID string, channe
 		}
 		return s.syncFullChannelHistory(ctx, channel, state, embeddings, since, progress)
 	}
-	if shouldSkipChannelSync(channel, state) {
+	if latestOnly && state.Latest == "" {
+		return 0, nil
+	}
+	if shouldSkipChannelSync(channel, state) || (latestOnly && shouldSkipLatestOnlyChannelSync(channel, state)) {
 		return 0, nil
 	}
 	return s.syncIncrementalChannelHistory(ctx, channel, state, embeddings, since, progress)
@@ -238,6 +241,13 @@ func shouldSkipChannelSync(channel *discordgo.Channel, state channelSyncState) b
 		return state.Latest == ""
 	}
 	if state.Latest == "" {
+		return false
+	}
+	return maxSnowflake(state.Latest, channel.LastMessageID) == state.Latest
+}
+
+func shouldSkipLatestOnlyChannelSync(channel *discordgo.Channel, state channelSyncState) bool {
+	if channel == nil || state.Latest == "" || channel.LastMessageID == "" {
 		return false
 	}
 	return maxSnowflake(state.Latest, channel.LastMessageID) == state.Latest

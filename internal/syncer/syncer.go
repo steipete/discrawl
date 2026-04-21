@@ -49,6 +49,7 @@ type SyncOptions struct {
 	Since        time.Time
 	Embeddings   bool
 	SkipMembers  bool
+	LatestOnly   bool
 	RepairReason string
 }
 
