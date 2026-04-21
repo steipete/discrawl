@@ -52,7 +52,10 @@ write_fallback_notes() {
   local generated_at
   local latest_message
   generated_at=$(date -u '+%Y-%m-%d %H:%M UTC')
-  latest_message=$(fallback_query "select max(created_at) as latest_message from messages;" | jq -r '.[0].latest_message // "unknown"')
+  latest_message=$(
+    fallback_query "select max(created_at) as latest_message from messages;" |
+      jq -r 'if type == "array" then .[0].latest_message // "unknown" else .rows[0][0] // "unknown" end'
+  )
 
   fallback_query "$recent_human_cte
 select channel, count(*) as matches
@@ -61,7 +64,10 @@ where $body_love_terms
 group by 1
 order by matches desc
 limit 4;
-" | jq -r '.[] | "- " + .channel + ": " + (.matches | tostring) + " positive mentions in the last 30 days."' >"$TMP_DIR/fallback-love.md"
+" | jq -r '
+  if type == "array" then .[] else (.rows // [])[] | {channel: .[0], matches: .[1]} end |
+  "- " + .channel + ": " + (.matches | tostring) + " positive mentions in the recent sample."
+' >"$TMP_DIR/fallback-love.md"
 
   fallback_query "$recent_human_cte
 select channel, count(*) as matches
@@ -70,7 +76,10 @@ where $body_complaint_terms
 group by 1
 order by matches desc
 limit 4;
-" | jq -r '.[] | "- " + .channel + ": " + (.matches | tostring) + " complaint-flavored mentions in the last 30 days; compare this with the issue/PR cluster below."' >"$TMP_DIR/fallback-complaints.md"
+" | jq -r '
+  if type == "array" then .[] else (.rows // [])[] | {channel: .[0], matches: .[1]} end |
+  "- " + .channel + ": " + (.matches | tostring) + " complaint-flavored mentions in the recent sample; compare this with the issue/PR cluster below."
+' >"$TMP_DIR/fallback-complaints.md"
 
   if command -v gh >/dev/null 2>&1; then
     gh search issues "repo:$GH_REPO updated:>=$github_since" \
@@ -129,6 +138,17 @@ run_openclaw_agent() {
   else
     "${cmd[@]}"
   fi
+}
+
+extract_openclaw_text() {
+  jq -r '
+    .payloads[0].text //
+    .finalAssistantVisibleText //
+    .finalAssistantRawText //
+    .result.finalAssistantVisibleText //
+    .result.finalAssistantRawText //
+    empty
+  ' "$TMP_DIR/openclaw-result.json"
 }
 
 anchor_expr="(select max(created_at) from messages)"
@@ -289,7 +309,7 @@ $(cat "$TMP_DIR/context.md")
 EOF
 
 if run_openclaw_agent >"$TMP_DIR/openclaw-result.json"; then
-  jq -r '.payloads[0].text // empty' "$TMP_DIR/openclaw-result.json" >"$TMP_DIR/field-notes.md"
+  extract_openclaw_text >"$TMP_DIR/field-notes.md"
 else
   echo "openclaw field notes failed; using deterministic fallback" >&2
   write_fallback_notes >"$TMP_DIR/field-notes.md"
