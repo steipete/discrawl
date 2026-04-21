@@ -214,6 +214,58 @@ func TestCheckMessageFTSProbe(t *testing.T) {
 	require.NoError(t, s.CheckMessageFTS(ctx))
 }
 
+func TestRebuildSearchIndexesAndGuildCounts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMember(ctx, MemberRecord{
+		GuildID:     "g1",
+		UserID:      "u1",
+		Username:    "peter",
+		DisplayName: "Peter",
+		RoleIDsJSON: `[]`,
+		RawJSON:     `{"bio":"Searchable profile"}`,
+	}))
+	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+		ID:                "1458939673664684210",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		Content:           "rebuildable launch text",
+		NormalizedContent: "rebuildable launch text",
+		RawJSON:           `{}`,
+	}))
+
+	_, err = s.DB().ExecContext(ctx, `delete from message_fts`)
+	require.NoError(t, err)
+	_, err = s.DB().ExecContext(ctx, `delete from member_fts`)
+	require.NoError(t, err)
+	require.NoError(t, s.RebuildSearchIndexes(ctx))
+
+	results, err := s.SearchMessages(ctx, SearchOptions{Query: "rebuildable", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	members, err := s.Members(ctx, "g1", "Searchable", 10)
+	require.NoError(t, err)
+	require.Len(t, members, 1)
+	channelCount, err := s.GuildChannelCount(ctx, "g1")
+	require.NoError(t, err)
+	require.Equal(t, 1, channelCount)
+	memberCount, err := s.GuildMemberCount(ctx, "g1")
+	require.NoError(t, err)
+	require.Equal(t, 1, memberCount)
+}
+
 func TestOpenSetsSchemaVersion(t *testing.T) {
 	t.Parallel()
 

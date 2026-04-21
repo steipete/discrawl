@@ -23,6 +23,12 @@ func TestNormalizeFillsDefaults(t *testing.T) {
 	require.NotNil(t, cfg.Sync.AttachmentText)
 	require.True(t, *cfg.Sync.AttachmentText)
 	require.Equal(t, "fts", cfg.Search.DefaultMode)
+	require.Equal(t, "main", cfg.Share.Branch)
+	require.Equal(t, "15m", cfg.Share.StaleAfter)
+	require.True(t, Default().Share.AutoUpdate)
+	require.False(t, cfg.ShareEnabled())
+	cfg.Share.Remote = "git@example.com:org/archive.git"
+	require.True(t, cfg.ShareEnabled())
 }
 
 func TestResolveDiscordTokenPrefersOpenClaw(t *testing.T) {

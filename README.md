@@ -317,6 +317,26 @@ Shows local archive status.
 discrawl status
 ```
 
+### Git-backed sharing
+
+`discrawl` can publish the SQLite archive as sharded, compressed NDJSON snapshots in a private Git repo, then auto-import that repo before local read commands.
+
+Publisher:
+
+```bash
+discrawl publish --remote https://github.com/openclaw/discord-backup.git --push
+```
+
+Subscriber:
+
+```bash
+discrawl subscribe https://github.com/openclaw/discord-backup.git
+discrawl search "launch checklist"
+discrawl messages --channel general --hours 24
+```
+
+Once `share.remote` is configured, read commands auto-fetch and import when the local share import is older than `share.stale_after` (default `15m`). `discrawl update` forces the same pull/import step manually.
+
 ### `doctor`
 
 Checks config, auth, DB, and FTS wiring.
@@ -360,6 +380,13 @@ provider = "openai"
 model = "text-embedding-3-small"
 api_key_env = "OPENAI_API_KEY"
 batch_size = 64
+
+[share]
+remote = ""
+repo_path = "~/.discrawl/share"
+branch = "main"
+auto_update = true
+stale_after = "15m"
 ```
 
 The value above is an example. `init` writes an auto-sized default based on the host: `min(32, max(8, GOMAXPROCS*2))`.

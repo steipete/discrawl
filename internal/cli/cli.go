@@ -12,6 +12,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/steipete/discrawl/internal/config"
 	"github.com/steipete/discrawl/internal/discord"
+	"github.com/steipete/discrawl/internal/share"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/syncer"
 )
@@ -136,6 +137,12 @@ func (r *runtime) dispatch(rest []string) error {
 		return r.withServices(false, func() error { return r.runChannels(rest[1:]) })
 	case "status":
 		return r.withServices(false, func() error { return r.runStatus(rest[1:]) })
+	case "publish":
+		return r.withServicesAuto(false, false, func() error { return r.runPublish(rest[1:]) })
+	case "subscribe":
+		return r.runSubscribe(rest[1:])
+	case "update":
+		return r.withServicesAuto(false, false, func() error { return r.runUpdate(rest[1:]) })
 	case "doctor":
 		return r.runDoctor(rest[1:])
 	default:
@@ -144,6 +151,10 @@ func (r *runtime) dispatch(rest []string) error {
 }
 
 func (r *runtime) withServices(withDiscord bool, fn func() error) error {
+	return r.withServicesAuto(withDiscord, !withDiscord, fn)
+}
+
+func (r *runtime) withServicesAuto(withDiscord, autoShareUpdate bool, fn func() error) error {
 	cfg, err := config.Load(r.configPath)
 	if err != nil {
 		return configErr(err)
@@ -165,6 +176,11 @@ func (r *runtime) withServices(withDiscord bool, fn func() error) error {
 		return dbErr(err)
 	}
 	defer func() { _ = r.store.Close() }()
+	if autoShareUpdate {
+		if err := r.autoUpdateShare(); err != nil {
+			return err
+		}
+	}
 	if withDiscord {
 		discordFactory := r.newDiscord
 		if discordFactory == nil {
@@ -193,4 +209,41 @@ func (r *runtime) withServices(withDiscord bool, fn func() error) error {
 		}
 	}
 	return fn()
+}
+
+func (r *runtime) autoUpdateShare() error {
+	if !r.cfg.ShareEnabled() || !r.cfg.Share.AutoUpdate {
+		return nil
+	}
+	staleAfter, err := time.ParseDuration(r.cfg.Share.StaleAfter)
+	if err != nil {
+		return configErr(fmt.Errorf("invalid share.stale_after: %w", err))
+	}
+	if !share.NeedsImport(r.ctx, r.store, staleAfter) {
+		return nil
+	}
+	opts, err := r.shareOptions()
+	if err != nil {
+		return err
+	}
+	if err := share.Pull(r.ctx, opts); err != nil {
+		return err
+	}
+	_, err = share.Import(r.ctx, r.store, opts)
+	if errors.Is(err, share.ErrNoManifest) {
+		return nil
+	}
+	return err
+}
+
+func (r *runtime) shareOptions() (share.Options, error) {
+	repoPath, err := config.ExpandPath(r.cfg.Share.RepoPath)
+	if err != nil {
+		return share.Options{}, configErr(err)
+	}
+	return share.Options{
+		RepoPath: repoPath,
+		Remote:   r.cfg.Share.Remote,
+		Branch:   r.cfg.Share.Branch,
+	}, nil
 }

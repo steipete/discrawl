@@ -217,6 +217,26 @@ func (s *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
+func (s *Store) RebuildSearchIndexes(ctx context.Context) error {
+	if err := s.rebuildFTS(ctx); err != nil {
+		return err
+	}
+	if err := s.rebuildMemberFTS(ctx); err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(timeLayout)
+	if _, err := s.db.ExecContext(ctx, `
+		insert into sync_state(scope, cursor, updated_at)
+		values(?, ?, ?), (?, ?, ?)
+		on conflict(scope) do update set
+			cursor=excluded.cursor,
+			updated_at=excluded.updated_at
+	`, "schema:message_fts_rowid_version", messageFTSVersion, now, "schema:member_fts_rowid_version", memberFTSVersion, now); err != nil {
+		return fmt.Errorf("stamp search index versions: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) schemaVersion(ctx context.Context) (int, error) {
 	var version int
 	if err := s.db.QueryRowContext(ctx, `pragma user_version`).Scan(&version); err != nil {

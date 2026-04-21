@@ -1,0 +1,191 @@
+package cli
+
+import (
+	"flag"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/steipete/discrawl/internal/config"
+	"github.com/steipete/discrawl/internal/share"
+	"github.com/steipete/discrawl/internal/store"
+)
+
+const defaultShareRemote = "https://github.com/openclaw/discord-backup.git"
+
+func (r *runtime) runPublish(args []string) error {
+	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	repoPath := fs.String("repo", r.cfg.Share.RepoPath, "")
+	remote := fs.String("remote", r.cfg.Share.Remote, "")
+	branch := fs.String("branch", r.cfg.Share.Branch, "")
+	message := fs.String("message", "", "")
+	noCommit := fs.Bool("no-commit", false, "")
+	push := fs.Bool("push", false, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	if fs.NArg() != 0 {
+		return usageErr(fmt.Errorf("publish takes no positional arguments"))
+	}
+	opts, err := shareOptionsFromFlags(*repoPath, *remote, *branch)
+	if err != nil {
+		return err
+	}
+	manifest, err := share.Export(r.ctx, r.store, opts)
+	if err != nil {
+		return err
+	}
+	committed := false
+	if !*noCommit {
+		msg := *message
+		if msg == "" {
+			msg = "sync: discord archive"
+		}
+		committed, err = share.Commit(r.ctx, opts, msg)
+		if err != nil {
+			return err
+		}
+	}
+	if *push {
+		if err := share.Push(r.ctx, opts); err != nil {
+			return err
+		}
+	}
+	return r.print(map[string]any{
+		"repo_path":    opts.RepoPath,
+		"remote":       opts.Remote,
+		"generated_at": manifest.GeneratedAt,
+		"tables":       manifest.Tables,
+		"committed":    committed,
+		"pushed":       *push,
+	})
+}
+
+func (r *runtime) runSubscribe(args []string) error {
+	fs := flag.NewFlagSet("subscribe", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	repoPath := fs.String("repo", "", "")
+	branch := fs.String("branch", "main", "")
+	noImport := fs.Bool("no-import", false, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	remote := defaultShareRemote
+	if fs.NArg() > 1 {
+		return usageErr(fmt.Errorf("subscribe takes at most one remote"))
+	}
+	if fs.NArg() == 1 {
+		remote = fs.Arg(0)
+	}
+	cfg, err := loadConfigOrDefault(r.configPath)
+	if err != nil {
+		return err
+	}
+	if *repoPath != "" {
+		cfg.Share.RepoPath = *repoPath
+	}
+	cfg.Share.Remote = remote
+	cfg.Share.Branch = *branch
+	cfg.Share.AutoUpdate = true
+	if cfg.Share.StaleAfter == "" {
+		cfg.Share.StaleAfter = "15m"
+	}
+	if err := config.Write(r.configPath, cfg); err != nil {
+		return configErr(err)
+	}
+	if *noImport {
+		return r.print(map[string]any{"config_path": r.configPath, "remote": remote, "repo_path": cfg.Share.RepoPath})
+	}
+	if err := config.EnsureRuntimeDirs(cfg); err != nil {
+		return configErr(err)
+	}
+	dbPath, err := config.ExpandPath(cfg.DBPath)
+	if err != nil {
+		return configErr(err)
+	}
+	s, err := store.Open(r.ctx, dbPath)
+	if err != nil {
+		return dbErr(err)
+	}
+	defer func() { _ = s.Close() }()
+	expandedRepo, err := config.ExpandPath(cfg.Share.RepoPath)
+	if err != nil {
+		return configErr(err)
+	}
+	opts := share.Options{RepoPath: expandedRepo, Remote: cfg.Share.Remote, Branch: cfg.Share.Branch}
+	if err := share.Pull(r.ctx, opts); err != nil {
+		return err
+	}
+	manifest, err := share.Import(r.ctx, s, opts)
+	if err != nil {
+		return err
+	}
+	return r.print(map[string]any{
+		"config_path":  r.configPath,
+		"repo_path":    opts.RepoPath,
+		"remote":       opts.Remote,
+		"generated_at": manifest.GeneratedAt,
+		"tables":       manifest.Tables,
+	})
+}
+
+func (r *runtime) runUpdate(args []string) error {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	repoPath := fs.String("repo", r.cfg.Share.RepoPath, "")
+	remote := fs.String("remote", r.cfg.Share.Remote, "")
+	branch := fs.String("branch", r.cfg.Share.Branch, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	if fs.NArg() != 0 {
+		return usageErr(fmt.Errorf("update takes no positional arguments"))
+	}
+	opts, err := shareOptionsFromFlags(*repoPath, *remote, *branch)
+	if err != nil {
+		return err
+	}
+	if err := share.Pull(r.ctx, opts); err != nil {
+		return err
+	}
+	manifest, err := share.Import(r.ctx, r.store, opts)
+	if err != nil {
+		return err
+	}
+	return r.print(map[string]any{
+		"repo_path":    opts.RepoPath,
+		"remote":       opts.Remote,
+		"generated_at": manifest.GeneratedAt,
+		"tables":       manifest.Tables,
+	})
+}
+
+func shareOptionsFromFlags(repoPath, remote, branch string) (share.Options, error) {
+	expandedRepo, err := config.ExpandPath(repoPath)
+	if err != nil {
+		return share.Options{}, configErr(err)
+	}
+	if remote == "" {
+		remote = defaultShareRemote
+	}
+	if branch == "" {
+		branch = "main"
+	}
+	return share.Options{RepoPath: expandedRepo, Remote: remote, Branch: branch}, nil
+}
+
+func loadConfigOrDefault(path string) (config.Config, error) {
+	cfg, err := config.Load(path)
+	if err == nil {
+		return cfg, nil
+	}
+	if !os.IsNotExist(err) {
+		return config.Config{}, configErr(err)
+	}
+	cfg = config.Default()
+	if err := cfg.Normalize(); err != nil {
+		return config.Config{}, configErr(err)
+	}
+	return cfg, nil
+}

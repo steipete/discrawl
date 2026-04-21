@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/steipete/discrawl/internal/config"
 	discordclient "github.com/steipete/discrawl/internal/discord"
+	"github.com/steipete/discrawl/internal/share"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/syncer"
 )
@@ -129,6 +131,135 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 		require.NoError(t, Run(ctx, args, &out, &bytes.Buffer{}))
 		require.NotEmpty(t, out.String())
 	}
+}
+
+func TestReadCommandsAutoImportStaleShare(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	sourceDB := filepath.Join(dir, "source.db")
+	source := seedCLIStore(t, sourceDB)
+	defer func() { _ = source.Close() }()
+
+	workRepo := filepath.Join(dir, "work")
+	remoteRepo := filepath.Join(dir, "remote.git")
+	opts := share.Options{RepoPath: workRepo, Branch: "main"}
+	_, err := share.Export(ctx, source, opts)
+	require.NoError(t, err)
+	runGit(t, workRepo, "config", "user.name", "discrawl test")
+	runGit(t, workRepo, "config", "user.email", "discrawl@example.com")
+	committed, err := share.Commit(ctx, opts, "test: snapshot")
+	require.NoError(t, err)
+	require.True(t, committed)
+	runGit(t, dir, "init", "--bare", remoteRepo)
+	runGit(t, workRepo, "remote", "add", "origin", remoteRepo)
+	runGit(t, workRepo, "push", "-u", "origin", "main")
+
+	cfgPath := filepath.Join(dir, "config.toml")
+	cfg := config.Default()
+	cfg.DBPath = filepath.Join(dir, "reader.db")
+	cfg.Share.Remote = remoteRepo
+	cfg.Share.RepoPath = filepath.Join(dir, "reader-share")
+	cfg.Share.StaleAfter = "15m"
+	cfg.Share.AutoUpdate = true
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "automatic"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "automatic updates work")
+
+	reader, err := store.Open(ctx, cfg.DBPath)
+	require.NoError(t, err)
+	defer func() { _ = reader.Close() }()
+	lastImport, err := reader.GetSyncState(ctx, share.LastImportSyncScope)
+	require.NoError(t, err)
+	require.NotEmpty(t, lastImport)
+}
+
+func TestShareCommandsPublishSubscribeAndUpdate(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	remoteRepo := filepath.Join(dir, "remote.git")
+	runGit(t, dir, "init", "--bare", remoteRepo)
+
+	cfgPath := filepath.Join(dir, "config.toml")
+	cfg := config.Default()
+	cfg.DBPath = filepath.Join(dir, "publisher.db")
+	cfg.Share.Remote = remoteRepo
+	cfg.Share.RepoPath = filepath.Join(dir, "publisher-share")
+	require.NoError(t, config.Write(cfgPath, cfg))
+	publisher := seedCLIStore(t, cfg.DBPath)
+	require.NoError(t, publisher.Close())
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{
+		"--config", cfgPath,
+		"publish",
+		"--repo", cfg.Share.RepoPath,
+		"--remote", remoteRepo,
+		"--no-commit",
+	}, &out, &bytes.Buffer{}))
+	require.FileExists(t, filepath.Join(cfg.Share.RepoPath, share.ManifestName))
+
+	runGit(t, cfg.Share.RepoPath, "config", "user.name", "discrawl test")
+	runGit(t, cfg.Share.RepoPath, "config", "user.email", "discrawl@example.com")
+	committed, err := share.Commit(ctx, share.Options{RepoPath: cfg.Share.RepoPath, Remote: remoteRepo, Branch: "main"}, "test: snapshot")
+	require.NoError(t, err)
+	require.True(t, committed)
+	require.NoError(t, share.Push(ctx, share.Options{RepoPath: cfg.Share.RepoPath, Remote: remoteRepo, Branch: "main"}))
+
+	readerCfgPath := filepath.Join(dir, "reader.toml")
+	require.NoError(t, Run(ctx, []string{
+		"--config", readerCfgPath,
+		"subscribe",
+		"--repo", filepath.Join(dir, "reader-share"),
+		"--no-import",
+		remoteRepo,
+	}, &bytes.Buffer{}, &bytes.Buffer{}))
+	readerCfg, err := config.Load(readerCfgPath)
+	require.NoError(t, err)
+	require.Equal(t, remoteRepo, readerCfg.Share.Remote)
+
+	readerCfg.DBPath = filepath.Join(dir, "reader.db")
+	require.NoError(t, config.Write(readerCfgPath, readerCfg))
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "update"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "generated_at")
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "search", "automatic"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "automatic updates work")
+}
+
+func seedCLIStore(t *testing.T, path string) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, path)
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "m100",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         now.Format(time.RFC3339Nano),
+		Content:           "automatic updates work",
+		NormalizedContent: "automatic updates work",
+		RawJSON:           `{}`,
+	}))
+	return s
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	// #nosec G204 -- fixed git argv in test setup.
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
 }
 
 type fakeDiscordClient struct {

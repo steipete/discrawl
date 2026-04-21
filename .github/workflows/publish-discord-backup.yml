@@ -1,0 +1,54 @@
+name: publish-discord-backup
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-discord-backup
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout discrawl
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@v6.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "discrawl publisher"
+          git config --global user.email "discrawl-publisher@users.noreply.github.com"
+
+      - name: Sync and publish Discord archive
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          BACKUP_REMOTE: https://x-access-token:${{ secrets.DISCORD_BACKUP_TOKEN }}@github.com/openclaw/discord-backup.git
+          CONFIG: ${{ runner.temp }}/discrawl/config.toml
+          DB: ${{ runner.temp }}/discrawl/discrawl.db
+          BACKUP_REPO: ${{ runner.temp }}/discord-backup
+        run: |
+          mkdir -p "$(dirname "$CONFIG")"
+          git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
+          if [ -f "$BACKUP_REPO/manifest.json" ]; then
+            go run ./cmd/discrawl --config "$CONFIG" subscribe --repo "$BACKUP_REPO" "$BACKUP_REMOTE"
+          else
+            go run ./cmd/discrawl --config "$CONFIG" init --db "$DB"
+          fi
+          go run ./cmd/discrawl --config "$CONFIG" sync --all
+          go run ./cmd/discrawl --config "$CONFIG" publish \
+            --repo "$BACKUP_REPO" \
+            --remote "$BACKUP_REMOTE" \
+            --message "sync: discord archive" \
+            --push

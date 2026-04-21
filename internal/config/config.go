@@ -29,6 +29,7 @@ type Config struct {
 	Discord        DiscordConfig `toml:"discord"`
 	Sync           SyncConfig    `toml:"sync"`
 	Search         SearchConfig  `toml:"search"`
+	Share          ShareConfig   `toml:"share"`
 }
 
 type DiscordConfig struct {
@@ -48,6 +49,14 @@ type SyncConfig struct {
 type SearchConfig struct {
 	DefaultMode string           `toml:"default_mode"`
 	Embeddings  EmbeddingsConfig `toml:"embeddings"`
+}
+
+type ShareConfig struct {
+	Remote     string `toml:"remote,omitempty"`
+	RepoPath   string `toml:"repo_path,omitempty"`
+	Branch     string `toml:"branch,omitempty"`
+	AutoUpdate bool   `toml:"auto_update"`
+	StaleAfter string `toml:"stale_after"`
 }
 
 type EmbeddingsConfig struct {
@@ -117,6 +126,12 @@ func Default() Config {
 				APIKeyEnv: "OPENAI_API_KEY",
 				BatchSize: 64,
 			},
+		},
+		Share: ShareConfig{
+			RepoPath:   filepath.Join(base, "share"),
+			Branch:     "main",
+			AutoUpdate: true,
+			StaleAfter: "15m",
 		},
 	}
 }
@@ -236,6 +251,15 @@ func (c *Config) Normalize() error {
 	if c.Search.Embeddings.BatchSize <= 0 {
 		c.Search.Embeddings.BatchSize = 64
 	}
+	if c.Share.RepoPath == "" {
+		c.Share.RepoPath = Default().Share.RepoPath
+	}
+	if c.Share.Branch == "" {
+		c.Share.Branch = "main"
+	}
+	if c.Share.StaleAfter == "" {
+		c.Share.StaleAfter = "15m"
+	}
 	c.GuildIDs = uniqueStrings(c.GuildIDs)
 	return nil
 }
@@ -256,6 +280,10 @@ func (c Config) SearchGuildDefaults() []string {
 
 func (c Config) AttachmentTextEnabled() bool {
 	return c.Sync.AttachmentText == nil || *c.Sync.AttachmentText
+}
+
+func (c Config) ShareEnabled() bool {
+	return strings.TrimSpace(c.Share.Remote) != ""
 }
 
 func EnsureRuntimeDirs(cfg Config) error {
