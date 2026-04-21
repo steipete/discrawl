@@ -35,6 +35,7 @@ jobs:
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_BACKUP_TOKEN: ${{ secrets.DISCORD_BACKUP_TOKEN }}
+          DISCRAWL_GUILD_ID: ${{ secrets.DISCRAWL_GUILD_ID }}
           CONFIG: ${{ runner.temp }}/discrawl/config.toml
           DB: ${{ runner.temp }}/discrawl/discrawl.db
           BACKUP_REPO: ${{ runner.temp }}/discord-backup
@@ -47,14 +48,18 @@ jobs:
             echo "::error title=Missing secret::Configure DISCORD_BACKUP_TOKEN with write access to openclaw/discord-backup."
             exit 1
           fi
+          if [ -z "${DISCRAWL_GUILD_ID:-}" ]; then
+            echo "::error title=Missing secret::Configure DISCRAWL_GUILD_ID with the Discord guild to publish."
+            exit 1
+          fi
           BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/openclaw/discord-backup.git"
           mkdir -p "$(dirname "$CONFIG")"
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
-          go run ./cmd/discrawl --config "$CONFIG" init --db "$DB"
+          go run ./cmd/discrawl --config "$CONFIG" init --db "$DB" --guild "$DISCRAWL_GUILD_ID"
           if [ -f "$BACKUP_REPO/manifest.json" ]; then
             go run ./cmd/discrawl --config "$CONFIG" update --repo "$BACKUP_REPO" --remote "$BACKUP_REMOTE"
           fi
-          go run ./cmd/discrawl --config "$CONFIG" sync --all
+          go run ./cmd/discrawl --config "$CONFIG" sync --guild "$DISCRAWL_GUILD_ID"
           go run ./cmd/discrawl --config "$CONFIG" publish \
             --repo "$BACKUP_REPO" \
             --remote "$BACKUP_REMOTE" \
