@@ -35,6 +35,74 @@ run_sql() {
   } >>"$TMP_DIR/context.md"
 }
 
+fallback_query() {
+  local query=$1
+  go run ./cmd/discrawl --config "$CONFIG" --json sql "$query"
+}
+
+write_fallback_notes() {
+  local generated_at
+  local latest_message
+  generated_at=$(date -u '+%Y-%m-%d %H:%M UTC')
+  latest_message=$(fallback_query "select max(created_at) as latest_message from messages;" | jq -r '.[0].latest_message // "unknown"')
+
+  fallback_query "
+select coalesce(nullif(channel_name, ''), channel_id) as channel, count(*) as matches
+from messages
+where created_at >= $since_30 and $human_filter and $love_terms
+group by 1
+order by matches desc
+limit 4;
+" | jq -r '.[] | "- " + .channel + ": " + (.matches | tostring) + " positive mentions in the last 30 days."' >"$TMP_DIR/fallback-love.md"
+
+  fallback_query "
+select coalesce(nullif(channel_name, ''), channel_id) as channel, count(*) as matches
+from messages
+where created_at >= $since_30 and $human_filter and $complaint_terms
+group by 1
+order by matches desc
+limit 4;
+" | jq -r '.[] | "- " + .channel + ": " + (.matches | tostring) + " complaint-flavored mentions in the last 30 days; compare this with the issue/PR cluster below."' >"$TMP_DIR/fallback-complaints.md"
+
+  if command -v gh >/dev/null 2>&1; then
+    gh search issues "repo:$GH_REPO updated:>=$github_since" \
+      --json number,title,state,updatedAt,url,labels \
+      --limit 8 | jq -r '.[0:3][]? | "- Issue #" + (.number | tostring) + " (" + .state + "): [" + .title + "](" + .url + ")"' >"$TMP_DIR/fallback-issues.md" || :
+    gh search prs "repo:$GH_REPO updated:>=$github_since" \
+      --json number,title,state,updatedAt,url,labels \
+      --limit 8 | jq -r 'map(select(.state == "open"))[0] // .[0] // empty | "- PR #" + (.number | tostring) + ": [" + .title + "](" + .url + ") looks like the highest-leverage recent PR because it is active in the same window as the complaint cluster."' >"$TMP_DIR/fallback-pr.md" || :
+  fi
+
+  if [ ! -s "$TMP_DIR/fallback-love.md" ]; then
+    printf '%s\n' "- Not enough clear positive signal in the latest 30-day window." >"$TMP_DIR/fallback-love.md"
+  fi
+  if [ ! -s "$TMP_DIR/fallback-complaints.md" ]; then
+    printf '%s\n' "- Not enough clear complaint signal in the latest 30-day window." >"$TMP_DIR/fallback-complaints.md"
+  fi
+  if [ -s "$TMP_DIR/fallback-issues.md" ]; then
+    {
+      printf '\n'
+      cat "$TMP_DIR/fallback-issues.md"
+    } >>"$TMP_DIR/fallback-complaints.md"
+  fi
+  if [ ! -s "$TMP_DIR/fallback-pr.md" ]; then
+    printf '%s\n' "- No recent PR signal available from GitHub search." >"$TMP_DIR/fallback-pr.md"
+  fi
+
+  {
+    printf '### Field Notes\n\n'
+    printf 'Last generated: %s\n\n' "$generated_at"
+    printf '_OpenClaw agent timed out; generated deterministic field notes from the same archive and GitHub context._\n\n'
+    printf 'Latest archived message: %s\n\n' "$latest_message"
+    printf '#### What People Love\n'
+    cat "$TMP_DIR/fallback-love.md"
+    printf '\n#### What People Complain About\n'
+    cat "$TMP_DIR/fallback-complaints.md"
+    printf '\n#### Best PR To Watch\n'
+    cat "$TMP_DIR/fallback-pr.md"
+  }
+}
+
 anchor_expr="(select max(created_at) from messages)"
 since_7="strftime('%Y-%m-%dT%H:%M:%fZ', datetime($anchor_expr, '-7 days'))"
 since_30="strftime('%Y-%m-%dT%H:%M:%fZ', datetime($anchor_expr, '-30 days'))"
@@ -172,19 +240,21 @@ Context:
 $(cat "$TMP_DIR/context.md")
 EOF
 
-"$OPENCLAW_BIN" agent \
-  --local \
-  --agent main \
-  --thinking "$OPENCLAW_THINKING" \
-  --timeout "$OPENCLAW_TIMEOUT" \
-  --json \
-  --message "$(cat "$TMP_DIR/prompt.md")" >"$TMP_DIR/openclaw-result.json"
-
-jq -r '.payloads[0].text // empty' "$TMP_DIR/openclaw-result.json" >"$TMP_DIR/field-notes.md"
+if "$OPENCLAW_BIN" agent \
+    --local \
+    --agent main \
+    --thinking "$OPENCLAW_THINKING" \
+    --timeout "$OPENCLAW_TIMEOUT" \
+    --json \
+    --message "$(cat "$TMP_DIR/prompt.md")" >"$TMP_DIR/openclaw-result.json"; then
+  jq -r '.payloads[0].text // empty' "$TMP_DIR/openclaw-result.json" >"$TMP_DIR/field-notes.md"
+else
+  echo "openclaw field notes failed; using deterministic fallback" >&2
+  write_fallback_notes >"$TMP_DIR/field-notes.md"
+fi
 if [ ! -s "$TMP_DIR/field-notes.md" ]; then
-  echo "openclaw did not return field notes text" >&2
-  cat "$TMP_DIR/openclaw-result.json" >&2
-  exit 1
+  echo "openclaw did not return field notes text; using deterministic fallback" >&2
+  write_fallback_notes >"$TMP_DIR/field-notes.md"
 fi
 
 awk -v start="$START_MARKER" -v end="$END_MARKER" -v notes="$TMP_DIR/field-notes.md" '
