@@ -21,21 +21,8 @@ const (
 	EndMarker   = "<!-- discrawl-report:end -->"
 )
 
-const (
-	aiFieldNotesHeading = "### AI Field Notes"
-	aiDigestPlaceholder = "_AI digest not generated in this run. The daily report job fills this in when `OPENAI_API_KEY` is configured._"
-)
-
 type Options struct {
 	Now time.Time
-	AI  AIOptions
-}
-
-type AIOptions struct {
-	Enabled   bool
-	Model     string
-	APIKeyEnv string
-	BaseURL   string
 }
 
 type ActivityReport struct {
@@ -48,8 +35,6 @@ type ActivityReport struct {
 	TopChannels     []RankedCount
 	TopAuthors      []RankedCount
 	BusiestDays     []RankedCount
-	RecentSamples   []MessageSample
-	AISummary       string
 }
 
 type WindowStats struct {
@@ -64,13 +49,6 @@ type WindowStats struct {
 type RankedCount struct {
 	Name  string
 	Count int
-}
-
-type MessageSample struct {
-	Channel   string
-	Author    string
-	Content   string
-	CreatedAt time.Time
 }
 
 func Build(ctx context.Context, s *store.Store, opts Options) (ActivityReport, error) {
@@ -115,17 +93,6 @@ func Build(ctx context.Context, s *store.Store, opts Options) (ActivityReport, e
 	report.BusiestDays, err = busiestDays(ctx, s.DB(), monthSince, 7)
 	if err != nil {
 		return ActivityReport{}, err
-	}
-	report.RecentSamples, err = recentSamples(ctx, s.DB(), weekSince, 40)
-	if err != nil {
-		return ActivityReport{}, err
-	}
-	if opts.AI.Enabled {
-		summary, err := GenerateAISummary(ctx, report, opts.AI)
-		if err != nil {
-			return ActivityReport{}, err
-		}
-		report.AISummary = strings.TrimSpace(summary)
 	}
 	return report, nil
 }
@@ -224,50 +191,6 @@ func ranked(ctx context.Context, db *sql.DB, query string, args ...any) ([]Ranke
 	return out, rows.Err()
 }
 
-func recentSamples(ctx context.Context, db *sql.DB, since time.Time, limit int) ([]MessageSample, error) {
-	rows, err := db.QueryContext(ctx, `
-		select
-			coalesce(nullif(c.name, ''), m.channel_id),
-			coalesce(
-				nullif(mem.display_name, ''),
-				nullif(mem.nick, ''),
-				nullif(mem.global_name, ''),
-				nullif(mem.username, ''),
-				nullif(json_extract(m.raw_json, '$.author.username'), ''),
-				nullif(m.author_id, ''),
-				'unknown'
-			),
-			case
-				when trim(coalesce(m.content, '')) <> '' then m.content
-				else m.normalized_content
-			end,
-			m.created_at
-		from messages m
-		left join channels c on c.id = m.channel_id
-		left join members mem on mem.guild_id = m.guild_id and mem.user_id = m.author_id
-		where m.created_at >= ?
-		  and trim(coalesce(m.normalized_content, m.content, '')) <> ''
-		order by m.created_at desc, m.id desc
-		limit ?
-	`, since.UTC().Format(time.RFC3339Nano), limit)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []MessageSample
-	for rows.Next() {
-		var row MessageSample
-		var created string
-		if err := rows.Scan(&row.Channel, &row.Author, &row.Content, &created); err != nil {
-			return nil, err
-		}
-		row.CreatedAt = parseTime(created)
-		row.Content = clipWhitespace(row.Content, 220)
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
 func RenderMarkdown(report ActivityReport) (string, error) {
 	var body bytes.Buffer
 	if err := reportTemplate.Execute(&body, report); err != nil {
@@ -282,8 +205,6 @@ func UpdateReadme(readme []byte, section string) []byte {
 	start := strings.Index(text, StartMarker)
 	end := strings.Index(text, EndMarker)
 	if start >= 0 && end >= start {
-		existingSection := text[start+len(StartMarker) : end]
-		section = preserveAIFieldNotes(existingSection, section)
 		end += len(EndMarker)
 		replacement := StartMarker + "\n" + section + "\n" + EndMarker
 		return []byte(text[:start] + replacement + text[end:])
@@ -294,43 +215,6 @@ func UpdateReadme(readme []byte, section string) []byte {
 		return []byte(replacement + "\n")
 	}
 	return []byte(text + "\n\n" + replacement + "\n")
-}
-
-func preserveAIFieldNotes(existingSection string, nextSection string) string {
-	if !strings.Contains(nextSection, aiDigestPlaceholder) {
-		return nextSection
-	}
-	existingNotes := extractAIFieldNotes(existingSection)
-	if existingNotes == "" || strings.Contains(existingNotes, aiDigestPlaceholder) {
-		return nextSection
-	}
-	return replaceAIFieldNotes(nextSection, existingNotes)
-}
-
-func extractAIFieldNotes(section string) string {
-	idx := strings.Index(section, aiFieldNotesHeading)
-	if idx < 0 {
-		return ""
-	}
-	notes := section[idx+len(aiFieldNotesHeading):]
-	if next := strings.Index(notes, "\n### "); next >= 0 {
-		notes = notes[:next]
-	}
-	return strings.TrimSpace(notes)
-}
-
-func replaceAIFieldNotes(section string, notes string) string {
-	idx := strings.Index(section, aiFieldNotesHeading)
-	if idx < 0 {
-		return section
-	}
-	start := idx + len(aiFieldNotesHeading)
-	tail := section[start:]
-	end := len(tail)
-	if next := strings.Index(tail, "\n### "); next >= 0 {
-		end = next
-	}
-	return section[:start] + "\n\n" + strings.TrimSpace(notes) + strings.TrimRight(tail[end:], "\n")
 }
 
 func WriteReadme(path string, section string) error {
@@ -397,11 +281,10 @@ func parseTime(raw string) time.Time {
 }
 
 var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap{
-	"formatTime":    formatTime,
-	"formatInt":     formatInt,
-	"rankedTable":   MarkdownTable,
-	"escapeMD":      escapeMD,
-	"sampleContent": clipWhitespace,
+	"formatTime":  formatTime,
+	"formatInt":   formatInt,
+	"rankedTable": MarkdownTable,
+	"escapeMD":    escapeMD,
 }).Parse(`## Discord Activity Report
 
 Last updated: {{ formatTime .GeneratedAt }}
@@ -428,12 +311,4 @@ Archive size: {{ formatInt .TotalMessages }} messages, {{ formatInt .TotalChanne
 ### Busiest Days This Month
 
 {{ rankedTable .BusiestDays "Day" }}
-
-### AI Field Notes
-
-{{- if .AISummary }}
-{{ .AISummary }}
-{{- else }}
-` + aiDigestPlaceholder + `
-{{- end }}
 `))

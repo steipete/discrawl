@@ -366,10 +366,18 @@ Generates the Markdown activity block used by the shared backup repo README.
 ```bash
 discrawl report
 discrawl report --readme path/to/discord-backup/README.md
-discrawl report --readme path/to/discord-backup/README.md --ai
 ```
 
-Every scheduled snapshot publish updates deterministic README stats: latest update time, latest archived message, archive totals, and day/week/month activity. The AI field notes are intentionally a separate daily workflow so model latency or quota cannot block the 15-minute data publish path. Configure `OPENAI_API_KEY` in the discrawl repo secrets to enable that daily AI report.
+Every scheduled snapshot publish updates deterministic README stats: latest update time, latest archived message, archive totals, and day/week/month activity.
+
+The backup README field notes are intentionally a separate daily workflow, not part of `discrawl report`, so model latency or quota cannot block the 15-minute data publish path. `.github/workflows/discord-backup-report.yml` installs `openclaw@latest`, runs `openclaw agent --local` with OpenAI, and inserts a separate `discrawl-field-notes` block with:
+
+- what people seem to love
+- what people complain about
+- complaint topics correlated with recent GitHub issue and PR clusters
+- the likely best PR to watch
+
+Configure `OPENAI_API_KEY` in the discrawl repo secrets to enable agent-written field notes. `DISCORD_BACKUP_TOKEN` still needs write access to `openclaw/discord-backup`. If the GitHub repo used for issue/PR correlation is private, also set `DISCORD_FIELD_NOTES_GITHUB_TOKEN` with read access to that repo.
 
 ### `doctor`
 
