@@ -65,6 +65,15 @@ func TestResolveDiscordTokenFallsBackToEnv(t *testing.T) {
 	require.Equal(t, "env", token.Source)
 }
 
+func TestResolveDiscordTokenDisabled(t *testing.T) {
+	cfg := Default()
+	cfg.Discord.TokenSource = "none"
+	t.Setenv(DefaultTokenEnv, "env-token")
+
+	_, err := ResolveDiscordToken(cfg)
+	require.ErrorContains(t, err, "discord token disabled")
+}
+
 func TestLoadOpenClawDiscordFromAccount(t *testing.T) {
 	t.Parallel()
 

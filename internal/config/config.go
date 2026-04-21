@@ -322,6 +322,9 @@ func ResolveDiscordToken(cfg Config) (TokenResolution, error) {
 	if err := cfg.Normalize(); err != nil {
 		return TokenResolution{}, err
 	}
+	if cfg.Discord.TokenSource == "none" {
+		return TokenResolution{}, errors.New("discord token disabled by config")
+	}
 	if cfg.Discord.TokenSource != "env" {
 		openClaw, err := LoadOpenClawDiscord(cfg.Discord.OpenClawConfig, cfg.Discord.Account)
 		if err == nil && openClaw.Token != "" {

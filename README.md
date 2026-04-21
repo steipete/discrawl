@@ -21,8 +21,9 @@ Search defaults to all guilds. `sync` and `tail` default to the configured defau
 ## Requirements
 
 - Go `1.26+`
-- a Discord bot token the bot can use to read the target guilds
-- bot permissions for the channels you want archived
+- for publishing/syncing: a Discord bot token the bot can use to read the target guilds
+- for read-only Git-backed access: access to a private snapshot repo, no Discord credentials required
+- bot permissions for the channels you want archived when running `sync` or `tail`
 
 ### Discord Bot Setup
 
@@ -335,6 +336,15 @@ discrawl search "launch checklist"
 discrawl messages --channel general --hours 24
 ```
 
+`subscribe` is the Git-only setup path. It writes a config with `discord.token_source = "none"`, imports the snapshot, and does not require a Discord bot token. `sync` and `tail` remain disabled in this mode because they need live Discord access.
+
+Configure freshness:
+
+```bash
+discrawl subscribe --stale-after 15m https://github.com/openclaw/discord-backup.git
+discrawl subscribe --no-auto-update https://github.com/openclaw/discord-backup.git
+```
+
 Once `share.remote` is configured, read commands auto-fetch and import when the local share import is older than `share.stale_after` (default `15m`). `discrawl update` forces the same pull/import step manually.
 
 ### `doctor`
@@ -360,7 +370,7 @@ cache_dir = "~/.discrawl/cache"
 log_dir = "~/.discrawl/logs"
 
 [discord]
-token_source = "openclaw"
+token_source = "openclaw" # use "none" for Git-only read access
 openclaw_config = "~/.openclaw/openclaw.json"
 account = "default"
 token_env = "DISCORD_BOT_TOKEN"

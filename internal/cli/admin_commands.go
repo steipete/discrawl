@@ -177,9 +177,19 @@ func (r *runtime) runDoctor(args []string) error {
 	}
 	report["config"] = "ok"
 	report["default_guild_id"] = cfg.EffectiveDefaultGuildID()
+	if cfg.ShareEnabled() {
+		report["share_remote"] = cfg.Share.Remote
+		report["share_repo_path"] = cfg.Share.RepoPath
+		report["share_auto_update"] = cfg.Share.AutoUpdate
+		report["share_stale_after"] = cfg.Share.StaleAfter
+	}
 	token, err := config.ResolveDiscordToken(cfg)
 	if err != nil {
-		report["discord_token"] = err.Error()
+		if cfg.Discord.TokenSource == "none" && cfg.ShareEnabled() {
+			report["discord_token"] = "disabled (git share mode)"
+		} else {
+			report["discord_token"] = err.Error()
+		}
 	} else {
 		report["discord_token"] = token.Source
 		discordFactory := r.newDiscord

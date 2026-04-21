@@ -218,6 +218,7 @@ func TestShareCommandsPublishSubscribeAndUpdate(t *testing.T) {
 	readerCfg, err := config.Load(readerCfgPath)
 	require.NoError(t, err)
 	require.Equal(t, remoteRepo, readerCfg.Share.Remote)
+	require.Equal(t, "none", readerCfg.Discord.TokenSource)
 
 	readerCfg.DBPath = filepath.Join(dir, "reader.db")
 	require.NoError(t, config.Write(readerCfgPath, readerCfg))
@@ -227,6 +228,60 @@ func TestShareCommandsPublishSubscribeAndUpdate(t *testing.T) {
 	out.Reset()
 	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "search", "automatic"}, &out, &bytes.Buffer{}))
 	require.Contains(t, out.String(), "automatic updates work")
+}
+
+func TestSubscribeGitOnlyModeNeedsNoDiscordCredentials(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	remoteRepo := filepath.Join(dir, "remote.git")
+	runGit(t, dir, "init", "--bare", remoteRepo)
+
+	publisherDB := filepath.Join(dir, "publisher.db")
+	publisher := seedCLIStore(t, publisherDB)
+	defer func() { _ = publisher.Close() }()
+	publisherRepo := filepath.Join(dir, "publisher-share")
+	opts := share.Options{RepoPath: publisherRepo, Remote: remoteRepo, Branch: "main"}
+	_, err := share.Export(ctx, publisher, opts)
+	require.NoError(t, err)
+	runGit(t, publisherRepo, "config", "user.name", "discrawl test")
+	runGit(t, publisherRepo, "config", "user.email", "discrawl@example.com")
+	committed, err := share.Commit(ctx, opts, "test: snapshot")
+	require.NoError(t, err)
+	require.True(t, committed)
+	require.NoError(t, share.Push(ctx, opts))
+
+	cfgPath := filepath.Join(dir, "reader.toml")
+	readerDB := filepath.Join(dir, "reader.db")
+	readerCfg := config.Default()
+	readerCfg.DBPath = readerDB
+	require.NoError(t, config.Write(cfgPath, readerCfg))
+	t.Setenv(config.DefaultTokenEnv, "")
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{
+		"--config", cfgPath,
+		"subscribe",
+		"--repo", filepath.Join(dir, "reader-share"),
+		"--stale-after", "1m",
+		remoteRepo,
+	}, &out, &bytes.Buffer{}))
+
+	cfg, err := config.Load(cfgPath)
+	require.NoError(t, err)
+	require.Equal(t, "none", cfg.Discord.TokenSource)
+	require.True(t, cfg.Share.AutoUpdate)
+	require.Equal(t, "1m", cfg.Share.StaleAfter)
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "automatic"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "automatic updates work")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "doctor"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "disabled (git share mode)")
+
+	err = Run(ctx, []string{"--config", cfgPath, "sync", "--all"}, &out, &bytes.Buffer{})
+	require.Equal(t, 4, ExitCode(err))
+	require.Contains(t, err.Error(), "discord token disabled")
 }
 
 func seedCLIStore(t *testing.T, path string) *store.Store {

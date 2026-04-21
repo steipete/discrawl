@@ -67,6 +67,8 @@ func (r *runtime) runSubscribe(args []string) error {
 	fs.SetOutput(io.Discard)
 	repoPath := fs.String("repo", "", "")
 	branch := fs.String("branch", "main", "")
+	staleAfter := fs.String("stale-after", "15m", "")
+	noAutoUpdate := fs.Bool("no-auto-update", false, "")
 	noImport := fs.Bool("no-import", false, "")
 	if err := fs.Parse(args); err != nil {
 		return usageErr(err)
@@ -87,10 +89,9 @@ func (r *runtime) runSubscribe(args []string) error {
 	}
 	cfg.Share.Remote = remote
 	cfg.Share.Branch = *branch
-	cfg.Share.AutoUpdate = true
-	if cfg.Share.StaleAfter == "" {
-		cfg.Share.StaleAfter = "15m"
-	}
+	cfg.Share.AutoUpdate = !*noAutoUpdate
+	cfg.Share.StaleAfter = *staleAfter
+	cfg.Discord.TokenSource = "none"
 	if err := config.Write(r.configPath, cfg); err != nil {
 		return configErr(err)
 	}
