@@ -137,6 +137,8 @@ func (r *runtime) dispatch(rest []string) error {
 		return r.withServices(false, func() error { return r.runChannels(rest[1:]) })
 	case "status":
 		return r.withServices(false, func() error { return r.runStatus(rest[1:]) })
+	case "report":
+		return r.withServices(false, func() error { return r.runReport(rest[1:]) })
 	case "publish":
 		return r.withServicesAuto(false, false, func() error { return r.runPublish(rest[1:]) })
 	case "subscribe":

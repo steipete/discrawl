@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/steipete/discrawl/internal/config"
+	"github.com/steipete/discrawl/internal/report"
 	"github.com/steipete/discrawl/internal/share"
 	"github.com/steipete/discrawl/internal/store"
 )
@@ -20,6 +21,7 @@ func (r *runtime) runPublish(args []string) error {
 	remote := fs.String("remote", r.cfg.Share.Remote, "")
 	branch := fs.String("branch", r.cfg.Share.Branch, "")
 	message := fs.String("message", "", "")
+	readmePath := fs.String("readme", "", "")
 	noCommit := fs.Bool("no-commit", false, "")
 	push := fs.Bool("push", false, "")
 	if err := fs.Parse(args); err != nil {
@@ -35,6 +37,19 @@ func (r *runtime) runPublish(args []string) error {
 	manifest, err := share.Export(r.ctx, r.store, opts)
 	if err != nil {
 		return err
+	}
+	if *readmePath != "" {
+		activity, err := report.Build(r.ctx, r.store, report.Options{})
+		if err != nil {
+			return err
+		}
+		section, err := report.RenderMarkdown(activity)
+		if err != nil {
+			return err
+		}
+		if err := report.WriteReadme(*readmePath, section); err != nil {
+			return err
+		}
 	}
 	committed := false
 	if !*noCommit {
@@ -57,6 +72,7 @@ func (r *runtime) runPublish(args []string) error {
 		"remote":       opts.Remote,
 		"generated_at": manifest.GeneratedAt,
 		"tables":       manifest.Tables,
+		"readme":       *readmePath,
 		"committed":    committed,
 		"pushed":       *push,
 	})

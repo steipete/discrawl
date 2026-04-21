@@ -326,6 +326,7 @@ Publisher:
 
 ```bash
 discrawl publish --remote https://github.com/openclaw/discord-backup.git --push
+discrawl publish --readme path/to/discord-backup/README.md --push
 ```
 
 Subscriber:
@@ -346,6 +347,18 @@ discrawl subscribe --no-auto-update https://github.com/openclaw/discord-backup.g
 ```
 
 Once `share.remote` is configured, read commands auto-fetch and import when the local share import is older than `share.stale_after` (default `15m`). `discrawl update` forces the same pull/import step manually.
+
+### `report`
+
+Generates the Markdown activity block used by the shared backup repo README.
+
+```bash
+discrawl report
+discrawl report --readme path/to/discord-backup/README.md
+discrawl report --readme path/to/discord-backup/README.md --ai
+```
+
+Every scheduled snapshot publish updates deterministic README stats: latest update time, latest archived message, archive totals, and day/week/month activity. The AI field notes are intentionally a separate daily workflow so model latency or quota cannot block the 15-minute data publish path. Configure `OPENAI_API_KEY` in the discrawl repo secrets to enable that daily AI report.
 
 ### `doctor`
 

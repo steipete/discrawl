@@ -41,14 +41,14 @@ jobs:
         run: |
           mkdir -p "$(dirname "$CONFIG")"
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
+          go run ./cmd/discrawl --config "$CONFIG" init --db "$DB"
           if [ -f "$BACKUP_REPO/manifest.json" ]; then
-            go run ./cmd/discrawl --config "$CONFIG" subscribe --repo "$BACKUP_REPO" "$BACKUP_REMOTE"
-          else
-            go run ./cmd/discrawl --config "$CONFIG" init --db "$DB"
+            go run ./cmd/discrawl --config "$CONFIG" update --repo "$BACKUP_REPO" --remote "$BACKUP_REMOTE"
           fi
           go run ./cmd/discrawl --config "$CONFIG" sync --all
           go run ./cmd/discrawl --config "$CONFIG" publish \
             --repo "$BACKUP_REPO" \
             --remote "$BACKUP_REMOTE" \
+            --readme "$BACKUP_REPO/README.md" \
             --message "sync: discord archive" \
             --push

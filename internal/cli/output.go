@@ -84,6 +84,7 @@ Commands:
   members
   channels
   status
+  report
   doctor
 `)
 }

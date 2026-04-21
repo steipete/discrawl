@@ -125,6 +125,7 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 		{"--config", cfgPath, "members", "search", "Maintainer"},
 		{"--config", cfgPath, "members", "show", "u1"},
 		{"--config", cfgPath, "channels", "list"},
+		{"--config", cfgPath, "report"},
 	}
 	for _, args := range tests {
 		var out bytes.Buffer
@@ -196,9 +197,11 @@ func TestShareCommandsPublishSubscribeAndUpdate(t *testing.T) {
 		"publish",
 		"--repo", cfg.Share.RepoPath,
 		"--remote", remoteRepo,
+		"--readme", filepath.Join(cfg.Share.RepoPath, "README.md"),
 		"--no-commit",
 	}, &out, &bytes.Buffer{}))
 	require.FileExists(t, filepath.Join(cfg.Share.RepoPath, share.ManifestName))
+	require.FileExists(t, filepath.Join(cfg.Share.RepoPath, "README.md"))
 
 	runGit(t, cfg.Share.RepoPath, "config", "user.name", "discrawl test")
 	runGit(t, cfg.Share.RepoPath, "config", "user.email", "discrawl@example.com")

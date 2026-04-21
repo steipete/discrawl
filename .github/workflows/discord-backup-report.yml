@@ -1,0 +1,57 @@
+name: discord-backup-report
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: discord-backup-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout discrawl
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@v6.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "discrawl reporter"
+          git config --global user.email "discrawl-reporter@users.noreply.github.com"
+
+      - name: Generate daily Discord report
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BACKUP_REMOTE: https://x-access-token:${{ secrets.DISCORD_BACKUP_TOKEN }}@github.com/openclaw/discord-backup.git
+          CONFIG: ${{ runner.temp }}/discrawl/config.toml
+          BACKUP_REPO: ${{ runner.temp }}/discord-backup
+        run: |
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_API_KEY not configured; skipping AI report"
+            exit 0
+          fi
+          mkdir -p "$(dirname "$CONFIG")"
+          git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
+          go run ./cmd/discrawl --config "$CONFIG" subscribe --repo "$BACKUP_REPO" "$BACKUP_REMOTE"
+          go run ./cmd/discrawl --config "$CONFIG" report \
+            --readme "$BACKUP_REPO/README.md" \
+            --ai
+          if git -C "$BACKUP_REPO" diff --quiet README.md; then
+            echo "README already up to date"
+            exit 0
+          fi
+          git -C "$BACKUP_REPO" add README.md
+          git -C "$BACKUP_REPO" commit -m "docs: update discord activity report"
+          git -C "$BACKUP_REPO" push
