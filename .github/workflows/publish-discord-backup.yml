@@ -34,11 +34,20 @@ jobs:
       - name: Sync and publish Discord archive
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
-          BACKUP_REMOTE: https://x-access-token:${{ secrets.DISCORD_BACKUP_TOKEN }}@github.com/openclaw/discord-backup.git
+          DISCORD_BACKUP_TOKEN: ${{ secrets.DISCORD_BACKUP_TOKEN }}
           CONFIG: ${{ runner.temp }}/discrawl/config.toml
           DB: ${{ runner.temp }}/discrawl/discrawl.db
           BACKUP_REPO: ${{ runner.temp }}/discord-backup
         run: |
+          if [ -z "${DISCORD_BOT_TOKEN:-}" ]; then
+            echo "::error title=Missing secret::Configure DISCORD_BOT_TOKEN in the discrawl repo secrets."
+            exit 1
+          fi
+          if [ -z "${DISCORD_BACKUP_TOKEN:-}" ]; then
+            echo "::error title=Missing secret::Configure DISCORD_BACKUP_TOKEN with write access to openclaw/discord-backup."
+            exit 1
+          fi
+          BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/openclaw/discord-backup.git"
           mkdir -p "$(dirname "$CONFIG")"
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
           go run ./cmd/discrawl --config "$CONFIG" init --db "$DB"

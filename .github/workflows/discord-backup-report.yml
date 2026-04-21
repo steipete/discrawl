@@ -34,7 +34,7 @@ jobs:
       - name: Generate daily Discord report
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          BACKUP_REMOTE: https://x-access-token:${{ secrets.DISCORD_BACKUP_TOKEN }}@github.com/openclaw/discord-backup.git
+          DISCORD_BACKUP_TOKEN: ${{ secrets.DISCORD_BACKUP_TOKEN }}
           CONFIG: ${{ runner.temp }}/discrawl/config.toml
           BACKUP_REPO: ${{ runner.temp }}/discord-backup
         run: |
@@ -42,6 +42,11 @@ jobs:
             echo "OPENAI_API_KEY not configured; skipping AI report"
             exit 0
           fi
+          if [ -z "${DISCORD_BACKUP_TOKEN:-}" ]; then
+            echo "::error title=Missing secret::Configure DISCORD_BACKUP_TOKEN with write access to openclaw/discord-backup."
+            exit 1
+          fi
+          BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/openclaw/discord-backup.git"
           mkdir -p "$(dirname "$CONFIG")"
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
           go run ./cmd/discrawl --config "$CONFIG" subscribe --repo "$BACKUP_REPO" "$BACKUP_REMOTE"
