@@ -65,7 +65,8 @@ jobs:
               --accept-risk \
               --skip-daemon \
               --skip-skills \
-              --skip-search
+              --skip-search \
+              --skip-health
             scripts/discord-backup-field-notes.sh "$CONFIG" "$BACKUP_REPO"
           else
             echo "OPENAI_API_KEY not configured; skipping OpenClaw field notes"
