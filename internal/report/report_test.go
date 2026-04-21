@@ -61,6 +61,56 @@ func TestBuildRenderAndUpdateReadme(t *testing.T) {
 	require.NotContains(t, string(updated), "Latest archived message")
 }
 
+func TestUpdateReadmePreservesAIFieldNotes(t *testing.T) {
+	existing := []byte(`# Backup
+
+<!-- discrawl-report:start -->
+## Discord Activity Report
+
+Last updated: 2026-04-21 05:00 UTC
+
+### AI Field Notes
+
+- Funny: Build logs learned patience.
+- Trend: Activity clustered around launch prep.
+<!-- discrawl-report:end -->
+`)
+	next := `## Discord Activity Report
+
+Last updated: 2026-04-21 06:00 UTC
+
+### AI Field Notes
+
+` + aiDigestPlaceholder + `
+`
+	updated := string(UpdateReadme(existing, next))
+	require.Contains(t, updated, "Last updated: 2026-04-21 06:00 UTC")
+	require.Contains(t, updated, "- Funny: Build logs learned patience.")
+	require.NotContains(t, updated, aiDigestPlaceholder)
+}
+
+func TestUpdateReadmeLetsAIReportReplaceFieldNotes(t *testing.T) {
+	existing := []byte(`# Backup
+
+<!-- discrawl-report:start -->
+## Discord Activity Report
+
+### AI Field Notes
+
+- Old: keep only until a new AI report lands.
+<!-- discrawl-report:end -->
+`)
+	next := `## Discord Activity Report
+
+### AI Field Notes
+
+- New: fresh report.
+`
+	updated := string(UpdateReadme(existing, next))
+	require.Contains(t, updated, "- New: fresh report.")
+	require.NotContains(t, updated, "- Old: keep only until")
+}
+
 func TestWriteReadmeCreatesFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "README.md")
 	require.NoError(t, WriteReadme(path, "## Report\n"))

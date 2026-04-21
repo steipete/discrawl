@@ -21,6 +21,11 @@ const (
 	EndMarker   = "<!-- discrawl-report:end -->"
 )
 
+const (
+	aiFieldNotesHeading = "### AI Field Notes"
+	aiDigestPlaceholder = "_AI digest not generated in this run. The daily report job fills this in when `OPENAI_API_KEY` is configured._"
+)
+
 type Options struct {
 	Now time.Time
 	AI  AIOptions
@@ -272,19 +277,60 @@ func RenderMarkdown(report ActivityReport) (string, error) {
 }
 
 func UpdateReadme(readme []byte, section string) []byte {
-	replacement := StartMarker + "\n" + strings.TrimSpace(section) + "\n" + EndMarker
+	section = strings.TrimSpace(section)
 	text := string(readme)
 	start := strings.Index(text, StartMarker)
 	end := strings.Index(text, EndMarker)
 	if start >= 0 && end >= start {
+		existingSection := text[start+len(StartMarker) : end]
+		section = preserveAIFieldNotes(existingSection, section)
 		end += len(EndMarker)
+		replacement := StartMarker + "\n" + section + "\n" + EndMarker
 		return []byte(text[:start] + replacement + text[end:])
 	}
+	replacement := StartMarker + "\n" + section + "\n" + EndMarker
 	text = strings.TrimRight(text, "\n")
 	if text == "" {
 		return []byte(replacement + "\n")
 	}
 	return []byte(text + "\n\n" + replacement + "\n")
+}
+
+func preserveAIFieldNotes(existingSection string, nextSection string) string {
+	if !strings.Contains(nextSection, aiDigestPlaceholder) {
+		return nextSection
+	}
+	existingNotes := extractAIFieldNotes(existingSection)
+	if existingNotes == "" || strings.Contains(existingNotes, aiDigestPlaceholder) {
+		return nextSection
+	}
+	return replaceAIFieldNotes(nextSection, existingNotes)
+}
+
+func extractAIFieldNotes(section string) string {
+	idx := strings.Index(section, aiFieldNotesHeading)
+	if idx < 0 {
+		return ""
+	}
+	notes := section[idx+len(aiFieldNotesHeading):]
+	if next := strings.Index(notes, "\n### "); next >= 0 {
+		notes = notes[:next]
+	}
+	return strings.TrimSpace(notes)
+}
+
+func replaceAIFieldNotes(section string, notes string) string {
+	idx := strings.Index(section, aiFieldNotesHeading)
+	if idx < 0 {
+		return section
+	}
+	start := idx + len(aiFieldNotesHeading)
+	tail := section[start:]
+	end := len(tail)
+	if next := strings.Index(tail, "\n### "); next >= 0 {
+		end = next
+	}
+	return section[:start] + "\n\n" + strings.TrimSpace(notes) + strings.TrimRight(tail[end:], "\n")
 }
 
 func WriteReadme(path string, section string) error {
@@ -388,6 +434,6 @@ Archive size: {{ formatInt .TotalMessages }} messages, {{ formatInt .TotalChanne
 {{- if .AISummary }}
 {{ .AISummary }}
 {{- else }}
-_AI digest not generated in this run. The daily report job fills this in when ` + "`OPENAI_API_KEY`" + ` is configured._
+` + aiDigestPlaceholder + `
 {{- end }}
 `))
