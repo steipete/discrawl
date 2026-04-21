@@ -60,6 +60,7 @@ jobs:
             go run ./cmd/discrawl --config "$CONFIG" update --repo "$BACKUP_REPO" --remote "$BACKUP_REMOTE"
           fi
           go run ./cmd/discrawl --config "$CONFIG" sync --guild "$DISCRAWL_GUILD_ID" --skip-members --latest-only
+          git -C "$BACKUP_REPO" pull --ff-only origin main
           go run ./cmd/discrawl --config "$CONFIG" publish \
             --repo "$BACKUP_REPO" \
             --remote "$BACKUP_REMOTE" \
