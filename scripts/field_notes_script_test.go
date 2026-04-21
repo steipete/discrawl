@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,12 +82,159 @@ old notes
 	require.Contains(t, text, "#### Best PR To Watch")
 	require.Contains(t, text, "PR #42")
 	require.NotContains(t, text, "old notes")
+	require.Equal(t, 1, strings.Count(text, "<!-- discrawl-field-notes:start -->"))
+	require.Equal(t, 1, strings.Count(text, "<!-- discrawl-field-notes:end -->"))
 
 	calls, err := os.ReadFile(openclawCalls)
 	require.NoError(t, err)
 	require.Contains(t, string(calls), "agent --local")
 	require.Contains(t, string(calls), "--thinking low")
 	require.NotContains(t, text, "GitHub posted the most")
+}
+
+func TestDiscordBackupFieldNotesScriptDedupesExistingReadmeBlocks(t *testing.T) {
+	root, err := filepath.Abs("..")
+	require.NoError(t, err)
+
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	require.NoError(t, os.Mkdir(binDir, 0o755))
+	writeExecutable(t, filepath.Join(binDir, "go"), `#!/usr/bin/env bash
+printf '[{"ok":true}]'
+`)
+	writeExecutable(t, filepath.Join(binDir, "jq"), `#!/usr/bin/env bash
+if [ "${1:-}" = "-r" ]; then
+  cat <<'MD'
+### Field Notes
+
+Last generated: 2026-04-21 10:00 UTC
+
+#### What People Love
+- Fresh notes.
+
+#### What People Complain About
+- Duplicate marker blocks.
+
+#### Best PR To Watch
+- PR #100 because it keeps README clean.
+MD
+else
+  cat
+fi
+`)
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/usr/bin/env bash
+printf '[]'
+`)
+	writeExecutable(t, filepath.Join(binDir, "openclaw"), `#!/usr/bin/env bash
+printf '{"payloads":[{"text":"unused"}]}'
+`)
+
+	backupRepo := filepath.Join(tmp, "backup")
+	require.NoError(t, os.Mkdir(backupRepo, 0o755))
+	readmePath := filepath.Join(backupRepo, "README.md")
+	require.NoError(t, os.WriteFile(readmePath, []byte(`# Discord Backup
+
+<!-- discrawl-report:start -->
+## Discord Activity Report
+<!-- discrawl-report:end -->
+
+<!-- discrawl-field-notes:start -->
+old notes one
+<!-- discrawl-field-notes:end -->
+<!-- discrawl-field-notes:start -->
+old notes two
+<!-- discrawl-field-notes:end -->
+`), 0o644))
+
+	cmd := exec.Command("bash", "scripts/discord-backup-field-notes.sh", filepath.Join(tmp, "config.toml"), backupRepo)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"OPENCLAW_BIN="+filepath.Join(binDir, "openclaw"),
+		"GH_TOKEN=test-token",
+	)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	readme, err := os.ReadFile(readmePath)
+	require.NoError(t, err)
+	text := string(readme)
+	require.Contains(t, text, "Fresh notes")
+	require.NotContains(t, text, "old notes one")
+	require.NotContains(t, text, "old notes two")
+	require.Equal(t, 1, strings.Count(text, "<!-- discrawl-field-notes:start -->"))
+	require.Equal(t, 1, strings.Count(text, "<!-- discrawl-field-notes:end -->"))
+}
+
+func TestDiscordBackupFieldNotesScriptParsesOpenClawJSONFromStderr(t *testing.T) {
+	root, err := filepath.Abs("..")
+	require.NoError(t, err)
+
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	require.NoError(t, os.Mkdir(binDir, 0o755))
+	writeExecutable(t, filepath.Join(binDir, "go"), `#!/usr/bin/env bash
+printf '[{"ok":true}]'
+`)
+	writeExecutable(t, filepath.Join(binDir, "jq"), `#!/usr/bin/env bash
+case "$*" in
+  *payloads*|*field_notes*)
+    cat <<'MD'
+### Field Notes
+
+Last generated: 2026-04-21 09:45 UTC
+
+#### What People Love
+- Useful debugging.
+
+#### What People Complain About
+- Runtime failures correlate with issue clusters.
+
+#### Best PR To Watch
+- PR #99 because it fixes the cluster.
+MD
+    ;;
+  *)
+    cat
+    ;;
+esac
+`)
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/usr/bin/env bash
+printf '[]'
+`)
+	writeExecutable(t, filepath.Join(binDir, "openclaw"), `#!/usr/bin/env bash
+cat >&2 <<'JSON'
+{"payloads":[{"text":"### Field Notes\n\nLast generated: 2026-04-21 09:45 UTC\n\n#### What People Love\n- Useful debugging.\n\n#### What People Complain About\n- Runtime failures correlate with issue clusters.\n\n#### Best PR To Watch\n- PR #99 because it fixes the cluster."}],"finalAssistantVisibleText":"### Field Notes\n\nLast generated: 2026-04-21 09:45 UTC\n\n#### What People Love\n- Useful debugging.\n\n#### What People Complain About\n- Runtime failures correlate with issue clusters.\n\n#### Best PR To Watch\n- PR #99 because it fixes the cluster."}
+JSON
+`)
+
+	backupRepo := filepath.Join(tmp, "backup")
+	require.NoError(t, os.Mkdir(backupRepo, 0o755))
+	readmePath := filepath.Join(backupRepo, "README.md")
+	require.NoError(t, os.WriteFile(readmePath, []byte(`# Discord Backup
+
+<!-- discrawl-report:start -->
+## Discord Activity Report
+<!-- discrawl-report:end -->
+`), 0o644))
+
+	cmd := exec.Command("bash", "scripts/discord-backup-field-notes.sh", filepath.Join(tmp, "config.toml"), backupRepo)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"OPENCLAW_BIN="+filepath.Join(binDir, "openclaw"),
+		"GH_TOKEN=test-token",
+	)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NotContains(t, string(out), "using deterministic fallback")
+
+	readme, err := os.ReadFile(readmePath)
+	require.NoError(t, err)
+	text := string(readme)
+	require.Contains(t, text, "Useful debugging")
+	require.Contains(t, text, "PR #99")
+	require.NotContains(t, text, "OpenClaw agent timed out")
 }
 
 func TestDiscordBackupFieldNotesScriptFallsBackWhenOpenClawFails(t *testing.T) {

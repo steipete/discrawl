@@ -170,7 +170,7 @@ run_openclaw_agent() {
 }
 
 extract_openclaw_text() {
-  jq -r '
+  if jq -r '
     [
       .payloads[]?.text?,
       .finalAssistantVisibleText?,
@@ -181,7 +181,27 @@ extract_openclaw_text() {
       (.. | objects | .finalAssistantRawText?)
     ]
     | map(select(type == "string" and length > 0))[0] // empty
-  ' "$TMP_DIR/openclaw-result.json"
+  ' "$TMP_DIR/openclaw-result.json" 2>/dev/null; then
+    return
+  fi
+
+  jq -Rrs '
+    def field_notes:
+      [
+        .payloads[]?.text?,
+        .finalAssistantVisibleText?,
+        .finalAssistantRawText?,
+        .result.finalAssistantVisibleText?,
+        .result.finalAssistantRawText?,
+        (.. | objects | .finalAssistantVisibleText?),
+        (.. | objects | .finalAssistantRawText?)
+      ]
+      | map(select(type == "string" and length > 0))[0] // empty;
+
+    capture("(?s)(?<json>\\{.*\\})").json
+    | fromjson
+    | field_notes
+  ' "$TMP_DIR/openclaw-result.json" 2>/dev/null || true
 }
 
 anchor_expr="(select max(created_at) from messages)"
@@ -341,7 +361,7 @@ Context:
 $(cat "$TMP_DIR/context.md")
 EOF
 
-if run_openclaw_agent >"$TMP_DIR/openclaw-result.json"; then
+if run_openclaw_agent >"$TMP_DIR/openclaw-result.json" 2>&1; then
   extract_openclaw_text >"$TMP_DIR/field-notes.md"
 else
   echo "openclaw field notes failed; using deterministic fallback" >&2
@@ -360,14 +380,20 @@ awk -v start="$START_MARKER" -v end="$END_MARKER" -v notes="$TMP_DIR/field-notes
     close(notes)
   }
   index($0, start) {
-    print start
-    printf "%s", body
+    if (!wrote_notes) {
+      print start
+      printf "%s", body
+      emit_end = 1
+      wrote_notes = 1
+    }
     in_notes = 1
-    seen = 1
     next
   }
   index($0, end) {
-    print end
+    if (emit_end) {
+      print end
+      emit_end = 0
+    }
     in_notes = 0
     next
   }
@@ -376,17 +402,16 @@ awk -v start="$START_MARKER" -v end="$END_MARKER" -v notes="$TMP_DIR/field-notes
   }
   {
     print
-    if (!seen && !inserted && index($0, "<!-- discrawl-report:end -->")) {
+    if (!wrote_notes && index($0, "<!-- discrawl-report:end -->")) {
       print ""
       print start
       printf "%s", body
       print end
-      inserted = 1
-      seen = 1
+      wrote_notes = 1
     }
   }
   END {
-    if (!seen) {
+    if (!wrote_notes) {
       print ""
       print start
       printf "%s", body
