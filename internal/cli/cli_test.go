@@ -355,6 +355,10 @@ func TestShareUpdateImportsNewRemoteSnapshot(t *testing.T) {
 
 	var out bytes.Buffer
 	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "update"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "imported=true")
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "update"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "imported=false")
 	out.Reset()
 	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "search", "automatic"}, &out, &bytes.Buffer{}))
 	require.Contains(t, out.String(), "automatic updates work")
@@ -376,6 +380,7 @@ func TestShareUpdateImportsNewRemoteSnapshot(t *testing.T) {
 
 	out.Reset()
 	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "update"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "imported=true")
 	out.Reset()
 	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "search", "newer snapshot"}, &out, &bytes.Buffer{}))
 	require.Contains(t, out.String(), "newer git snapshot arrived")

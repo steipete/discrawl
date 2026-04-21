@@ -31,6 +31,19 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Restore Discord DB cache
+        id: restore-discord-db
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .discrawl-ci/discrawl.db
+            .discrawl-ci/discrawl.db-shm
+            .discrawl-ci/discrawl.db-wal
+          key: discrawl-discord-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            discrawl-discord-db-${{ runner.os }}-${{ github.ref_name }}-
+            discrawl-discord-db-${{ runner.os }}-
+
       - name: Configure Git identity
         run: |
           git config --global user.name "discrawl reporter"
@@ -42,6 +55,7 @@ jobs:
           DISCORD_BACKUP_TOKEN: ${{ secrets.DISCORD_BACKUP_TOKEN }}
           GH_TOKEN: ${{ secrets.DISCORD_FIELD_NOTES_GITHUB_TOKEN || github.token }}
           CONFIG: ${{ runner.temp }}/discrawl/config.toml
+          DB: ${{ github.workspace }}/.discrawl-ci/discrawl.db
           BACKUP_REPO: ${{ runner.temp }}/discord-backup
           OPENCLAW_STATE_DIR: ${{ runner.temp }}/openclaw
           DISCORD_FIELD_NOTES_GITHUB_REPO: openclaw/openclaw
@@ -52,7 +66,9 @@ jobs:
           fi
           BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/openclaw/discord-backup.git"
           mkdir -p "$(dirname "$CONFIG")"
+          mkdir -p "$(dirname "$DB")"
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
+          printf 'db_path = "%s"\n' "$DB" > "$CONFIG"
           go run ./cmd/discrawl --config "$CONFIG" subscribe --repo "$BACKUP_REPO" "$BACKUP_REMOTE"
           go run ./cmd/discrawl --config "$CONFIG" report --readme "$BACKUP_REPO/README.md"
           if [ -n "${OPENAI_API_KEY:-}" ]; then
@@ -83,3 +99,12 @@ jobs:
           git -C "$BACKUP_REPO" commit -m "docs: update discord activity report"
           git -C "$BACKUP_REPO" pull --rebase --autostash origin main
           git -C "$BACKUP_REPO" push
+
+      - name: Save Discord DB cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .discrawl-ci/discrawl.db
+            .discrawl-ci/discrawl.db-shm
+            .discrawl-ci/discrawl.db-wal
+          key: ${{ steps.restore-discord-db.outputs.cache-primary-key }}

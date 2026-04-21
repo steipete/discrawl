@@ -379,6 +379,8 @@ The backup README field notes are intentionally a separate daily workflow, not p
 
 Configure `OPENAI_API_KEY` in the discrawl repo secrets to enable agent-written field notes. `DISCORD_BACKUP_TOKEN` still needs write access to `openclaw/discord-backup`. If the GitHub repo used for issue/PR correlation is private, also set `DISCORD_FIELD_NOTES_GITHUB_TOKEN` with read access to that repo.
 
+The backup workflows restore and save `.discrawl-ci/discrawl.db` with `actions/cache`. On a warm runner cache, `discrawl update` compares the cached DB's last imported snapshot timestamp with `manifest.json` and skips the full sharded import when they match. Cache misses and newer backup manifests still take the normal pull/import path.
+
 ### `doctor`
 
 Checks config, auth, DB, and FTS wiring.

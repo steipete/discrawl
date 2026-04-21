@@ -26,6 +26,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Restore Discord DB cache
+        id: restore-discord-db
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .discrawl-ci/discrawl.db
+            .discrawl-ci/discrawl.db-shm
+            .discrawl-ci/discrawl.db-wal
+          key: discrawl-discord-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            discrawl-discord-db-${{ runner.os }}-${{ github.ref_name }}-
+            discrawl-discord-db-${{ runner.os }}-
+
       - name: Configure Git identity
         run: |
           git config --global user.name "discrawl publisher"
@@ -37,7 +50,7 @@ jobs:
           DISCORD_BACKUP_TOKEN: ${{ secrets.DISCORD_BACKUP_TOKEN }}
           DISCRAWL_GUILD_ID: ${{ secrets.DISCRAWL_GUILD_ID }}
           CONFIG: ${{ runner.temp }}/discrawl/config.toml
-          DB: ${{ runner.temp }}/discrawl/discrawl.db
+          DB: ${{ github.workspace }}/.discrawl-ci/discrawl.db
           BACKUP_REPO: ${{ runner.temp }}/discord-backup
         run: |
           if [ -z "${DISCORD_BOT_TOKEN:-}" ]; then
@@ -54,6 +67,7 @@ jobs:
           fi
           BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/openclaw/discord-backup.git"
           mkdir -p "$(dirname "$CONFIG")"
+          mkdir -p "$(dirname "$DB")"
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
           go run ./cmd/discrawl --config "$CONFIG" init --db "$DB" --guild "$DISCRAWL_GUILD_ID"
           if [ -f "$BACKUP_REPO/manifest.json" ]; then
@@ -67,3 +81,12 @@ jobs:
             --readme "$BACKUP_REPO/README.md" \
             --message "sync: discord archive" \
             --push
+
+      - name: Save Discord DB cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .discrawl-ci/discrawl.db
+            .discrawl-ci/discrawl.db-shm
+            .discrawl-ci/discrawl.db-wal
+          key: ${{ steps.restore-discord-db.outputs.cache-primary-key }}

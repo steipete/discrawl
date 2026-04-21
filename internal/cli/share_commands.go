@@ -66,6 +66,9 @@ func (r *runtime) runPublish(args []string) error {
 		if err := share.Push(r.ctx, opts); err != nil {
 			return err
 		}
+		if err := share.MarkImported(r.ctx, r.store, manifest); err != nil {
+			return err
+		}
 	}
 	return r.print(map[string]any{
 		"repo_path":    opts.RepoPath,
@@ -134,7 +137,7 @@ func (r *runtime) runSubscribe(args []string) error {
 	if err := share.Pull(r.ctx, opts); err != nil {
 		return err
 	}
-	manifest, err := share.Import(r.ctx, s, opts)
+	manifest, imported, err := share.ImportIfChanged(r.ctx, s, opts)
 	if err != nil {
 		return err
 	}
@@ -144,6 +147,7 @@ func (r *runtime) runSubscribe(args []string) error {
 		"remote":       opts.Remote,
 		"generated_at": manifest.GeneratedAt,
 		"tables":       manifest.Tables,
+		"imported":     imported,
 	})
 }
 
@@ -166,7 +170,7 @@ func (r *runtime) runUpdate(args []string) error {
 	if err := share.Pull(r.ctx, opts); err != nil {
 		return err
 	}
-	manifest, err := share.Import(r.ctx, r.store, opts)
+	manifest, imported, err := share.ImportIfChanged(r.ctx, r.store, opts)
 	if err != nil {
 		return err
 	}
@@ -175,6 +179,7 @@ func (r *runtime) runUpdate(args []string) error {
 		"remote":       opts.Remote,
 		"generated_at": manifest.GeneratedAt,
 		"tables":       manifest.Tables,
+		"imported":     imported,
 	})
 }
 

@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	ManifestName        = "manifest.json"
-	LastImportSyncScope = "share:last_import_at"
+	ManifestName                = "manifest.json"
+	LastImportSyncScope         = "share:last_import_at"
+	LastImportManifestSyncScope = "share:last_import_manifest_generated_at"
 )
 
 var ErrNoManifest = errors.New("share manifest not found")
@@ -231,10 +232,53 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 	if err := s.RebuildSearchIndexes(ctx); err != nil {
 		return Manifest{}, err
 	}
-	if err := s.SetSyncState(ctx, LastImportSyncScope, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if err := MarkImported(ctx, s, manifest); err != nil {
 		return Manifest{}, err
 	}
 	return manifest, nil
+}
+
+func ImportIfChanged(ctx context.Context, s *store.Store, opts Options) (Manifest, bool, error) {
+	manifest, err := ReadManifest(opts.RepoPath)
+	if err != nil {
+		return Manifest{}, false, err
+	}
+	if ManifestAlreadyImported(ctx, s, manifest) {
+		if err := MarkImported(ctx, s, manifest); err != nil {
+			return Manifest{}, false, err
+		}
+		return manifest, false, nil
+	}
+	imported, err := Import(ctx, s, opts)
+	if err != nil {
+		return Manifest{}, false, err
+	}
+	return imported, true, nil
+}
+
+func ManifestAlreadyImported(ctx context.Context, s *store.Store, manifest Manifest) bool {
+	if manifest.GeneratedAt.IsZero() {
+		return false
+	}
+	last, err := s.GetSyncState(ctx, LastImportManifestSyncScope)
+	if err != nil || strings.TrimSpace(last) == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339Nano, last)
+	if err != nil {
+		return false
+	}
+	return t.Equal(manifest.GeneratedAt)
+}
+
+func MarkImported(ctx context.Context, s *store.Store, manifest Manifest) error {
+	if err := s.SetSyncState(ctx, LastImportSyncScope, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if manifest.GeneratedAt.IsZero() {
+		return nil
+	}
+	return s.SetSyncState(ctx, LastImportManifestSyncScope, manifest.GeneratedAt.Format(time.RFC3339Nano))
 }
 
 func ReadManifest(repoPath string) (Manifest, error) {

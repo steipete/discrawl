@@ -232,7 +232,7 @@ func (r *runtime) autoUpdateShare() error {
 	if err := share.Pull(r.ctx, opts); err != nil {
 		return err
 	}
-	_, err = share.Import(r.ctx, r.store, opts)
+	_, _, err = share.ImportIfChanged(r.ctx, r.store, opts)
 	if errors.Is(err, share.ErrNoManifest) {
 		return nil
 	}

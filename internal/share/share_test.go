@@ -47,7 +47,51 @@ func TestExportImportRoundTrip(t *testing.T) {
 	lastImport, err := dst.GetSyncState(ctx, LastImportSyncScope)
 	require.NoError(t, err)
 	require.NotEmpty(t, lastImport)
+	lastManifest, err := dst.GetSyncState(ctx, LastImportManifestSyncScope)
+	require.NoError(t, err)
+	require.Equal(t, manifest.GeneratedAt.Format(time.RFC3339Nano), lastManifest)
 	require.False(t, NeedsImport(ctx, dst, 15*time.Minute))
+}
+
+func TestImportIfChangedSkipsSameManifest(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+
+	repo := filepath.Join(t.TempDir(), "share")
+	manifest, err := Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+
+	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
+	require.NoError(t, err)
+	defer func() { _ = dst.Close() }()
+
+	importedManifest, imported, err := ImportIfChanged(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.True(t, imported)
+	require.Equal(t, manifest.GeneratedAt, importedManifest.GeneratedAt)
+
+	require.NoError(t, dst.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "local-only",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano),
+		Content:           "live delta preserved",
+		NormalizedContent: "live delta preserved",
+		RawJSON:           `{}`,
+	}))
+
+	_, imported, err = ImportIfChanged(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.False(t, imported)
+	results, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "live delta", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "local-only", results[0].MessageID)
 }
 
 func TestExportShardsLargeTables(t *testing.T) {
