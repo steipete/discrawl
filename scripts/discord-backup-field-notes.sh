@@ -9,7 +9,8 @@ fi
 CONFIG=$1
 BACKUP_REPO=$2
 OPENCLAW_BIN=${OPENCLAW_BIN:-openclaw}
-OPENCLAW_TIMEOUT=${OPENCLAW_TIMEOUT:-900}
+OPENCLAW_TIMEOUT=${OPENCLAW_TIMEOUT:-1200}
+OPENCLAW_THINKING=${OPENCLAW_THINKING:-low}
 GH_REPO=${DISCORD_FIELD_NOTES_GITHUB_REPO:-openclaw/openclaw}
 START_MARKER="<!-- discrawl-field-notes:start -->"
 END_MARKER="<!-- discrawl-field-notes:end -->"
@@ -30,7 +31,7 @@ run_sql() {
   local query=$2
   {
     printf "\n## %s\n\n" "$title"
-    go run ./cmd/discrawl --config "$CONFIG" --json sql "$query" | jq .
+    go run ./cmd/discrawl --config "$CONFIG" --json sql "$query" | jq -c .
   } >>"$TMP_DIR/context.md"
 }
 
@@ -81,7 +82,7 @@ from messages
 where created_at >= $since_7 and $human_filter
 group by 1
 order by messages desc
-limit 12;
+limit 8;
 "
 
 run_sql "What People Seem To Love" "
@@ -90,7 +91,7 @@ from messages
 where created_at >= $since_30 and $human_filter and $love_terms
 group by 1
 order by matches desc
-limit 12;
+limit 8;
 "
 
 run_sql "Love Samples" "
@@ -98,7 +99,7 @@ select created_at, coalesce(nullif(channel_name, ''), channel_id) as channel, co
 from messages
 where created_at >= $since_30 and $human_filter and $love_terms
 order by created_at desc
-limit 24;
+limit 10;
 "
 
 run_sql "What People Complain About" "
@@ -107,7 +108,7 @@ from messages
 where created_at >= $since_30 and $human_filter and $complaint_terms
 group by 1
 order by matches desc
-limit 12;
+limit 8;
 "
 
 run_sql "Complaint Samples" "
@@ -115,7 +116,7 @@ select created_at, coalesce(nullif(channel_name, ''), channel_id) as channel, co
 from messages
 where created_at >= $since_30 and $human_filter and $complaint_terms
 order by created_at desc
-limit 30;
+limit 12;
 "
 
 {
@@ -123,7 +124,7 @@ limit 30;
   if command -v gh >/dev/null 2>&1; then
     gh search prs "repo:$GH_REPO updated:>=$github_since" \
       --json number,title,state,updatedAt,url,labels \
-      --limit 60 | jq . || printf "[]\n"
+      --limit 25 | jq -c . || printf "[]\n"
   else
     printf "gh unavailable\n"
   fi
@@ -131,7 +132,7 @@ limit 30;
   if command -v gh >/dev/null 2>&1; then
     gh search issues "repo:$GH_REPO updated:>=$github_since" \
       --json number,title,state,updatedAt,url,labels \
-      --limit 60 | jq . || printf "[]\n"
+      --limit 25 | jq -c . || printf "[]\n"
   else
     printf "gh unavailable\n"
   fi
@@ -174,7 +175,7 @@ EOF
 "$OPENCLAW_BIN" agent \
   --local \
   --agent main \
-  --thinking high \
+  --thinking "$OPENCLAW_THINKING" \
   --timeout "$OPENCLAW_TIMEOUT" \
   --json \
   --message "$(cat "$TMP_DIR/prompt.md")" >"$TMP_DIR/openclaw-result.json"
