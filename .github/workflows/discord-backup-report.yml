@@ -68,7 +68,7 @@ jobs:
               --skip-search \
               --skip-health
             tmp_config="$(mktemp)"
-            jq '.agents.defaults.model = "openai/gpt-5.2" | .agents.defaults.timeoutSeconds = 1200 | .agents.defaults.llm.idleTimeoutSeconds = 900' \
+            jq '.agents.defaults.model = "openai/gpt-5.2" | .agents.defaults.timeoutSeconds = 300 | .agents.defaults.llm.idleTimeoutSeconds = 240' \
               "$OPENCLAW_STATE_DIR/openclaw.json" > "$tmp_config"
             mv "$tmp_config" "$OPENCLAW_STATE_DIR/openclaw.json"
             scripts/discord-backup-field-notes.sh "$CONFIG" "$BACKUP_REPO"
