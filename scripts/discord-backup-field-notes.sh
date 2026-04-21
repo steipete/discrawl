@@ -103,6 +103,26 @@ limit 4;
   }
 }
 
+run_openclaw_agent() {
+  local -a cmd=(
+    "$OPENCLAW_BIN" agent
+    --local
+    --agent main
+    --thinking "$OPENCLAW_THINKING"
+    --timeout "$OPENCLAW_TIMEOUT"
+    --json
+    --message "$(cat "$TMP_DIR/prompt.md")"
+  )
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${OPENCLAW_TIMEOUT}s" "${cmd[@]}"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "${OPENCLAW_TIMEOUT}s" "${cmd[@]}"
+  else
+    "${cmd[@]}"
+  fi
+}
+
 anchor_expr="(select max(created_at) from messages)"
 since_7="strftime('%Y-%m-%dT%H:%M:%fZ', datetime($anchor_expr, '-7 days'))"
 since_30="strftime('%Y-%m-%dT%H:%M:%fZ', datetime($anchor_expr, '-30 days'))"
@@ -240,13 +260,7 @@ Context:
 $(cat "$TMP_DIR/context.md")
 EOF
 
-if "$OPENCLAW_BIN" agent \
-    --local \
-    --agent main \
-    --thinking "$OPENCLAW_THINKING" \
-    --timeout "$OPENCLAW_TIMEOUT" \
-    --json \
-    --message "$(cat "$TMP_DIR/prompt.md")" >"$TMP_DIR/openclaw-result.json"; then
+if run_openclaw_agent >"$TMP_DIR/openclaw-result.json"; then
   jq -r '.payloads[0].text // empty' "$TMP_DIR/openclaw-result.json" >"$TMP_DIR/field-notes.md"
 else
   echo "openclaw field notes failed; using deterministic fallback" >&2
