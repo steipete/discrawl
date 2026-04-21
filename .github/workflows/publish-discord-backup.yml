@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-discord-backup
+  group: discord-backup-repo
   cancel-in-progress: false
 
 jobs:
