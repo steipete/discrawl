@@ -120,13 +120,13 @@ func (r *runtime) dispatch(rest []string) error {
 	case "init":
 		return r.runInit(rest[1:])
 	case "sync":
-		return r.withServices(true, func() error { return r.runSync(rest[1:]) })
+		return r.withServicesAuto(true, true, func() error { return r.runSync(rest[1:]) })
 	case "tail":
 		return r.withServices(true, func() error { return r.runTail(rest[1:]) })
 	case "search":
 		return r.withServices(false, func() error { return r.runSearch(rest[1:]) })
 	case "messages":
-		return r.withServices(hasBoolFlag(rest[1:], "--sync"), func() error { return r.runMessages(rest[1:]) })
+		return r.withServicesAuto(hasBoolFlag(rest[1:], "--sync"), true, func() error { return r.runMessages(rest[1:]) })
 	case "mentions":
 		return r.withServices(false, func() error { return r.runMentions(rest[1:]) })
 	case "sql":

@@ -287,6 +287,113 @@ func TestSubscribeGitOnlyModeNeedsNoDiscordCredentials(t *testing.T) {
 	require.Contains(t, err.Error(), "discord token disabled")
 }
 
+func TestShareUpdateImportsNewRemoteSnapshot(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	remoteRepo := filepath.Join(dir, "remote.git")
+	runGit(t, dir, "init", "--bare", remoteRepo)
+
+	publisherDB := filepath.Join(dir, "publisher.db")
+	publisher := seedCLIStore(t, publisherDB)
+	defer func() { _ = publisher.Close() }()
+	publisherRepo := filepath.Join(dir, "publisher-share")
+	opts := share.Options{RepoPath: publisherRepo, Remote: remoteRepo, Branch: "main"}
+	publishSnapshot(t, ctx, publisher, opts, "test: old snapshot")
+
+	readerCfgPath := filepath.Join(dir, "reader.toml")
+	readerCfg := config.Default()
+	readerCfg.DBPath = filepath.Join(dir, "reader.db")
+	readerCfg.Share.Remote = remoteRepo
+	readerCfg.Share.RepoPath = filepath.Join(dir, "reader-share")
+	readerCfg.Share.AutoUpdate = true
+	readerCfg.Share.StaleAfter = "15m"
+	readerCfg.Discord.TokenSource = "none"
+	require.NoError(t, config.Write(readerCfgPath, readerCfg))
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "update"}, &out, &bytes.Buffer{}))
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "search", "automatic"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "automatic updates work")
+
+	require.NoError(t, publisher.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "m200",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano),
+		Content:           "newer git snapshot arrived",
+		NormalizedContent: "newer git snapshot arrived",
+		RawJSON:           `{}`,
+	}))
+	publishSnapshot(t, ctx, publisher, opts, "test: new snapshot")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "update"}, &out, &bytes.Buffer{}))
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", readerCfgPath, "search", "newer snapshot"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "newer git snapshot arrived")
+}
+
+func TestSyncImportsGitShareBeforeLiveDiscord(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	remoteRepo := filepath.Join(dir, "remote.git")
+	runGit(t, dir, "init", "--bare", remoteRepo)
+
+	publisherDB := filepath.Join(dir, "publisher.db")
+	publisher := seedCLIStore(t, publisherDB)
+	defer func() { _ = publisher.Close() }()
+	publisherRepo := filepath.Join(dir, "publisher-share")
+	opts := share.Options{RepoPath: publisherRepo, Remote: remoteRepo, Branch: "main"}
+	publishSnapshot(t, ctx, publisher, opts, "test: git snapshot")
+
+	cfgPath := filepath.Join(dir, "config.toml")
+	cfg := config.Default()
+	cfg.DBPath = filepath.Join(dir, "reader.db")
+	cfg.DefaultGuildID = "g1"
+	cfg.Share.Remote = remoteRepo
+	cfg.Share.RepoPath = filepath.Join(dir, "reader-share")
+	cfg.Share.AutoUpdate = true
+	cfg.Share.StaleAfter = "15m"
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	hybrid := &hybridSyncService{}
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &bytes.Buffer{},
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+		openStore:  store.Open,
+		newDiscord: func(config.Config) (discordClient, error) {
+			return &fakeDiscordClient{guilds: []*discordgo.UserGuild{{ID: "g1"}}, self: &discordgo.User{ID: "bot"}}, nil
+		},
+		newSyncer: func(_ syncer.Client, s *store.Store, _ *slog.Logger) syncService {
+			hybrid.store = s
+			return hybrid
+		},
+	}
+
+	require.NoError(t, rt.dispatch([]string{"sync", "--all"}))
+	require.True(t, hybrid.sawGitMessage)
+
+	reader, err := store.Open(ctx, cfg.DBPath)
+	require.NoError(t, err)
+	defer func() { _ = reader.Close() }()
+	rows, err := reader.ListMessages(ctx, store.MessageListOptions{Channel: "general", IncludeEmpty: true})
+	require.NoError(t, err)
+	contents := make([]string, 0, len(rows))
+	for _, row := range rows {
+		contents = append(contents, row.Content)
+	}
+	require.Contains(t, contents, "automatic updates work")
+	require.Contains(t, contents, "live discord filled the delta")
+}
+
 func seedCLIStore(t *testing.T, path string) *store.Store {
 	t.Helper()
 	ctx := context.Background()
@@ -309,6 +416,18 @@ func seedCLIStore(t *testing.T, path string) *store.Store {
 		RawJSON:           `{}`,
 	}))
 	return s
+}
+
+func publishSnapshot(t *testing.T, ctx context.Context, s *store.Store, opts share.Options, message string) {
+	t.Helper()
+	_, err := share.Export(ctx, s, opts)
+	require.NoError(t, err)
+	runGit(t, opts.RepoPath, "config", "user.name", "discrawl test")
+	runGit(t, opts.RepoPath, "config", "user.email", "discrawl@example.com")
+	committed, err := share.Commit(ctx, opts, message)
+	require.NoError(t, err)
+	require.True(t, committed)
+	require.NoError(t, share.Push(ctx, opts))
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
@@ -395,6 +514,54 @@ func (f *fakeSyncService) RunTail(_ context.Context, guildIDs []string, repairEv
 
 func (f *fakeSyncService) SetAttachmentTextEnabled(enabled bool) {
 	f.attachmentTextEnabled = enabled
+}
+
+type hybridSyncService struct {
+	store         *store.Store
+	sawGitMessage bool
+}
+
+func (f *hybridSyncService) DiscoverGuilds(context.Context) ([]*discordgo.UserGuild, error) {
+	return []*discordgo.UserGuild{{ID: "g1"}}, nil
+}
+
+func (f *hybridSyncService) Sync(ctx context.Context, opts syncer.SyncOptions) (syncer.SyncStats, error) {
+	rows, err := f.store.ListMessages(ctx, store.MessageListOptions{Channel: "general", IncludeEmpty: true})
+	if err != nil {
+		return syncer.SyncStats{}, err
+	}
+	for _, row := range rows {
+		if row.Content == "automatic updates work" {
+			f.sawGitMessage = true
+			break
+		}
+	}
+	if err := f.store.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}); err != nil {
+		return syncer.SyncStats{}, err
+	}
+	if err := f.store.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}); err != nil {
+		return syncer.SyncStats{}, err
+	}
+	if err := f.store.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "m-live",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano),
+		Content:           "live discord filled the delta",
+		NormalizedContent: "live discord filled the delta",
+		RawJSON:           `{}`,
+	}); err != nil {
+		return syncer.SyncStats{}, err
+	}
+	return syncer.SyncStats{Guilds: len(opts.GuildIDs), Messages: 1}, nil
+}
+
+func (f *hybridSyncService) RunTail(context.Context, []string, time.Duration) error {
+	return nil
 }
 
 func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {

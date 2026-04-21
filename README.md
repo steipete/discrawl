@@ -348,6 +348,14 @@ discrawl subscribe --no-auto-update https://github.com/openclaw/discord-backup.g
 
 Once `share.remote` is configured, read commands auto-fetch and import when the local share import is older than `share.stale_after` (default `15m`). `discrawl update` forces the same pull/import step manually.
 
+Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync` and `discrawl messages --sync` import the Git snapshot first, then use live Discord only to fill anything newer or missing. This keeps day-to-day sync fast while preserving live repair behavior.
+
+The Docker smoke test installs `discrawl` in a clean Go container, subscribes to a Git snapshot repo, then checks `search`, `messages`, `sql`, and `report`:
+
+```bash
+DISCRAWL_DOCKER_TEST=1 go test ./internal/cli -run TestDockerGitSourceSmoke -count=1
+```
+
 ### `report`
 
 Generates the Markdown activity block used by the shared backup repo README.
