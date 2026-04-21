@@ -146,6 +146,16 @@ func Push(ctx context.Context, opts Options) error {
 	if strings.TrimSpace(branch) == "" {
 		branch = "main"
 	}
+	out, err := output(ctx, opts.RepoPath, "git", "push", "-u", "origin", branch)
+	if err == nil {
+		return nil
+	}
+	if !isNonFastForwardPush(out) {
+		return fmt.Errorf("git push -u origin %s: %w\n%s", branch, err, strings.TrimSpace(out))
+	}
+	if pullErr := run(ctx, opts.RepoPath, "git", "pull", "--rebase", "--autostash", "origin", branch); pullErr != nil {
+		return fmt.Errorf("rebase before push retry: %w", pullErr)
+	}
 	return run(ctx, opts.RepoPath, "git", "push", "-u", "origin", branch)
 }
 
@@ -514,4 +524,11 @@ func output(ctx context.Context, dir, name string, args ...string) (string, erro
 	}
 	body, err := cmd.CombinedOutput()
 	return string(body), err
+}
+
+func isNonFastForwardPush(out string) bool {
+	lower := strings.ToLower(out)
+	return strings.Contains(lower, "non-fast-forward") ||
+		strings.Contains(lower, "fetch first") ||
+		strings.Contains(lower, "failed to push some refs")
 }

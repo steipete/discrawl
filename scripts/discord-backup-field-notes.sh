@@ -58,36 +58,64 @@ write_fallback_notes() {
   )
 
   fallback_query "$recent_human_cte
-select channel, count(*) as matches
-from recent
-where $body_love_terms
+select topic, count(*) as matches
+from (
+  select case
+    when lower(body) like '%thank%' or lower(body) like '%helpful%' or lower(body) like '%useful%' then 'Helpful answers and practical fixes'
+    when lower(body) like '%fast%' or lower(body) like '%speed%' or lower(body) like '%quick%' then 'Speed and responsiveness'
+    when lower(body) like '%agent%' or lower(body) like '%workflow%' or lower(body) like '%automatic%' then 'Agent workflows and automation'
+    when lower(body) like '%skill%' or lower(body) like '%tool%' or lower(body) like '%mcp%' then 'Skills, tools, and MCP integrations'
+    else 'General positive feedback'
+  end as topic
+  from recent
+  where $body_love_terms
+)
 group by 1
 order by matches desc
 limit 4;
 " | jq -r '
-  if type == "array" then .[] else (.rows // [])[] | {channel: .[0], matches: .[1]} end |
-  "- " + .channel + ": " + (.matches | tostring) + " positive mentions in the recent sample."
+  if type == "array" then .[] else (.rows // [])[] | {topic: .[0], matches: .[1]} end |
+  "- " + .topic + ": " + (.matches | tostring) + " positive mentions in the recent sample."
 ' >"$TMP_DIR/fallback-love.md"
 
   fallback_query "$recent_human_cte
-select channel, count(*) as matches
-from recent
-where $body_complaint_terms
+select topic, count(*) as matches
+from (
+  select case
+    when lower(body) like '%overload%' or lower(body) like '%fallback%' or lower(body) like '%provider%' or lower(body) like '%model%' then 'Provider reliability and model fallback'
+    when lower(body) like '%token%' or lower(body) like '%secret%' or lower(body) like '%auth%' or lower(body) like '%config%' or lower(body) like '%install%' then 'Setup, auth, and configuration'
+    when lower(body) like '%github%' or lower(body) like '%repo%' or lower(body) like '%pr%' or lower(body) like '%issue%' then 'GitHub and repository workflow'
+    when lower(body) like '%skill%' or lower(body) like '%tool%' or lower(body) like '%mcp%' then 'Skills, tools, and runtime bridges'
+    when lower(body) like '%encoding%' or lower(body) like '%character%' or lower(body) like '%message%' then 'Message quality, editing, and encoding'
+    else 'General bugs, failures, and confusing behavior'
+  end as topic
+  from recent
+  where $body_complaint_terms
+)
 group by 1
 order by matches desc
 limit 4;
 " | jq -r '
-  if type == "array" then .[] else (.rows // [])[] | {channel: .[0], matches: .[1]} end |
-  "- " + .channel + ": " + (.matches | tostring) + " complaint-flavored mentions in the recent sample; compare this with the issue/PR cluster below."
+  if type == "array" then .[] else (.rows // [])[] | {topic: .[0], matches: .[1]} end |
+  "- " + .topic + ": " + (.matches | tostring) + " complaint-flavored mentions in the recent sample; compare with the issue/PR cluster below."
 ' >"$TMP_DIR/fallback-complaints.md"
 
   if command -v gh >/dev/null 2>&1; then
-    gh search issues "repo:$GH_REPO updated:>=$github_since" \
+    gh search issues --repo "$GH_REPO" --updated ">=$github_since" \
       --json number,title,state,updatedAt,url,labels \
       --limit 8 | jq -r '.[0:3][]? | "- Issue #" + (.number | tostring) + " (" + .state + "): [" + .title + "](" + .url + ")"' >"$TMP_DIR/fallback-issues.md" || :
-    gh search prs "repo:$GH_REPO updated:>=$github_since" \
+    gh search prs --repo "$GH_REPO" --updated ">=$github_since" \
       --json number,title,state,updatedAt,url,labels \
-      --limit 8 | jq -r 'map(select(.state == "open"))[0] // .[0] // empty | "- PR #" + (.number | tostring) + ": [" + .title + "](" + .url + ") looks like the highest-leverage recent PR because it is active in the same window as the complaint cluster."' >"$TMP_DIR/fallback-pr.md" || :
+      --limit 25 | jq -r '
+        def score($title):
+          [ "fix", "bug", "fail", "error", "provider", "fallback", "auth", "config", "skill", "tool", "github", "encoding" ]
+          | map(if $title | contains(.) then 1 else 0 end)
+          | add;
+        map(. + {score: score(.title | ascii_downcase)})
+        | map(select(.state == "open")) as $open
+        | ($open // .) | sort_by(.score, .updatedAt) | reverse | .[0] // empty
+        | "- PR #" + (.number | tostring) + ": [" + .title + "](" + .url + ") is the best recent watch candidate from title/recency signals."
+      ' >"$TMP_DIR/fallback-pr.md" || :
   fi
 
   if [ ! -s "$TMP_DIR/fallback-love.md" ]; then
@@ -99,6 +127,7 @@ limit 4;
   if [ -s "$TMP_DIR/fallback-issues.md" ]; then
     {
       printf '\n'
+      printf '%s\n' "Related GitHub issue cluster:"
       cat "$TMP_DIR/fallback-issues.md"
     } >>"$TMP_DIR/fallback-complaints.md"
   fi
@@ -142,12 +171,16 @@ run_openclaw_agent() {
 
 extract_openclaw_text() {
   jq -r '
-    .payloads[0].text //
-    .finalAssistantVisibleText //
-    .finalAssistantRawText //
-    .result.finalAssistantVisibleText //
-    .result.finalAssistantRawText //
-    empty
+    [
+      .payloads[]?.text?,
+      .finalAssistantVisibleText?,
+      .finalAssistantRawText?,
+      .result.finalAssistantVisibleText?,
+      .result.finalAssistantRawText?,
+      (.. | objects | .finalAssistantVisibleText?),
+      (.. | objects | .finalAssistantRawText?)
+    ]
+    | map(select(type == "string" and length > 0))[0] // empty
   ' "$TMP_DIR/openclaw-result.json"
 }
 
@@ -258,7 +291,7 @@ limit 12;
 {
   printf "\n## GitHub Pull Requests Updated This Month\n\n"
   if command -v gh >/dev/null 2>&1; then
-    gh search prs "repo:$GH_REPO updated:>=$github_since" \
+    gh search prs --repo "$GH_REPO" --updated ">=$github_since" \
       --json number,title,state,updatedAt,url,labels \
       --limit 25 | jq -c . || printf "[]\n"
   else
@@ -266,7 +299,7 @@ limit 12;
   fi
   printf "\n## GitHub Issues Updated This Month\n\n"
   if command -v gh >/dev/null 2>&1; then
-    gh search issues "repo:$GH_REPO updated:>=$github_since" \
+    gh search issues --repo "$GH_REPO" --updated ">=$github_since" \
       --json number,title,state,updatedAt,url,labels \
       --limit 25 | jq -c . || printf "[]\n"
   else

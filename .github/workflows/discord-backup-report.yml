@@ -81,4 +81,5 @@ jobs:
           fi
           git -C "$BACKUP_REPO" add README.md
           git -C "$BACKUP_REPO" commit -m "docs: update discord activity report"
+          git -C "$BACKUP_REPO" pull --rebase --autostash origin main
           git -C "$BACKUP_REPO" push

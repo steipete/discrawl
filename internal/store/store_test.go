@@ -498,6 +498,7 @@ func TestEventsSyncStateAndHelpers(t *testing.T) {
 	require.Equal(t, "maintainers", normalizeChannelFilter(" maintainers "))
 	require.True(t, IsReadOnlySQL("select 1"))
 	require.True(t, IsReadOnlySQL("-- comment\nselect 1"))
+	require.True(t, IsReadOnlySQL("with latest as (select 1 as one) select one from latest"))
 	require.False(t, IsReadOnlySQL("delete from messages"))
 }
 

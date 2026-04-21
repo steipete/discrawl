@@ -155,6 +155,48 @@ func TestPullAndPushWithBareRemote(t *testing.T) {
 	require.FileExists(t, filepath.Join(subscriber, ManifestName))
 }
 
+func TestPushRebasesRemoteReadmeUpdates(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+
+	dir := t.TempDir()
+	remote := filepath.Join(dir, "remote.git")
+	// #nosec G204 -- fixed git argv in test setup.
+	require.NoError(t, exec.Command("git", "-C", dir, "init", "--bare", remote).Run())
+
+	publisher := filepath.Join(dir, "publisher")
+	opts := Options{RepoPath: publisher, Remote: remote, Branch: "main"}
+	_, err := Export(ctx, src, opts)
+	require.NoError(t, err)
+	configureGitUser(t, publisher)
+	require.NoError(t, os.WriteFile(filepath.Join(publisher, "README.md"), []byte("report: first\n\nfield notes: old\n"), 0o600))
+	committed, err := Commit(ctx, opts, "test: initial snapshot")
+	require.NoError(t, err)
+	require.True(t, committed)
+	require.NoError(t, Push(ctx, opts))
+
+	reporter := filepath.Join(dir, "reporter")
+	require.NoError(t, run(ctx, dir, "git", "clone", remote, reporter))
+	configureGitUser(t, reporter)
+	require.NoError(t, os.WriteFile(filepath.Join(reporter, "README.md"), []byte("report: first\n\nfield notes: fresh\n"), 0o600))
+	require.NoError(t, run(ctx, reporter, "git", "commit", "-am", "docs: update field notes"))
+	require.NoError(t, run(ctx, reporter, "git", "push", "-u", "origin", "main"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(publisher, "README.md"), []byte("report: second\n\nfield notes: old\n"), 0o600))
+	committed, err = Commit(ctx, opts, "test: update report")
+	require.NoError(t, err)
+	require.True(t, committed)
+	require.NoError(t, Push(ctx, opts))
+
+	subscriber := filepath.Join(dir, "subscriber")
+	require.NoError(t, Pull(ctx, Options{RepoPath: subscriber, Remote: remote, Branch: "main"}))
+	body, err := os.ReadFile(filepath.Join(subscriber, "README.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(body), "report: second")
+	require.Contains(t, string(body), "field notes: fresh")
+}
+
 func seedStore(t *testing.T, path string) *store.Store {
 	t.Helper()
 	ctx := context.Background()
@@ -200,6 +242,14 @@ func seedStore(t *testing.T, path string) *store.Store {
 		}},
 	}}))
 	return s
+}
+
+func configureGitUser(t *testing.T, repo string) {
+	t.Helper()
+	// #nosec G204 -- fixed git argv in test setup.
+	require.NoError(t, exec.Command("git", "-C", repo, "config", "user.name", "discrawl test").Run())
+	// #nosec G204 -- fixed git argv in test setup.
+	require.NoError(t, exec.Command("git", "-C", repo, "config", "user.email", "discrawl@example.com").Run())
 }
 
 func tableEntry(t *testing.T, manifest Manifest, name string) TableManifest {
