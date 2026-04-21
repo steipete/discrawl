@@ -438,6 +438,7 @@ Config override rules:
 - `--config` beats everything
 - `DISCRAWL_CONFIG` overrides the default config path
 - `discord.token_source = "env"` forces env-only token lookup
+- `DISCRAWL_NO_AUTO_UPDATE=1` disables Git snapshot auto-update for read commands in one process, useful for report jobs that already imported a fresh backup.
 
 ## Embeddings
 

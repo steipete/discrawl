@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -178,7 +179,7 @@ func (r *runtime) withServicesAuto(withDiscord, autoShareUpdate bool, fn func() 
 		return dbErr(err)
 	}
 	defer func() { _ = r.store.Close() }()
-	if autoShareUpdate {
+	if autoShareUpdate && os.Getenv("DISCRAWL_NO_AUTO_UPDATE") != "1" {
 		if err := r.autoUpdateShare(); err != nil {
 			return err
 		}

@@ -31,13 +31,13 @@ run_sql() {
   local query=$2
   {
     printf "\n## %s\n\n" "$title"
-    go run ./cmd/discrawl --config "$CONFIG" --json sql "$query" | jq -c .
+    DISCRAWL_NO_AUTO_UPDATE=1 go run ./cmd/discrawl --config "$CONFIG" --json sql "$query" | jq -c .
   } >>"$TMP_DIR/context.md"
 }
 
 fallback_query() {
   local query=$1
-  go run ./cmd/discrawl --config "$CONFIG" --json sql "$query"
+  DISCRAWL_NO_AUTO_UPDATE=1 go run ./cmd/discrawl --config "$CONFIG" --json sql "$query"
 }
 
 write_fallback_notes() {

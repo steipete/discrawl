@@ -176,6 +176,49 @@ func TestReadCommandsAutoImportStaleShare(t *testing.T) {
 	require.NotEmpty(t, lastImport)
 }
 
+func TestReadCommandsCanDisableAutoImportWithEnv(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	sourceDB := filepath.Join(dir, "source.db")
+	source := seedCLIStore(t, sourceDB)
+	defer func() { _ = source.Close() }()
+
+	workRepo := filepath.Join(dir, "work")
+	remoteRepo := filepath.Join(dir, "remote.git")
+	opts := share.Options{RepoPath: workRepo, Branch: "main"}
+	_, err := share.Export(ctx, source, opts)
+	require.NoError(t, err)
+	runGit(t, workRepo, "config", "user.name", "discrawl test")
+	runGit(t, workRepo, "config", "user.email", "discrawl@example.com")
+	committed, err := share.Commit(ctx, opts, "test: snapshot")
+	require.NoError(t, err)
+	require.True(t, committed)
+	runGit(t, dir, "init", "--bare", remoteRepo)
+	runGit(t, workRepo, "remote", "add", "origin", remoteRepo)
+	runGit(t, workRepo, "push", "-u", "origin", "main")
+
+	cfgPath := filepath.Join(dir, "config.toml")
+	cfg := config.Default()
+	cfg.DBPath = filepath.Join(dir, "reader.db")
+	cfg.Share.Remote = remoteRepo
+	cfg.Share.RepoPath = filepath.Join(dir, "reader-share")
+	cfg.Share.StaleAfter = "15m"
+	cfg.Share.AutoUpdate = true
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	t.Setenv("DISCRAWL_NO_AUTO_UPDATE", "1")
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "automatic"}, &out, &bytes.Buffer{}))
+	require.NotContains(t, out.String(), "automatic updates work")
+
+	reader, err := store.Open(ctx, cfg.DBPath)
+	require.NoError(t, err)
+	defer func() { _ = reader.Close() }()
+	lastImport, err := reader.GetSyncState(ctx, share.LastImportSyncScope)
+	require.NoError(t, err)
+	require.Empty(t, lastImport)
+}
+
 func TestShareCommandsPublishSubscribeAndUpdate(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
