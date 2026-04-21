@@ -177,7 +177,7 @@ func TestPushRebasesRemoteReadmeUpdates(t *testing.T) {
 	require.NoError(t, Push(ctx, opts))
 
 	reporter := filepath.Join(dir, "reporter")
-	require.NoError(t, run(ctx, dir, "git", "clone", remote, reporter))
+	require.NoError(t, run(ctx, dir, "git", "clone", "--branch", "main", remote, reporter))
 	configureGitUser(t, reporter)
 	require.NoError(t, os.WriteFile(filepath.Join(reporter, "README.md"), []byte("report: first\n\nfield notes: fresh\n"), 0o600))
 	require.NoError(t, run(ctx, reporter, "git", "commit", "-am", "docs: update field notes"))
