@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -87,7 +86,7 @@ old notes
 	require.NoError(t, err)
 	require.Contains(t, string(calls), "agent --local")
 	require.Contains(t, string(calls), "--thinking high")
-	require.False(t, strings.Contains(text, "GitHub posted the most"))
+	require.NotContains(t, text, "GitHub posted the most")
 }
 
 func writeExecutable(t *testing.T, path string, body string) {
