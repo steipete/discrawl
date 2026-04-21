@@ -61,7 +61,7 @@ docker run --rm \
     cd /src
     go install ./cmd/discrawl
     discrawl=/work/bin/discrawl
-    "$discrawl" --version | grep -q "0.2.0"
+    "$discrawl" --version | grep -q "0.3.0"
     "$discrawl" --config /work/config.toml subscribe --repo /work/share file:///backup > /work/subscribe.out
     "$discrawl" --config /work/config.toml search "docker smoke archive" | tee /work/search.out
     grep -q "docker smoke archive is queryable" /work/search.out

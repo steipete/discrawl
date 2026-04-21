@@ -4,10 +4,22 @@ All notable changes to `discrawl` will be documented in this file.
 
 ## Unreleased
 
+- Nothing yet.
+
+## 0.3.0 - 2026-04-21
+
 - `sync --all` now bypasses `default_guild_id` so one run can fan out across every discovered guild without clearing the single-guild default first
 - `sync --full` no longer aborts when forum thread discovery hits Discord `403 Missing Access`; inaccessible channels are skipped and marked unavailable while accessible channels continue syncing
 - startup now validates and stamps SQLite schema version via `PRAGMA user_version`, and fails fast if the local DB schema is newer than the running binary
 - `init --from-openclaw` now supports `--account`, and OpenClaw token fields can use `${ENV_VAR}` placeholders
+- git-backed archive sharing can now export/import compressed JSONL snapshots with manifests, subscribe to a Git repo as the data source, and run in git-only mode without Discord credentials
+- `messages`, `search`, and reports can automatically refresh stale git-backed data, preferring the Git snapshot before falling back to live Discord when both sources are configured
+- the Discord backup publisher workflow now syncs latest messages, publishes the archive to a private GitHub repo, serializes concurrent runs, validates required secrets, and skips the member crawl for faster updates
+- the backup report workflow now updates README activity stats, supports OpenClaw-generated field notes, runs the field-note logic from the backup action, and keeps those queries bounded with process timeouts
+- `sync --latest-only` adds a lightweight refresh path for checking recent Discord messages without doing a full historical crawl
+- repository imports now skip expensive rebuilds when the snapshot manifest is already current, and GitHub Actions persist the warmed SQLite database across runs
+- the Docker git-source smoke test now verifies that a fresh install can subscribe to a repository-only archive and query messages, SQL, and reports
+- CI now uses Go 1.26.2, `actions/setup-go` 6.4.0, cache actions 5.0.5, Node 24 for report generation, and refreshed SQLite dependencies
 
 ## 0.2.0 - 2026-03-26
 
