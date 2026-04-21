@@ -28,6 +28,8 @@ jobs:
 
       - name: Setup Node
         uses: actions/setup-node@v6.0.0
+        with:
+          node-version: "22"
 
       - name: Configure Git identity
         run: |
