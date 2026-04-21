@@ -48,6 +48,7 @@ type SyncOptions struct {
 	Concurrency  int
 	Since        time.Time
 	Embeddings   bool
+	SkipMembers  bool
 	RepairReason string
 }
 
@@ -166,7 +167,7 @@ func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions
 		}
 	}
 
-	if !targeted {
+	if !targeted && !opts.SkipMembers {
 		stats.Members = s.refreshGuildMembers(ctx, guildID)
 	}
 

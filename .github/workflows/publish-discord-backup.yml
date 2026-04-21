@@ -59,7 +59,7 @@ jobs:
           if [ -f "$BACKUP_REPO/manifest.json" ]; then
             go run ./cmd/discrawl --config "$CONFIG" update --repo "$BACKUP_REPO" --remote "$BACKUP_REMOTE"
           fi
-          go run ./cmd/discrawl --config "$CONFIG" sync --guild "$DISCRAWL_GUILD_ID"
+          go run ./cmd/discrawl --config "$CONFIG" sync --guild "$DISCRAWL_GUILD_ID" --skip-members
           go run ./cmd/discrawl --config "$CONFIG" publish \
             --repo "$BACKUP_REPO" \
             --remote "$BACKUP_REMOTE" \

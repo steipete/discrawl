@@ -102,6 +102,7 @@ func (r *runtime) runSync(args []string) error {
 	channels := fs.String("channels", "", "")
 	concurrency := fs.Int("concurrency", r.cfg.Sync.Concurrency, "")
 	withEmbeddings := fs.Bool("with-embeddings", false, "")
+	skipMembers := fs.Bool("skip-members", false, "")
 	guildsFlag := fs.String("guilds", "", "")
 	guildFlag := fs.String("guild", "", "")
 	if err := fs.Parse(args); err != nil {
@@ -126,6 +127,7 @@ func (r *runtime) runSync(args []string) error {
 		Concurrency: *concurrency,
 		Since:       sinceTime,
 		Embeddings:  *withEmbeddings,
+		SkipMembers: *skipMembers,
 	}
 	stats, err := r.syncer.Sync(r.ctx, opts)
 	if err != nil {

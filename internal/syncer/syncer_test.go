@@ -402,6 +402,48 @@ func TestSyncSkipsMemberRefreshWhenExistingSnapshotPresent(t *testing.T) {
 	require.NotEmpty(t, lastSuccess)
 }
 
+func TestSyncSkipMembersFlagSkipsMemberRefresh(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {
+				{ID: "c1", GuildID: "g1", Name: "general", Type: discordgo.ChannelTypeGuildText},
+			},
+		},
+		members: map[string][]*discordgo.Member{
+			"g1": {{
+				User: &discordgo.User{ID: "u1", Username: "user"},
+			}},
+		},
+		messages: map[string][]*discordgo.Message{
+			"c1": {{
+				ID:        "100",
+				GuildID:   "g1",
+				ChannelID: "c1",
+				Content:   "hello",
+				Timestamp: time.Now().UTC(),
+				Author:    &discordgo.User{ID: "u1", Username: "user"},
+			}},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{SkipMembers: true})
+	require.NoError(t, err)
+	require.Equal(t, 0, stats.Members)
+	require.Zero(t, client.memberCalls)
+}
+
 func TestSyncFullAutoBatchesIncompleteStoredChannels(t *testing.T) {
 	t.Parallel()
 
