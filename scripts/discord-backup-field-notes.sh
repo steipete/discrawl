@@ -29,15 +29,23 @@ date_utc_days_ago() {
 run_sql() {
   local title=$1
   local query=$2
+  local output
   {
     printf "\n## %s\n\n" "$title"
-    DISCRAWL_NO_AUTO_UPDATE=1 go run ./cmd/discrawl --config "$CONFIG" --json sql "$query" | jq -c .
+    if output=$(DISCRAWL_NO_AUTO_UPDATE=1 go run ./cmd/discrawl --config "$CONFIG" --json sql "$query" 2>&1); then
+      printf '%s\n' "$output" | jq -c .
+    else
+      printf '[]\n'
+      printf '\n_query skipped: %s_\n' "$(printf '%s' "$output" | tail -n 1)"
+    fi
   } >>"$TMP_DIR/context.md"
 }
 
 fallback_query() {
   local query=$1
-  DISCRAWL_NO_AUTO_UPDATE=1 go run ./cmd/discrawl --config "$CONFIG" --json sql "$query"
+  if ! DISCRAWL_NO_AUTO_UPDATE=1 go run ./cmd/discrawl --config "$CONFIG" --json sql "$query"; then
+    printf '[]\n'
+  fi
 }
 
 write_fallback_notes() {
@@ -46,19 +54,19 @@ write_fallback_notes() {
   generated_at=$(date -u '+%Y-%m-%d %H:%M UTC')
   latest_message=$(fallback_query "select max(created_at) as latest_message from messages;" | jq -r '.[0].latest_message // "unknown"')
 
-  fallback_query "
-select coalesce(nullif(channel_name, ''), channel_id) as channel, count(*) as matches
-from messages
-where created_at >= $since_30 and $human_filter and $love_terms
+  fallback_query "$recent_human_cte
+select channel, count(*) as matches
+from recent
+where $body_love_terms
 group by 1
 order by matches desc
 limit 4;
 " | jq -r '.[] | "- " + .channel + ": " + (.matches | tostring) + " positive mentions in the last 30 days."' >"$TMP_DIR/fallback-love.md"
 
-  fallback_query "
-select coalesce(nullif(channel_name, ''), channel_id) as channel, count(*) as matches
-from messages
-where created_at >= $since_30 and $human_filter and $complaint_terms
+  fallback_query "$recent_human_cte
+select channel, count(*) as matches
+from recent
+where $body_complaint_terms
 group by 1
 order by matches desc
 limit 4;
@@ -126,9 +134,25 @@ run_openclaw_agent() {
 anchor_expr="(select max(created_at) from messages)"
 since_7="strftime('%Y-%m-%dT%H:%M:%fZ', datetime($anchor_expr, '-7 days'))"
 since_30="strftime('%Y-%m-%dT%H:%M:%fZ', datetime($anchor_expr, '-30 days'))"
-human_filter="lower(coalesce(author_name, '')) not in ('github', 'dependabot')"
+human_filter="lower(coalesce(mem.username, mem.display_name, m.author_id, '')) not in ('github', 'dependabot')"
 love_terms="(lower(coalesce(normalized_content, content, '')) like '%love%' or lower(coalesce(normalized_content, content, '')) like '%great%' or lower(coalesce(normalized_content, content, '')) like '%awesome%' or lower(coalesce(normalized_content, content, '')) like '%amazing%' or lower(coalesce(normalized_content, content, '')) like '%thanks%' or lower(coalesce(normalized_content, content, '')) like '%thank you%' or lower(coalesce(normalized_content, content, '')) like '%works%' or lower(coalesce(normalized_content, content, '')) like '%useful%' or lower(coalesce(normalized_content, content, '')) like '%helpful%' or lower(coalesce(normalized_content, content, '')) like '%fast%')"
 complaint_terms="(lower(coalesce(normalized_content, content, '')) like '%bug%' or lower(coalesce(normalized_content, content, '')) like '%broken%' or lower(coalesce(normalized_content, content, '')) like '%fail%' or lower(coalesce(normalized_content, content, '')) like '%error%' or lower(coalesce(normalized_content, content, '')) like '%crash%' or lower(coalesce(normalized_content, content, '')) like '%regression%' or lower(coalesce(normalized_content, content, '')) like '%slow%' or lower(coalesce(normalized_content, content, '')) like '%confusing%' or lower(coalesce(normalized_content, content, '')) like '%annoying%' or lower(coalesce(normalized_content, content, '')) like '%not working%' or lower(coalesce(normalized_content, content, '')) like '%cannot%' or lower(coalesce(normalized_content, content, '')) like '%can''t%')"
+body_love_terms="(lower(body) like '%love%' or lower(body) like '%great%' or lower(body) like '%awesome%' or lower(body) like '%amazing%' or lower(body) like '%thanks%' or lower(body) like '%thank you%' or lower(body) like '%works%' or lower(body) like '%useful%' or lower(body) like '%helpful%' or lower(body) like '%fast%')"
+body_complaint_terms="(lower(body) like '%bug%' or lower(body) like '%broken%' or lower(body) like '%fail%' or lower(body) like '%error%' or lower(body) like '%crash%' or lower(body) like '%regression%' or lower(body) like '%slow%' or lower(body) like '%confusing%' or lower(body) like '%annoying%' or lower(body) like '%not working%' or lower(body) like '%cannot%' or lower(body) like '%can''t%')"
+recent_human_cte="
+with recent as (
+  select
+    m.created_at,
+    coalesce(nullif(c.name, ''), m.channel_id) as channel,
+    coalesce(nullif(mem.display_name, ''), nullif(mem.username, ''), m.author_id, '') as author,
+    coalesce(nullif(m.content, ''), m.normalized_content, '') as body
+  from messages m
+  left join channels c on c.id = m.channel_id
+  left join members mem on mem.guild_id = m.guild_id and mem.user_id = m.author_id
+  where $human_filter
+  order by m.rowid desc
+  limit 50000
+)"
 github_since=$(date_utc_days_ago 30)
 
 cat >"$TMP_DIR/context.md" <<EOF
@@ -165,44 +189,48 @@ from messages where created_at >= $since_30;
 "
 
 run_sql "Human Hot Channels This Week" "
-select coalesce(nullif(channel_name, ''), channel_id) as channel, count(*) as messages
-from messages
-where created_at >= $since_7 and $human_filter
+$recent_human_cte
+select channel, count(*) as messages
+from recent
 group by 1
 order by messages desc
 limit 8;
 "
 
-run_sql "What People Seem To Love" "
-select coalesce(nullif(channel_name, ''), channel_id) as channel, count(*) as matches
-from messages
-where created_at >= $since_30 and $human_filter and $love_terms
+run_sql "What People Seem To Love In Recent Messages" "
+$recent_human_cte
+select channel, count(*) as matches
+from recent
+where $body_love_terms
 group by 1
 order by matches desc
 limit 8;
 "
 
 run_sql "Love Samples" "
-select created_at, coalesce(nullif(channel_name, ''), channel_id) as channel, coalesce(nullif(author_name, ''), author_id) as author, substr(coalesce(content, normalized_content, ''), 1, 260) as sample
-from messages
-where created_at >= $since_30 and $human_filter and $love_terms
+${recent_human_cte}
+select created_at, channel, author, substr(body, 1, 260) as sample
+from recent
+where $body_love_terms
 order by created_at desc
 limit 10;
 "
 
-run_sql "What People Complain About" "
-select coalesce(nullif(channel_name, ''), channel_id) as channel, count(*) as matches
-from messages
-where created_at >= $since_30 and $human_filter and $complaint_terms
+run_sql "What People Complain About In Recent Messages" "
+$recent_human_cte
+select channel, count(*) as matches
+from recent
+where $body_complaint_terms
 group by 1
 order by matches desc
 limit 8;
 "
 
 run_sql "Complaint Samples" "
-select created_at, coalesce(nullif(channel_name, ''), channel_id) as channel, coalesce(nullif(author_name, ''), author_id) as author, substr(coalesce(content, normalized_content, ''), 1, 320) as sample
-from messages
-where created_at >= $since_30 and $human_filter and $complaint_terms
+${recent_human_cte}
+select created_at, channel, author, substr(body, 1, 320) as sample
+from recent
+where $body_complaint_terms
 order by created_at desc
 limit 12;
 "
