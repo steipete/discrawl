@@ -12,9 +12,6 @@ concurrency:
   group: discord-backup-repo
   cancel-in-progress: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -31,7 +28,7 @@ jobs:
 
       - name: Restore Discord DB cache
         id: restore-discord-db
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5.0.5
         with:
           path: |
             .discrawl-ci/discrawl.db
@@ -86,7 +83,7 @@ jobs:
             --push
 
       - name: Save Discord DB cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5.0.5
         with:
           path: |
             .discrawl-ci/discrawl.db
