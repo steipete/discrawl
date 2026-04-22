@@ -123,6 +123,58 @@ func TestSyncChannelSubsetExpandsRequestedForumThreads(t *testing.T) {
 	require.Equal(t, "t1", results[0].ChannelID)
 }
 
+func TestSyncToleratesArchivedThread403(t *testing.T) {
+	t.Parallel()
+
+	// Discord blocks archived thread listing on community Rules Screening channels
+	// even for bots with Administrator permission. A 403 from ThreadsArchived
+	// (for either public or private) should be logged and skipped, not abort the
+	// entire sync. The archived loop uses continue, so no unavailable marker is
+	// written for the channel — only active-thread 403s go through
+	// skipUnavailableChannelByID.
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {
+				{ID: "c1", GuildID: "g1", Name: "general", Type: discordgo.ChannelTypeGuildText},
+				{ID: "rules", GuildID: "g1", Name: "rules-and-info", Type: discordgo.ChannelTypeGuildText},
+			},
+		},
+		archivedErrors: map[string]error{
+			"rules": errMissingAccess(),
+		},
+		messages: map[string][]*discordgo.Message{
+			"c1": {{
+				ID:        "10",
+				GuildID:   "g1",
+				ChannelID: "c1",
+				Content:   "hello",
+				Timestamp: time.Now().UTC(),
+				Author:    &discordgo.User{ID: "u1", Username: "user"},
+			}},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{Full: true, GuildIDs: []string{"g1"}})
+	require.NoError(t, err)
+	// ThreadsArchived was invoked for "rules" (public + private = 2 calls minimum),
+	// confirming the error path was reached and tolerated, not bypassed.
+	require.GreaterOrEqual(t, client.threadCalls, 2)
+	require.Equal(t, 1, stats.Messages)
+	require.Equal(t, 1, client.messageCalls["c1"])
+}
+
 func TestSyncSkipsInaccessibleForumThreadCatalog(t *testing.T) {
 	t.Parallel()
 
