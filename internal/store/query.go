@@ -14,6 +14,7 @@ import (
 
 const (
 	queryTimeout            = 15 * time.Second
+	semanticQueryTimeout    = 2 * time.Minute
 	queryRowLimit           = 50000
 	searchCandidateFloor    = 200
 	searchCandidateCap      = 5000
@@ -191,9 +192,7 @@ func (s *Store) SearchMessagesSemantic(ctx context.Context, opts SemanticSearchO
 	if !opts.IncludeEmpty {
 		clauses = append(clauses, "trim(coalesce(m.normalized_content, '')) <> ''")
 	}
-	args = append(args, searchCandidateLimit(opts.Limit))
-
-	queryCtx, cancel := withQueryTimeout(ctx)
+	queryCtx, cancel := context.WithTimeout(ctx, semanticQueryTimeout)
 	defer cancel()
 	rows, err := s.db.QueryContext(queryCtx, `
 		select
@@ -214,19 +213,13 @@ func (s *Store) SearchMessagesSemantic(ctx context.Context, opts SemanticSearchO
 		join messages m on m.id = e.message_id
 		left join channels c on c.id = m.channel_id
 		where `+strings.Join(clauses, " and ")+`
-		order by m.created_at desc, m.id desc
-		limit ?
 	`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
-	type scoredResult struct {
-		result SearchResult
-		score  float64
-	}
-	var scored []scoredResult
+	scored := make([]semanticScoredResult, 0, opts.Limit)
 	for rows.Next() {
 		var (
 			row        SearchResult
@@ -252,7 +245,19 @@ func (s *Store) SearchMessagesSemantic(ctx context.Context, opts SemanticSearchO
 			return nil, fmt.Errorf("score embedding for message %s: %w", row.MessageID, err)
 		}
 		row.CreatedAt = parseTime(created)
-		scored = append(scored, scoredResult{result: row, score: score})
+		item := semanticScoredResult{result: row, score: score}
+		insertAt := sort.Search(len(scored), func(i int) bool {
+			return semanticScoreLess(item, scored[i])
+		})
+		if insertAt >= opts.Limit {
+			continue
+		}
+		scored = append(scored, semanticScoredResult{})
+		copy(scored[insertAt+1:], scored[insertAt:])
+		scored[insertAt] = item
+		if len(scored) > opts.Limit {
+			scored = scored[:opts.Limit]
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -267,23 +272,26 @@ func (s *Store) SearchMessagesSemantic(ctx context.Context, opts SemanticSearchO
 		}
 		return []SearchResult{}, nil
 	}
-	sort.SliceStable(scored, func(i, j int) bool {
-		if scored[i].score != scored[j].score {
-			return scored[i].score > scored[j].score
-		}
-		if !scored[i].result.CreatedAt.Equal(scored[j].result.CreatedAt) {
-			return scored[i].result.CreatedAt.After(scored[j].result.CreatedAt)
-		}
-		return scored[i].result.MessageID > scored[j].result.MessageID
-	})
-	if len(scored) > opts.Limit {
-		scored = scored[:opts.Limit]
-	}
 	out := make([]SearchResult, 0, len(scored))
 	for _, item := range scored {
 		out = append(out, item.result)
 	}
 	return out, nil
+}
+
+type semanticScoredResult struct {
+	result SearchResult
+	score  float64
+}
+
+func semanticScoreLess(left, right semanticScoredResult) bool {
+	if left.score != right.score {
+		return left.score > right.score
+	}
+	if !left.result.CreatedAt.Equal(right.result.CreatedAt) {
+		return left.result.CreatedAt.After(right.result.CreatedAt)
+	}
+	return left.result.MessageID > right.result.MessageID
 }
 
 func (s *Store) hasCompatibleMessageEmbeddings(ctx context.Context, opts SemanticSearchOptions) (bool, error) {

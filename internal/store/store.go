@@ -223,6 +223,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.ensureMemberFTSRowIDs(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureEmbeddingSearchIndexes(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -418,6 +421,7 @@ func (s *Store) applyBaselineSchema(ctx context.Context) error {
 		`create index if not exists idx_mentions_target on mention_events(target_type, target_id, event_at);`,
 		`create index if not exists idx_mentions_author on mention_events(author_id, event_at);`,
 		`create index if not exists idx_embedding_jobs_state_updated on embedding_jobs(state, updated_at);`,
+		`create index if not exists idx_message_embeddings_identity on message_embeddings(provider, model, input_version, dimensions);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -470,6 +474,7 @@ func (s *Store) applyQueryIndexMigration(ctx context.Context) error {
 		`create index if not exists idx_mentions_guild_event on mention_events(guild_id, event_at, event_id);`,
 		`create index if not exists idx_mentions_channel_event on mention_events(channel_id, event_at, event_id);`,
 		`create index if not exists idx_embedding_jobs_state_updated on embedding_jobs(state, updated_at);`,
+		`create index if not exists idx_message_embeddings_identity on message_embeddings(provider, model, input_version, dimensions);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -477,6 +482,17 @@ func (s *Store) applyQueryIndexMigration(ctx context.Context) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *Store) ensureEmbeddingSearchIndexes(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+		create index if not exists idx_message_embeddings_identity
+		on message_embeddings(provider, model, input_version, dimensions)
+	`)
+	if err != nil {
+		return fmt.Errorf("ensure embedding search indexes: %w", err)
+	}
+	return nil
 }
 
 func columnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
