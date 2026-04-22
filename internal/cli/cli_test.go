@@ -564,14 +564,14 @@ func TestSearchSemanticCommandUsesStoredEmbeddings(t *testing.T) {
 	var requests int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
-		require.Equal(t, "/embeddings", r.URL.Path)
+		assert.Equal(t, "/embeddings", r.URL.Path)
 		var req struct {
 			Model string   `json:"model"`
 			Input []string `json:"input"`
 		}
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		require.Equal(t, "local-model", req.Model)
-		require.Equal(t, []string{"cats"}, req.Input)
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, "local-model", req.Model)
+		assert.Equal(t, []string{"cats"}, req.Input)
 		_, _ = w.Write([]byte(`{"model":"local-model","data":[{"index":0,"embedding":[1,0]}]}`))
 	}))
 	defer server.Close()
