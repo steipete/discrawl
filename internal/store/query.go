@@ -20,6 +20,9 @@ const (
 	searchCandidateCap      = 5000
 	searchCandidateMultiple = 20
 	messageFTSHealthProbe   = "__discrawl_probe__"
+	rrfK                    = 60.0
+	ftsRRFWeight            = 1.0
+	semanticRRFWeight       = 1.0
 )
 
 var ErrNoCompatibleEmbeddings = errors.New("no compatible message embeddings for provider/model/input version; run discrawl embed --rebuild")
@@ -294,6 +297,80 @@ func semanticScoreLess(left, right semanticScoredResult) bool {
 	return left.result.MessageID > right.result.MessageID
 }
 
+func (s *Store) SearchMessagesHybrid(ctx context.Context, opts SearchOptions, semanticOpts SemanticSearchOptions) ([]SearchResult, error) {
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	candidateLimit := searchCandidateLimit(limit)
+	ftsOpts := opts
+	ftsOpts.Limit = candidateLimit
+	semanticOpts.Limit = candidateLimit
+
+	ftsResults, err := s.SearchMessages(ctx, ftsOpts)
+	if err != nil {
+		return nil, err
+	}
+	semanticResults, err := s.SearchMessagesSemantic(ctx, semanticOpts)
+	if err != nil {
+		return nil, err
+	}
+	return fuseSearchResults(ftsResults, semanticResults, limit), nil
+}
+
+type hybridSearchEntry struct {
+	result SearchResult
+	score  float64
+	hasFTS bool
+}
+
+func fuseSearchResults(ftsResults, semanticResults []SearchResult, limit int) []SearchResult {
+	if limit <= 0 {
+		limit = 20
+	}
+	entries := make(map[string]*hybridSearchEntry, len(ftsResults)+len(semanticResults))
+	addResults := func(results []SearchResult, weight float64, fts bool) {
+		for index, result := range results {
+			entry := entries[result.MessageID]
+			if entry == nil {
+				entry = &hybridSearchEntry{result: result}
+				entries[result.MessageID] = entry
+			}
+			if fts {
+				entry.hasFTS = true
+			}
+			entry.score += weight / (rrfK + float64(index+1))
+		}
+	}
+	addResults(ftsResults, ftsRRFWeight, true)
+	addResults(semanticResults, semanticRRFWeight, false)
+
+	merged := make([]hybridSearchEntry, 0, len(entries))
+	for _, entry := range entries {
+		merged = append(merged, *entry)
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		if merged[i].score != merged[j].score {
+			return merged[i].score > merged[j].score
+		}
+		if merged[i].hasFTS != merged[j].hasFTS {
+			return merged[i].hasFTS
+		}
+		if !merged[i].result.CreatedAt.Equal(merged[j].result.CreatedAt) {
+			return merged[i].result.CreatedAt.After(merged[j].result.CreatedAt)
+		}
+		return merged[i].result.MessageID > merged[j].result.MessageID
+	})
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+	out := make([]SearchResult, 0, len(merged))
+	for _, entry := range merged {
+		out = append(out, entry.result)
+	}
+	return out
+}
+
 func (s *Store) hasCompatibleMessageEmbeddings(ctx context.Context, opts SemanticSearchOptions) (bool, error) {
 	queryCtx, cancel := withQueryTimeout(ctx)
 	defer cancel()
@@ -308,6 +385,28 @@ func (s *Store) hasCompatibleMessageEmbeddings(ctx context.Context, opts Semanti
 			  and dimensions = ?
 		)
 	`, opts.Provider, opts.Model, opts.InputVersion, opts.Dimensions).Scan(&exists)
+	return exists == 1, err
+}
+
+func (s *Store) HasMessageEmbeddings(ctx context.Context, provider, model, inputVersion string) (bool, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	model = strings.TrimSpace(model)
+	inputVersion = strings.TrimSpace(inputVersion)
+	if inputVersion == "" {
+		inputVersion = EmbeddingInputVersion
+	}
+	queryCtx, cancel := withQueryTimeout(ctx)
+	defer cancel()
+	var exists int
+	err := s.db.QueryRowContext(queryCtx, `
+		select exists(
+			select 1
+			from message_embeddings
+			where provider = ?
+			  and model = ?
+			  and input_version = ?
+		)
+	`, provider, model, inputVersion).Scan(&exists)
 	return exists == 1, err
 }
 

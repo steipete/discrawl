@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -51,15 +52,57 @@ func (r *runtime) runSearch(args []string) error {
 		}
 		return r.print(results)
 	case "hybrid":
-		return fmt.Errorf("hybrid search is not implemented yet")
+		results, err := r.searchMessagesHybrid(opts)
+		if err != nil {
+			return err
+		}
+		return r.print(results)
 	default:
 		return usageErr(fmt.Errorf("unsupported search mode %q", *mode))
 	}
 }
 
 func (r *runtime) searchMessagesSemantic(opts store.SearchOptions) ([]store.SearchResult, error) {
+	semanticOpts, err := r.semanticSearchOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	return r.store.SearchMessagesSemantic(r.ctx, semanticOpts)
+}
+
+func (r *runtime) searchMessagesHybrid(opts store.SearchOptions) ([]store.SearchResult, error) {
 	if !r.cfg.Search.Embeddings.Enabled {
-		return nil, fmt.Errorf("embeddings are disabled; enable [search.embeddings] first")
+		return r.store.SearchMessages(r.ctx, opts)
+	}
+	hasEmbeddings, err := r.store.HasMessageEmbeddings(
+		r.ctx,
+		r.cfg.Search.Embeddings.Provider,
+		r.cfg.Search.Embeddings.Model,
+		store.EmbeddingInputVersion,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !hasEmbeddings {
+		return r.store.SearchMessages(r.ctx, opts)
+	}
+	semanticOpts, err := r.semanticSearchOptions(opts)
+	if err != nil {
+		return r.store.SearchMessages(r.ctx, opts)
+	}
+	results, err := r.store.SearchMessagesHybrid(r.ctx, opts, semanticOpts)
+	if err != nil {
+		if hybridSemanticUnavailable(err) {
+			return r.store.SearchMessages(r.ctx, opts)
+		}
+		return nil, err
+	}
+	return results, nil
+}
+
+func (r *runtime) semanticSearchOptions(opts store.SearchOptions) (store.SemanticSearchOptions, error) {
+	if !r.cfg.Search.Embeddings.Enabled {
+		return store.SemanticSearchOptions{}, fmt.Errorf("embeddings are disabled; enable [search.embeddings] first")
 	}
 	providerFactory := r.newEmbed
 	if providerFactory == nil {
@@ -69,21 +112,21 @@ func (r *runtime) searchMessagesSemantic(opts store.SearchOptions) ([]store.Sear
 	}
 	provider, err := providerFactory(r.cfg.Search.Embeddings)
 	if err != nil {
-		return nil, fmt.Errorf("create embedding provider: %w", err)
+		return store.SemanticSearchOptions{}, fmt.Errorf("create embedding provider: %w", err)
 	}
 	batch, err := provider.Embed(r.ctx, []string{opts.Query})
 	if err != nil {
-		return nil, fmt.Errorf("embedding query failed: %w", err)
+		return store.SemanticSearchOptions{}, fmt.Errorf("embedding query failed: %w", err)
 	}
 	if len(batch.Vectors) != 1 {
-		return nil, fmt.Errorf("embedding query returned %d vectors for 1 input", len(batch.Vectors))
+		return store.SemanticSearchOptions{}, fmt.Errorf("embedding query returned %d vectors for 1 input", len(batch.Vectors))
 	}
 	queryVector := batch.Vectors[0]
 	dimensions := batch.Dimensions
 	if dimensions == 0 {
 		dimensions = len(queryVector)
 	}
-	return r.store.SearchMessagesSemantic(r.ctx, store.SemanticSearchOptions{
+	return store.SemanticSearchOptions{
 		QueryVector:  queryVector,
 		Provider:     r.cfg.Search.Embeddings.Provider,
 		Model:        r.cfg.Search.Embeddings.Model,
@@ -94,7 +137,11 @@ func (r *runtime) searchMessagesSemantic(opts store.SearchOptions) ([]store.Sear
 		Author:       opts.Author,
 		Limit:        opts.Limit,
 		IncludeEmpty: opts.IncludeEmpty,
-	})
+	}, nil
+}
+
+func hybridSemanticUnavailable(err error) bool {
+	return errors.Is(err, store.ErrNoCompatibleEmbeddings) || strings.HasPrefix(err.Error(), "semantic query embedding ")
 }
 
 func (r *runtime) runSQL(args []string) error {
