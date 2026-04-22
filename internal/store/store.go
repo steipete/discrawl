@@ -448,6 +448,9 @@ func (s *Store) rebuildFTS(ctx context.Context) error {
 	`); err != nil {
 		return fmt.Errorf("create message_fts: %w", err)
 	}
+	if err := configureFTSBulkLoad(ctx, tx, "message_fts"); err != nil {
+		return err
+	}
 	rows, err := tx.QueryContext(ctx, `
 		select
 			m.id,
@@ -505,7 +508,37 @@ func (s *Store) rebuildFTS(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate fts rebuild rows: %w", err)
 	}
+	if err := optimizeFTS(ctx, tx, "message_fts"); err != nil {
+		return err
+	}
 	return tx.Commit()
+}
+
+func configureFTSBulkLoad(ctx context.Context, tx *sql.Tx, table string) error {
+	if table != "message_fts" && table != "member_fts" {
+		return fmt.Errorf("unsupported fts table %q", table)
+	}
+	stmts := []string{
+		fmt.Sprintf("insert into %s(%s, rank) values('pgsz', 32768)", table, table),
+		fmt.Sprintf("insert into %s(%s, rank) values('automerge', 0)", table, table),
+		fmt.Sprintf("insert into %s(%s, rank) values('crisismerge', 64)", table, table),
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("configure %s bulk load: %w", table, err)
+		}
+	}
+	return nil
+}
+
+func optimizeFTS(ctx context.Context, tx *sql.Tx, table string) error {
+	if table != "message_fts" && table != "member_fts" {
+		return fmt.Errorf("unsupported fts table %q", table)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("insert into %s(%s) values('optimize')", table, table)); err != nil {
+		return fmt.Errorf("optimize %s: %w", table, err)
+	}
+	return nil
 }
 
 func messageFTSRowID(messageID string) (int64, bool) {

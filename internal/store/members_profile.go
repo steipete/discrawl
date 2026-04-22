@@ -68,6 +68,9 @@ func (s *Store) rebuildMemberFTS(ctx context.Context) error {
 	`); err != nil {
 		return fmt.Errorf("create member_fts: %w", err)
 	}
+	if err := configureFTSBulkLoad(ctx, tx, "member_fts"); err != nil {
+		return err
+	}
 	rows, err := tx.QueryContext(ctx, `
 		select
 			guild_id,
@@ -118,6 +121,9 @@ func (s *Store) rebuildMemberFTS(ctx context.Context) error {
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate member fts rebuild rows: %w", err)
+	}
+	if err := optimizeFTS(ctx, tx, "member_fts"); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

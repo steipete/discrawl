@@ -4,7 +4,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 ## 0.4.0 - Unreleased
 
-- Nothing yet.
+- Git-backed snapshot imports are now much faster on large archives by using import-only SQLite pragmas and bulk-load FTS5 settings during search index rebuilds
 
 ## 0.3.0 - 2026-04-21
 

@@ -199,6 +199,16 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 	if err != nil {
 		return Manifest{}, err
 	}
+	restorePragmas, err := applyImportPragmas(ctx, s.DB())
+	if err != nil {
+		return Manifest{}, err
+	}
+	pragmasRestored := false
+	defer func() {
+		if !pragmasRestored {
+			_ = restorePragmas(ctx)
+		}
+	}()
 	tx, err := s.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return Manifest{}, err
@@ -235,7 +245,37 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 	if err := MarkImported(ctx, s, manifest); err != nil {
 		return Manifest{}, err
 	}
+	if err := restorePragmas(ctx); err != nil {
+		return Manifest{}, err
+	}
+	pragmasRestored = true
 	return manifest, nil
+}
+
+func applyImportPragmas(ctx context.Context, db *sql.DB) (func(context.Context) error, error) {
+	// Snapshot imports replace derived local state; disabling the write journal
+	// avoids preserving a multi-GB cache that can be recreated from Git.
+	for _, stmt := range []string{
+		`pragma temp_store = memory`,
+		`pragma cache_size = -262144`,
+		`pragma synchronous = off`,
+		`pragma journal_mode = off`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return nil, fmt.Errorf("apply import pragma %q: %w", stmt, err)
+		}
+	}
+	return func(ctx context.Context) error {
+		for _, stmt := range []string{
+			`pragma journal_mode = wal`,
+			`pragma synchronous = normal`,
+		} {
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("restore import pragma %q: %w", stmt, err)
+			}
+		}
+		return nil
+	}, nil
 }
 
 func ImportIfChanged(ctx context.Context, s *store.Store, opts Options) (Manifest, bool, error) {
