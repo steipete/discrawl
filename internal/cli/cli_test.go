@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/steipete/discrawl/internal/config"
@@ -497,12 +498,12 @@ func TestEmbedCommandDrainsBoundedBacklog(t *testing.T) {
 	dbPath := filepath.Join(dir, "discrawl.db")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/embeddings", r.URL.Path)
+		assert.Equal(t, "/embeddings", r.URL.Path)
 		var req struct {
 			Input []string `json:"input"`
 		}
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		require.Len(t, req.Input, 1)
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Len(t, req.Input, 1)
 		_, _ = w.Write([]byte(`{"data":[{"index":0,"embedding":[1,2]}]}`))
 	}))
 	defer server.Close()
@@ -745,7 +746,7 @@ func TestDoctorChecksEnabledLocalEmbeddingProvider(t *testing.T) {
 	dbPath := filepath.Join(dir, "discrawl.db")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/embed", r.URL.Path)
+		assert.Equal(t, "/api/embed", r.URL.Path)
 		_, _ = w.Write([]byte(`{"model":"nomic-embed-text","embeddings":[[1,2,3]]}`))
 	}))
 	defer server.Close()

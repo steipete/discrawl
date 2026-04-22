@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/steipete/discrawl/internal/config"
@@ -16,12 +17,12 @@ func TestOllamaProviderEmbeds(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/embed", r.URL.Path)
-		require.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/api/embed", r.URL.Path)
+		assert.Equal(t, http.MethodPost, r.Method)
 		var req ollamaEmbedRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		require.Equal(t, "nomic-embed-text", req.Model)
-		require.Equal(t, []string{"abcd", "xy"}, req.Input)
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, "nomic-embed-text", req.Model)
+		assert.Equal(t, []string{"abcd", "xy"}, req.Input)
 		_, _ = w.Write([]byte(`{"model":"nomic-embed-text","embeddings":[[1,2,3],[4,5,6]]}`))
 	}))
 	defer server.Close()
@@ -44,12 +45,12 @@ func TestOllamaProviderEmbeds(t *testing.T) {
 
 func TestOpenAICompatibleProviderEmbedsAndUsesAuth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/embeddings", r.URL.Path)
-		require.Equal(t, "Bearer secret", r.Header.Get("Authorization"))
+		assert.Equal(t, "/embeddings", r.URL.Path)
+		assert.Equal(t, "Bearer secret", r.Header.Get("Authorization"))
 		var req openAIEmbeddingRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		require.Equal(t, "local-model", req.Model)
-		require.Equal(t, []string{"one", "two"}, req.Input)
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, "local-model", req.Model)
+		assert.Equal(t, []string{"one", "two"}, req.Input)
 		_, _ = w.Write([]byte(`{
 			"model":"local-model",
 			"data":[
@@ -136,7 +137,7 @@ func TestCheckProviderProbesLocalProvider(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/embed", r.URL.Path)
+		assert.Equal(t, "/api/embed", r.URL.Path)
 		_, _ = w.Write([]byte(`{"model":"nomic-embed-text","embeddings":[[1,2]]}`))
 	}))
 	defer server.Close()

@@ -211,7 +211,6 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err := s.setSchemaVersion(ctx, storeSchemaVersion); err != nil {
 			return err
 		}
-		currentVersion = storeSchemaVersion
 	}
 	if version, err := s.schemaVersion(ctx); err != nil {
 		return err
@@ -501,6 +500,7 @@ func columnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, 
 	}
 	return false, rows.Err()
 }
+
 func (s *Store) ensureFTSRowIDs(ctx context.Context) error {
 	var version sql.NullString
 	err := s.db.QueryRowContext(ctx, `
