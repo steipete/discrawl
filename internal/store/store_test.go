@@ -185,6 +185,238 @@ func TestSearchMessagesPrefersRecentMessageIDs(t *testing.T) {
 	require.Contains(t, results[0].Content, "newest")
 }
 
+func TestSearchMessagesSemanticRanksAndFilters(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	base := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertGuild(ctx, GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertGuild(ctx, GuildRecord{ID: "g2", Name: "Other", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c2", GuildID: "g1", Kind: "text", Name: "random", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c3", GuildID: "g2", Kind: "text", Name: "other", RawJSON: `{}`}))
+
+	semanticMessages := []MessageRecord{
+		{
+			ID:                "m1",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u1",
+			MessageType:       0,
+			CreatedAt:         base.Format(time.RFC3339Nano),
+			Content:           "cats and databases",
+			NormalizedContent: "cats and databases",
+			RawJSON:           `{"author":{"username":"Alice"}}`,
+		},
+		{
+			ID:                "m2",
+			GuildID:           "g1",
+			ChannelID:         "c2",
+			ChannelName:       "random",
+			AuthorID:          "u2",
+			MessageType:       0,
+			CreatedAt:         base.Add(time.Minute).Format(time.RFC3339Nano),
+			Content:           "cats but weaker",
+			NormalizedContent: "cats but weaker",
+			RawJSON:           `{"author":{"username":"Bob"}}`,
+		},
+		{
+			ID:                "m3",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u1",
+			MessageType:       0,
+			CreatedAt:         base.Add(2 * time.Minute).Format(time.RFC3339Nano),
+			Content:           "dogs",
+			NormalizedContent: "dogs",
+			RawJSON:           `{"author":{"username":"Alice"}}`,
+		},
+		{
+			ID:                "m4",
+			GuildID:           "g2",
+			ChannelID:         "c3",
+			ChannelName:       "other",
+			AuthorID:          "u3",
+			MessageType:       0,
+			CreatedAt:         base.Add(3 * time.Minute).Format(time.RFC3339Nano),
+			Content:           "other guild cats",
+			NormalizedContent: "other guild cats",
+			RawJSON:           `{"author":{"username":"Carol"}}`,
+		},
+		{
+			ID:                "m5",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u4",
+			MessageType:       0,
+			CreatedAt:         base.Add(4 * time.Minute).Format(time.RFC3339Nano),
+			Content:           "",
+			NormalizedContent: "",
+			RawJSON:           `{"author":{"username":"Empty"}}`,
+		},
+	}
+	for _, message := range semanticMessages {
+		require.NoError(t, s.UpsertMessage(ctx, message))
+	}
+	require.NoError(t, insertTestEmbedding(ctx, s, "m1", "ollama", "nomic-embed-text", []float32{1, 0}))
+	require.NoError(t, insertTestEmbedding(ctx, s, "m2", "ollama", "nomic-embed-text", []float32{0.9, 0.1}))
+	require.NoError(t, insertTestEmbedding(ctx, s, "m3", "ollama", "nomic-embed-text", []float32{0, 1}))
+	require.NoError(t, insertTestEmbedding(ctx, s, "m4", "ollama", "nomic-embed-text", []float32{1, 0}))
+	require.NoError(t, insertTestEmbedding(ctx, s, "m5", "ollama", "nomic-embed-text", []float32{1, 0}))
+
+	results, err := s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		GuildIDs:     []string{"g1"},
+		Limit:        3,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"m1", "m2", "m3"}, searchResultIDs(results))
+
+	results, err = s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		GuildIDs:     []string{"g1"},
+		Channel:      "general",
+		Author:       "Alice",
+		Limit:        10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"m1", "m3"}, searchResultIDs(results))
+	require.Equal(t, "Alice", results[0].AuthorName)
+	require.Equal(t, "general", results[0].ChannelName)
+
+	results, err = s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		GuildIDs:     []string{"g1"},
+		Channel:      "general",
+		Limit:        10,
+		IncludeEmpty: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"m5", "m1", "m3"}, searchResultIDs(results))
+
+	results, err = s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		GuildIDs:     []string{"g1"},
+		Channel:      "missing-channel",
+		Limit:        10,
+	})
+	require.NoError(t, err)
+	require.Empty(t, results)
+}
+
+func TestSearchMessagesSemanticErrors(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+		ID:                "m1",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		Content:           "hello",
+		NormalizedContent: "hello",
+		RawJSON:           `{}`,
+	}))
+
+	_, err = s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "missing-model",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		Limit:        10,
+	})
+	require.ErrorIs(t, err, ErrNoCompatibleEmbeddings)
+
+	_, err = s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector: []float32{0, 0},
+		Provider:    "ollama",
+		Model:       "nomic-embed-text",
+		Dimensions:  2,
+		Limit:       10,
+	})
+	require.ErrorContains(t, err, "zero vector")
+
+	require.NoError(t, insertTestEmbeddingBlob(ctx, s, "m1", "ollama", "nomic-embed-text", 2, []byte{0, 0, 0, 0}))
+	_, err = s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		Limit:        10,
+	})
+	require.ErrorContains(t, err, "vector length mismatch")
+
+	require.NoError(t, insertTestEmbedding(ctx, s, "m1", "ollama", "nomic-embed-text", []float32{0, 0}))
+	_, err = s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		Limit:        10,
+	})
+	require.ErrorContains(t, err, "stored embedding vector is zero")
+}
+
+func insertTestEmbedding(ctx context.Context, s *Store, messageID, provider, model string, vector []float32) error {
+	blob, err := EncodeEmbeddingVector(vector)
+	if err != nil {
+		return err
+	}
+	return insertTestEmbeddingBlob(ctx, s, messageID, provider, model, len(vector), blob)
+}
+
+func insertTestEmbeddingBlob(ctx context.Context, s *Store, messageID, provider, model string, dimensions int, blob []byte) error {
+	_, err := s.DB().ExecContext(ctx, `
+		insert into message_embeddings(
+			message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+		) values(?, ?, ?, ?, ?, ?, ?)
+		on conflict(message_id, provider, model, input_version) do update set
+			dimensions = excluded.dimensions,
+			embedding_blob = excluded.embedding_blob,
+			embedded_at = excluded.embedded_at
+	`, messageID, provider, model, EmbeddingInputVersion, dimensions, blob, time.Now().UTC().Format(timeLayout))
+	return err
+}
+
+func searchResultIDs(results []SearchResult) []string {
+	ids := make([]string, 0, len(results))
+	for _, result := range results {
+		ids = append(ids, result.MessageID)
+	}
+	return ids
+}
+
 func TestCheckMessageFTSProbe(t *testing.T) {
 	t.Parallel()
 

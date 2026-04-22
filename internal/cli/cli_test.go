@@ -555,6 +555,139 @@ func TestEmbedCommandDrainsBoundedBacklog(t *testing.T) {
 	require.Contains(t, out.String(), "requeued=2")
 }
 
+func TestSearchSemanticCommandUsesStoredEmbeddings(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		require.Equal(t, "/embeddings", r.URL.Path)
+		var req struct {
+			Model string   `json:"model"`
+			Input []string `json:"input"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.Equal(t, "local-model", req.Model)
+		require.Equal(t, []string{"cats"}, req.Input)
+		_, _ = w.Write([]byte(`{"model":"local-model","data":[{"index":0,"embedding":[1,0]}]}`))
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Search.DefaultMode = "semantic"
+	cfg.Search.Embeddings.Enabled = true
+	cfg.Search.Embeddings.Provider = "openai_compatible"
+	cfg.Search.Embeddings.Model = "local-model"
+	cfg.Search.Embeddings.BaseURL = server.URL
+	cfg.Search.Embeddings.APIKeyEnv = ""
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	s, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	base := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "m1",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Alice",
+		MessageType:       0,
+		CreatedAt:         base.Format(time.RFC3339Nano),
+		Content:           "database migration discussion",
+		NormalizedContent: "database migration discussion",
+		RawJSON:           `{"author":{"username":"Alice"}}`,
+	}))
+	require.NoError(t, s.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "m2",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u2",
+		AuthorName:        "Bob",
+		MessageType:       0,
+		CreatedAt:         base.Add(time.Minute).Format(time.RFC3339Nano),
+		Content:           "cats in semantic search",
+		NormalizedContent: "cats in semantic search",
+		RawJSON:           `{"author":{"username":"Bob"}}`,
+	}))
+	require.NoError(t, insertCLIEmbedding(ctx, s, "m1", "openai_compatible", "local-model", []float32{1, 0}))
+	require.NoError(t, insertCLIEmbedding(ctx, s, "m2", "openai_compatible", "local-model", []float32{0.8, 0.2}))
+	require.NoError(t, s.Close())
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "--limit", "1", "cats"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "database migration discussion")
+	require.NotContains(t, out.String(), "cats in semantic search")
+	require.Equal(t, 1, requests)
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "--mode", "semantic", "--channel", "general", "--author", "Alice", "cats"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "database migration discussion")
+	require.NotContains(t, out.String(), "cats in semantic search")
+	require.Equal(t, 2, requests)
+}
+
+func TestSearchSemanticCommandErrors(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	require.NoError(t, config.Write(cfgPath, cfg))
+	s, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	err = Run(ctx, []string{"--config", cfgPath, "search", "--mode", "bogus", "cats"}, &bytes.Buffer{}, &bytes.Buffer{})
+	require.Equal(t, 2, ExitCode(err))
+	require.ErrorContains(t, err, `unsupported search mode "bogus"`)
+
+	err = Run(ctx, []string{"--config", cfgPath, "search", "--mode", "hybrid", "cats"}, &bytes.Buffer{}, &bytes.Buffer{})
+	require.Equal(t, 1, ExitCode(err))
+	require.ErrorContains(t, err, "hybrid search is not implemented yet")
+
+	err = Run(ctx, []string{"--config", cfgPath, "search", "--mode", "semantic", "cats"}, &bytes.Buffer{}, &bytes.Buffer{})
+	require.Equal(t, 1, ExitCode(err))
+	require.ErrorContains(t, err, "embeddings are disabled")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	cfg.Search.Embeddings.Enabled = true
+	cfg.Search.Embeddings.Provider = "openai_compatible"
+	cfg.Search.Embeddings.Model = "local-model"
+	cfg.Search.Embeddings.BaseURL = server.URL
+	cfg.Search.Embeddings.APIKeyEnv = ""
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	err = Run(ctx, []string{"--config", cfgPath, "search", "--mode", "semantic", "cats"}, &bytes.Buffer{}, &bytes.Buffer{})
+	require.Equal(t, 1, ExitCode(err))
+	require.ErrorContains(t, err, "embedding query failed")
+}
+
+func insertCLIEmbedding(ctx context.Context, s *store.Store, messageID, provider, model string, vector []float32) error {
+	blob, err := store.EncodeEmbeddingVector(vector)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB().ExecContext(ctx, `
+		insert into message_embeddings(
+			message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+		) values(?, ?, ?, ?, ?, ?, ?)
+	`, messageID, provider, model, store.EmbeddingInputVersion, len(vector), blob, time.Now().UTC().Format(time.RFC3339Nano))
+	return err
+}
+
 type fakeDiscordClient struct {
 	guilds []*discordgo.UserGuild
 	self   *discordgo.User

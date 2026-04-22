@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/steipete/discrawl/internal/config"
+	"github.com/steipete/discrawl/internal/embed"
 	"github.com/steipete/discrawl/internal/store"
 )
 
@@ -27,19 +29,72 @@ func (r *runtime) runSearch(args []string) error {
 	if fs.NArg() != 1 {
 		return usageErr(fmt.Errorf("search requires a query"))
 	}
-	_ = mode
-	results, err := r.store.SearchMessages(r.ctx, store.SearchOptions{
+	opts := store.SearchOptions{
 		Query:        fs.Arg(0),
 		GuildIDs:     r.resolveSearchGuilds(*guildFlag, *guildsFlag),
 		Channel:      *channel,
 		Author:       *author,
 		Limit:        *limit,
 		IncludeEmpty: *includeEmpty,
-	})
-	if err != nil {
-		return err
 	}
-	return r.print(results)
+	switch strings.ToLower(strings.TrimSpace(*mode)) {
+	case "", "fts":
+		results, err := r.store.SearchMessages(r.ctx, opts)
+		if err != nil {
+			return err
+		}
+		return r.print(results)
+	case "semantic":
+		results, err := r.searchMessagesSemantic(opts)
+		if err != nil {
+			return err
+		}
+		return r.print(results)
+	case "hybrid":
+		return fmt.Errorf("hybrid search is not implemented yet")
+	default:
+		return usageErr(fmt.Errorf("unsupported search mode %q", *mode))
+	}
+}
+
+func (r *runtime) searchMessagesSemantic(opts store.SearchOptions) ([]store.SearchResult, error) {
+	if !r.cfg.Search.Embeddings.Enabled {
+		return nil, fmt.Errorf("embeddings are disabled; enable [search.embeddings] first")
+	}
+	providerFactory := r.newEmbed
+	if providerFactory == nil {
+		providerFactory = func(cfg config.EmbeddingsConfig) (embed.Provider, error) {
+			return embed.NewProvider(cfg)
+		}
+	}
+	provider, err := providerFactory(r.cfg.Search.Embeddings)
+	if err != nil {
+		return nil, fmt.Errorf("create embedding provider: %w", err)
+	}
+	batch, err := provider.Embed(r.ctx, []string{opts.Query})
+	if err != nil {
+		return nil, fmt.Errorf("embedding query failed: %w", err)
+	}
+	if len(batch.Vectors) != 1 {
+		return nil, fmt.Errorf("embedding query returned %d vectors for 1 input", len(batch.Vectors))
+	}
+	queryVector := batch.Vectors[0]
+	dimensions := batch.Dimensions
+	if dimensions == 0 {
+		dimensions = len(queryVector)
+	}
+	return r.store.SearchMessagesSemantic(r.ctx, store.SemanticSearchOptions{
+		QueryVector:  queryVector,
+		Provider:     r.cfg.Search.Embeddings.Provider,
+		Model:        r.cfg.Search.Embeddings.Model,
+		InputVersion: store.EmbeddingInputVersion,
+		Dimensions:   dimensions,
+		GuildIDs:     opts.GuildIDs,
+		Channel:      opts.Channel,
+		Author:       opts.Author,
+		Limit:        opts.Limit,
+		IncludeEmpty: opts.IncludeEmpty,
+	})
 }
 
 func (r *runtime) runSQL(args []string) error {
