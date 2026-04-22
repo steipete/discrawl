@@ -200,10 +200,13 @@ discrawl tail --repair-every 30m
 
 ### `search`
 
-Runs FTS search over archived messages.
+Searches archived messages. FTS is the default mode and works without embeddings.
 
 ```bash
 discrawl search "panic: nil pointer"
+discrawl search --mode fts "panic: nil pointer"
+discrawl search --mode semantic "missing launch checklist"
+discrawl search --mode hybrid "database timeout"
 discrawl search --guild 123456789012345678 "payment failed"
 discrawl search --channel billing --author steipete --limit 50 "invoice"
 discrawl search --include-empty "GitHub"
@@ -211,7 +214,14 @@ discrawl --json search "websocket closed"
 ```
 
 By default, `search` skips rows with no searchable content. Attachment text, attachment filenames, embeds, and replies still count as content. Use `--include-empty` to opt back in.
-Search returns the newest matching messages first so large local archives stay responsive.
+
+Modes:
+
+- `fts` searches the local FTS index and returns the newest matching messages first.
+- `semantic` embeds the query, searches locally stored message vectors, and returns a clear error if embeddings are disabled or no compatible vectors exist.
+- `hybrid` runs FTS and semantic search, deduplicates by message id, and falls back to FTS when semantic search is unavailable.
+
+Semantic and hybrid search require `[search.embeddings]` plus local `message_embeddings` rows for the configured provider, model, and input version. Run `discrawl sync --with-embeddings` to enqueue changed messages, then `discrawl embed` to generate vectors.
 
 ### `messages`
 
@@ -365,7 +375,7 @@ Once `share.remote` is configured, read commands auto-fetch and import when the 
 
 Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync` and `discrawl messages --sync` import the Git snapshot first, then use live Discord only to fill anything newer or missing. This keeps day-to-day sync fast while preserving live repair behavior.
 
-Git snapshots publish archive tables only. Embedding queue state and generated vectors stay local to each machine.
+Git snapshots publish archive tables only. Embedding queue state and generated vectors stay local to each machine. Git-only readers can use FTS immediately. To use semantic or hybrid search with semantic recall, configure a local embedding provider and run `discrawl embed --rebuild`. Hybrid search falls back to FTS when no local vectors exist.
 
 The Docker smoke test installs `discrawl` in a clean Go container, subscribes to a Git snapshot repo, then checks `search`, `messages`, `sql`, and `report`:
 
@@ -466,7 +476,29 @@ If enabled, embeddings are intended to enrich recall in background batches, not 
 export OPENAI_API_KEY="..."
 discrawl init --with-embeddings
 discrawl sync --with-embeddings
+discrawl embed --limit 1000
+discrawl search --mode semantic "launch checklist"
+discrawl search --mode hybrid "launch checklist"
 ```
+
+`sync --with-embeddings` only queues changed messages. It does not call the embedding provider. `discrawl embed` drains that queue explicitly, using the configured provider and model.
+
+Use `--rebuild` when changing provider, model, or input settings and you want to regenerate vectors for the existing archive:
+
+```bash
+discrawl embed --rebuild --limit 1000
+```
+
+Local providers can keep message and query embedding on the same machine:
+
+```toml
+[search.embeddings]
+enabled = true
+provider = "ollama"
+model = "nomic-embed-text"
+```
+
+With remote providers, message text is sent during `discrawl embed`, and search query text is sent when using `--mode semantic` or `--mode hybrid`. Stored message text is not sent during local vector scoring.
 
 ## Data Stored Locally
 
