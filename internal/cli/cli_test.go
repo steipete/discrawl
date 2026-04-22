@@ -300,6 +300,12 @@ func TestShareCommandsRoundTripEmbeddings(t *testing.T) {
 	publisher := seedCLIStore(t, cfg.DBPath)
 	require.NoError(t, insertCLIEmbedding(ctx, publisher, "m1", "openai_compatible", "local-model", []float32{1, 0}))
 	require.NoError(t, publisher.Close())
+	require.NoError(t, os.MkdirAll(cfg.Share.RepoPath, 0o755))
+	runGit(t, cfg.Share.RepoPath, "init")
+	runGit(t, cfg.Share.RepoPath, "checkout", "-B", "main")
+	runGit(t, cfg.Share.RepoPath, "config", "user.name", "discrawl test")
+	runGit(t, cfg.Share.RepoPath, "config", "user.email", "discrawl@example.com")
+	runGit(t, cfg.Share.RepoPath, "remote", "add", "origin", remoteRepo)
 
 	var out bytes.Buffer
 	require.NoError(t, Run(ctx, []string{
