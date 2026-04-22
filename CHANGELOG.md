@@ -5,6 +5,8 @@ All notable changes to `discrawl` will be documented in this file.
 ## 0.4.0 - Unreleased
 
 - Git-backed snapshot imports are now much faster on large archives by using import-only SQLite pragmas and bulk-load FTS5 settings during search index rebuilds
+- `messages` and `mentions` now use composite read-path indexes so larger archives spend less time sorting/filtering common guild, channel, and author queries
+- normalized message text is now sanitized before it reaches SQLite and FTS5, repairing malformed UTF-8 and stripping invisible/control-character noise that can poison search content
 
 ## 0.3.0 - 2026-04-21
 
