@@ -149,6 +149,83 @@ func TestExportImportEmbeddingsOptIn(t *testing.T) {
 	require.Equal(t, vector, gotVector)
 }
 
+func TestArchiveExportPreservesExistingEmbeddingBundle(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+
+	blob, err := store.EncodeEmbeddingVector([]float32{1, 0})
+	require.NoError(t, err)
+	_, err = src.DB().ExecContext(ctx, `
+		insert into message_embeddings(
+			message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+		) values ('m1', 'openai', 'text-embedding-3-small', ?, 2, ?, ?)
+	`, store.EmbeddingInputVersion, blob, time.Now().UTC().Format(time.RFC3339Nano))
+	require.NoError(t, err)
+
+	repo := filepath.Join(t.TempDir(), "share")
+	embeddingOpts := Options{
+		RepoPath:              repo,
+		Branch:                "main",
+		IncludeEmbeddings:     true,
+		EmbeddingProvider:     "openai",
+		EmbeddingModel:        "text-embedding-3-small",
+		EmbeddingInputVersion: store.EmbeddingInputVersion,
+	}
+	manifest, err := Export(ctx, src, embeddingOpts)
+	require.NoError(t, err)
+	require.Len(t, manifest.Embeddings, 1)
+	embeddingFile := filepath.Join(repo, filepath.FromSlash(manifest.Embeddings[0].Files[0]))
+	require.FileExists(t, embeddingFile)
+
+	archiveManifest, err := Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.Equal(t, manifest.Embeddings, archiveManifest.Embeddings)
+	require.FileExists(t, embeddingFile)
+}
+
+func TestImportEmbeddingsFiltersByConfiguredIdentity(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+
+	blob, err := store.EncodeEmbeddingVector([]float32{1, 0})
+	require.NoError(t, err)
+	_, err = src.DB().ExecContext(ctx, `
+		insert into message_embeddings(
+			message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+		) values ('m1', 'openai', 'text-embedding-3-small', ?, 2, ?, ?)
+	`, store.EmbeddingInputVersion, blob, time.Now().UTC().Format(time.RFC3339Nano))
+	require.NoError(t, err)
+
+	repo := filepath.Join(t.TempDir(), "share")
+	exportOpts := Options{
+		RepoPath:              repo,
+		Branch:                "main",
+		IncludeEmbeddings:     true,
+		EmbeddingProvider:     "openai",
+		EmbeddingModel:        "text-embedding-3-small",
+		EmbeddingInputVersion: store.EmbeddingInputVersion,
+	}
+	manifest, err := Export(ctx, src, exportOpts)
+	require.NoError(t, err)
+
+	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
+	require.NoError(t, err)
+	defer func() { _ = dst.Close() }()
+	require.NoError(t, ImportEmbeddings(ctx, dst, Options{
+		RepoPath:              repo,
+		IncludeEmbeddings:     true,
+		EmbeddingProvider:     "ollama",
+		EmbeddingModel:        "nomic-embed-text",
+		EmbeddingInputVersion: store.EmbeddingInputVersion,
+	}, manifest))
+
+	_, rows, err := dst.ReadOnlyQuery(ctx, "select count(*) from message_embeddings")
+	require.NoError(t, err)
+	require.Equal(t, "0", rows[0][0])
+}
+
 func TestImportIfChangedSkipsSameManifest(t *testing.T) {
 	ctx := context.Background()
 	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))

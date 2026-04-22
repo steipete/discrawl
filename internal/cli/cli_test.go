@@ -280,6 +280,66 @@ func TestShareCommandsPublishSubscribeAndUpdate(t *testing.T) {
 	require.Contains(t, out.String(), "automatic updates work")
 }
 
+func TestShareCommandsRoundTripEmbeddings(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	remoteRepo := filepath.Join(dir, "remote.git")
+	runGit(t, dir, "init", "--bare", remoteRepo)
+
+	cfgPath := filepath.Join(dir, "publisher.toml")
+	cfg := config.Default()
+	cfg.DBPath = filepath.Join(dir, "publisher.db")
+	cfg.Share.Remote = remoteRepo
+	cfg.Share.RepoPath = filepath.Join(dir, "publisher-share")
+	cfg.Search.Embeddings.Enabled = true
+	cfg.Search.Embeddings.Provider = "openai_compatible"
+	cfg.Search.Embeddings.Model = "local-model"
+	cfg.Search.Embeddings.APIKeyEnv = ""
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	publisher := seedCLIStore(t, cfg.DBPath)
+	require.NoError(t, insertCLIEmbedding(ctx, publisher, "m1", "openai_compatible", "local-model", []float32{1, 0}))
+	require.NoError(t, publisher.Close())
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{
+		"--config", cfgPath,
+		"publish",
+		"--repo", cfg.Share.RepoPath,
+		"--remote", remoteRepo,
+		"--with-embeddings",
+		"--push",
+	}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "embeddings=[")
+
+	readerCfgPath := filepath.Join(dir, "reader.toml")
+	readerCfg := config.Default()
+	readerCfg.DBPath = filepath.Join(dir, "reader.db")
+	readerCfg.Search.Embeddings.Enabled = true
+	readerCfg.Search.Embeddings.Provider = "openai_compatible"
+	readerCfg.Search.Embeddings.Model = "local-model"
+	readerCfg.Search.Embeddings.APIKeyEnv = ""
+	require.NoError(t, config.Write(readerCfgPath, readerCfg))
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{
+		"--config", readerCfgPath,
+		"subscribe",
+		"--repo", filepath.Join(dir, "reader-share"),
+		"--with-embeddings",
+		remoteRepo,
+	}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "imported=true")
+	require.Contains(t, out.String(), "embeddings=[")
+
+	reader, err := store.Open(ctx, readerCfg.DBPath)
+	require.NoError(t, err)
+	defer func() { _ = reader.Close() }()
+	_, rows, err := reader.ReadOnlyQuery(ctx, "select provider, model, count(*) from message_embeddings group by provider, model")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"openai_compatible", "local-model", "1"}}, rows)
+}
+
 func TestSubscribeGitOnlyModeNeedsNoDiscordCredentials(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

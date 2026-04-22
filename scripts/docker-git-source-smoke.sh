@@ -11,6 +11,7 @@ trap cleanup EXIT
 
 fixture="$tmp/backup"
 mkdir -p "$fixture/tables/guilds" "$fixture/tables/channels" "$fixture/tables/members" "$fixture/tables/messages"
+mkdir -p "$fixture/embeddings/openai/text-embedding-3-small/message_normalized_v1"
 
 write_gz() {
   local rel="$1"
@@ -27,6 +28,8 @@ write_gz "tables/members/000000.jsonl.gz" \
   "{\"guild_id\":\"g1\",\"user_id\":\"u1\",\"username\":\"peter\",\"global_name\":null,\"display_name\":\"Docker Peter\",\"nick\":null,\"discriminator\":null,\"avatar\":null,\"bot\":0,\"joined_at\":null,\"role_ids_json\":\"[]\",\"raw_json\":\"{}\",\"updated_at\":\"$now\"}"
 write_gz "tables/messages/000000.jsonl.gz" \
   "{\"id\":\"m1\",\"guild_id\":\"g1\",\"channel_id\":\"c1\",\"author_id\":\"u1\",\"message_type\":0,\"created_at\":\"$now\",\"edited_at\":null,\"deleted_at\":null,\"content\":\"docker smoke archive is queryable\",\"normalized_content\":\"docker smoke archive is queryable\",\"reply_to_message_id\":null,\"pinned\":0,\"has_attachments\":0,\"raw_json\":\"{}\",\"updated_at\":\"$now\"}"
+write_gz "embeddings/openai/text-embedding-3-small/message_normalized_v1/000000.jsonl.gz" \
+  "{\"message_id\":\"m1\",\"provider\":\"openai\",\"model\":\"text-embedding-3-small\",\"input_version\":\"message_normalized_v1\",\"dimensions\":2,\"embedding_blob\":\"AACAPwAAAAA=\",\"embedded_at\":\"$now\"}"
 
 cat > "$fixture/manifest.json" <<JSON
 {
@@ -37,6 +40,9 @@ cat > "$fixture/manifest.json" <<JSON
     {"name": "channels", "files": ["tables/channels/000000.jsonl.gz"], "columns": ["id", "guild_id", "parent_id", "kind", "name", "topic", "position", "is_nsfw", "is_archived", "is_locked", "is_private_thread", "thread_parent_id", "archive_timestamp", "raw_json", "updated_at"], "rows": 1},
     {"name": "members", "files": ["tables/members/000000.jsonl.gz"], "columns": ["guild_id", "user_id", "username", "global_name", "display_name", "nick", "discriminator", "avatar", "bot", "joined_at", "role_ids_json", "raw_json", "updated_at"], "rows": 1},
     {"name": "messages", "files": ["tables/messages/000000.jsonl.gz"], "columns": ["id", "guild_id", "channel_id", "author_id", "message_type", "created_at", "edited_at", "deleted_at", "content", "normalized_content", "reply_to_message_id", "pinned", "has_attachments", "raw_json", "updated_at"], "rows": 1}
+  ],
+  "embeddings": [
+    {"provider": "openai", "model": "text-embedding-3-small", "input_version": "message_normalized_v1", "files": ["embeddings/openai/text-embedding-3-small/message_normalized_v1/000000.jsonl.gz"], "columns": ["message_id", "provider", "model", "input_version", "dimensions", "embedding_blob", "embedded_at"], "rows": 1}
   ],
   "files": {"manifest": "manifest.json"}
 }
@@ -61,11 +67,16 @@ docker run --rm \
     cd /src
     go install ./cmd/discrawl
     discrawl=/work/bin/discrawl
-    "$discrawl" --version | grep -q "0.3.0"
-    "$discrawl" --config /work/config.toml subscribe --repo /work/share file:///backup > /work/subscribe.out
+    "$discrawl" --version | grep -q "0.4.0-unreleased"
+    "$discrawl" --config /work/config.toml subscribe --repo /work/share --with-embeddings file:///backup > /work/subscribe.out
+    grep -q "embeddings=\\[" /work/subscribe.out
+    "$discrawl" --config /work/config.toml --plain sql "select provider, model, count(*) as total from message_embeddings group by provider, model" | tee /work/embeddings.out
+    grep -q "openai" /work/embeddings.out
+    grep -q "text-embedding-3-small" /work/embeddings.out
+    grep -Eq "(^|[^0-9])1([^0-9]|$)" /work/embeddings.out
     "$discrawl" --config /work/config.toml search "docker smoke archive" | tee /work/search.out
     grep -q "docker smoke archive is queryable" /work/search.out
-    "$discrawl" --config /work/config.toml messages --channel general --hours 24 --all | tee /work/messages.out
+    "$discrawl" --config /work/config.toml messages --channel general --days 30 --all | tee /work/messages.out
     grep -q "docker smoke archive is queryable" /work/messages.out
     "$discrawl" --config /work/config.toml --plain sql "select count(*) as total from messages" | tee /work/sql.out
     grep -Eq "(^|[^0-9])1([^0-9]|$)" /work/sql.out
