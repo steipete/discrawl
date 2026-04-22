@@ -7,6 +7,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/text v0.35.0
 	modernc.org/sqlite v1.49.1
 )
 

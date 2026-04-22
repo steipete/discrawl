@@ -18,7 +18,7 @@ const (
 	timeLayout         = time.RFC3339Nano
 	messageFTSVersion  = "2"
 	memberFTSVersion   = "1"
-	storeSchemaVersion = 1
+	storeSchemaVersion = 2
 )
 
 type Store struct {
@@ -197,6 +197,15 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	if currentVersion < 1 {
 		if err := s.applyBaselineSchema(ctx); err != nil {
+			return err
+		}
+		if err := s.setSchemaVersion(ctx, 1); err != nil {
+			return err
+		}
+		currentVersion = 1
+	}
+	if currentVersion < 2 {
+		if err := s.applyQueryIndexMigration(ctx); err != nil {
 			return err
 		}
 		if err := s.setSchemaVersion(ctx, storeSchemaVersion); err != nil {
@@ -382,16 +391,42 @@ func (s *Store) applyBaselineSchema(ctx context.Context) error {
 		`create index if not exists idx_members_guild_id on members(guild_id);`,
 		`create index if not exists idx_messages_channel_id on messages(channel_id);`,
 		`create index if not exists idx_messages_guild_id on messages(guild_id);`,
+		`create index if not exists idx_messages_guild_created_id on messages(guild_id, created_at, id);`,
+		`create index if not exists idx_messages_channel_created_id on messages(channel_id, created_at, id);`,
+		`create index if not exists idx_messages_author_created_id on messages(author_id, created_at, id);`,
 		`create index if not exists idx_events_message_id on message_events(message_id);`,
 		`create index if not exists idx_attachments_message_id on message_attachments(message_id);`,
 		`create index if not exists idx_attachments_channel_id on message_attachments(channel_id);`,
 		`create index if not exists idx_mentions_message_id on mention_events(message_id);`,
+		`create index if not exists idx_mentions_guild_event on mention_events(guild_id, event_at, event_id);`,
+		`create index if not exists idx_mentions_channel_event on mention_events(channel_id, event_at, event_id);`,
 		`create index if not exists idx_mentions_target on mention_events(target_type, target_id, event_at);`,
 		`create index if not exists idx_mentions_author on mention_events(author_id, event_at);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("migrate baseline schema: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) applyQueryIndexMigration(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
+	stmts := []string{
+		`create index if not exists idx_messages_guild_created_id on messages(guild_id, created_at, id);`,
+		`create index if not exists idx_messages_channel_created_id on messages(channel_id, created_at, id);`,
+		`create index if not exists idx_messages_author_created_id on messages(author_id, created_at, id);`,
+		`create index if not exists idx_mentions_guild_event on mention_events(guild_id, event_at, event_id);`,
+		`create index if not exists idx_mentions_channel_event on mention_events(channel_id, event_at, event_id);`,
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("migrate query indexes: %w", err)
 		}
 	}
 	return tx.Commit()

@@ -427,6 +427,83 @@ func TestOpenTightensDBFilePerms(t *testing.T) {
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
+func TestOpenCreatesQueryIndexes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	messageIndexes := indexNames(t, ctx, s.DB(), "messages")
+	require.Contains(t, messageIndexes, "idx_messages_guild_created_id")
+	require.Contains(t, messageIndexes, "idx_messages_channel_created_id")
+	require.Contains(t, messageIndexes, "idx_messages_author_created_id")
+
+	mentionIndexes := indexNames(t, ctx, s.DB(), "mention_events")
+	require.Contains(t, mentionIndexes, "idx_mentions_guild_event")
+	require.Contains(t, mentionIndexes, "idx_mentions_channel_event")
+}
+
+func TestOpenMigratesLegacyQueryIndexes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	legacy := &Store{db: sqlDB, path: dbPath}
+	require.NoError(t, legacy.applyBaselineSchema(ctx))
+	require.NoError(t, legacy.setSchemaVersion(ctx, 1))
+	for _, indexName := range []string{
+		"idx_messages_guild_created_id",
+		"idx_messages_channel_created_id",
+		"idx_messages_author_created_id",
+		"idx_mentions_guild_event",
+		"idx_mentions_channel_event",
+	} {
+		_, err = sqlDB.ExecContext(ctx, `drop index if exists `+indexName)
+		require.NoError(t, err)
+	}
+	require.NoError(t, sqlDB.Close())
+
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	version, err := s.schemaVersion(ctx)
+	require.NoError(t, err)
+	require.Equal(t, storeSchemaVersion, version)
+	require.Contains(t, indexNames(t, ctx, s.DB(), "messages"), "idx_messages_channel_created_id")
+	require.Contains(t, indexNames(t, ctx, s.DB(), "mention_events"), "idx_mentions_guild_event")
+}
+
+func indexNames(t *testing.T, ctx context.Context, db *sql.DB, table string) []string {
+	t.Helper()
+
+	rows, err := db.QueryContext(ctx, `pragma index_list(`+quoteSQLString(table)+`)`)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+
+	var out []string
+	for rows.Next() {
+		var seq int
+		var name string
+		var unique int
+		var origin string
+		var partial int
+		require.NoError(t, rows.Scan(&seq, &name, &unique, &origin, &partial))
+		out = append(out, name)
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+func quoteSQLString(value string) string {
+	return "'" + value + "'"
+}
+
 func TestEventsSyncStateAndHelpers(t *testing.T) {
 	t.Parallel()
 
