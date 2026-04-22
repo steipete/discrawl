@@ -53,6 +53,47 @@ func TestExportImportRoundTrip(t *testing.T) {
 	require.False(t, NeedsImport(ctx, dst, 15*time.Minute))
 }
 
+func TestSnapshotExcludesLocalEmbeddingState(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+
+	_, err := src.DB().ExecContext(ctx, `
+		insert into embedding_jobs(message_id, state, attempts, provider, model, input_version, updated_at)
+		values ('m1', 'done', 0, 'ollama', 'nomic-embed-text', ?, ?)
+	`, store.EmbeddingInputVersion, time.Now().UTC().Format(time.RFC3339Nano))
+	require.NoError(t, err)
+	_, err = src.DB().ExecContext(ctx, `
+		insert into message_embeddings(
+			message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+		) values ('m1', 'ollama', 'nomic-embed-text', ?, 2, ?, ?)
+	`, store.EmbeddingInputVersion, []byte{0, 0, 0, 0, 0, 0, 0, 0}, time.Now().UTC().Format(time.RFC3339Nano))
+	require.NoError(t, err)
+
+	repo := filepath.Join(t.TempDir(), "share")
+	manifest, err := Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.NotContains(t, tableNames(manifest), "embedding_jobs")
+	require.NotContains(t, tableNames(manifest), "message_embeddings")
+
+	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
+	require.NoError(t, err)
+	defer func() { _ = dst.Close() }()
+	_, err = dst.DB().ExecContext(ctx, `
+		insert into embedding_jobs(message_id, state, attempts, provider, model, input_version, updated_at)
+		values ('m1', 'pending', 0, 'ollama', 'nomic-embed-text', ?, ?)
+	`, store.EmbeddingInputVersion, time.Now().UTC().Format(time.RFC3339Nano))
+	require.NoError(t, err)
+
+	_, err = Import(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	var state string
+	require.NoError(t, dst.DB().QueryRowContext(ctx, `
+		select state from embedding_jobs where message_id = 'm1'
+	`).Scan(&state))
+	require.Equal(t, "pending", state)
+}
+
 func TestImportIfChangedSkipsSameManifest(t *testing.T) {
 	ctx := context.Background()
 	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
@@ -305,4 +346,12 @@ func tableEntry(t *testing.T, manifest Manifest, name string) TableManifest {
 	}
 	t.Fatalf("table %s not found", name)
 	return TableManifest{}
+}
+
+func tableNames(manifest Manifest) []string {
+	names := make([]string, 0, len(manifest.Tables))
+	for _, table := range manifest.Tables {
+		names = append(names, table.Name)
+	}
+	return names
 }

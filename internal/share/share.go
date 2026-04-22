@@ -39,7 +39,6 @@ var SnapshotTables = []string{
 	"message_attachments",
 	"mention_events",
 	"sync_state",
-	"embedding_jobs",
 }
 
 type Options struct {
