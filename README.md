@@ -1,8 +1,8 @@
 # discrawl 🛰️ — Mirror Discord into SQLite; search server history locally
 
-`discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search.
+`discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search. Teams can also publish that archive as a private Git snapshot repo, so readers get fresh org memory without Discord bot credentials.
 
-It is a bot-token crawler. No user-token hacks. Data stays local.
+Live sync uses real bot tokens. No user-token hacks. Data stays local unless you explicitly publish a Git-backed snapshot.
 
 ## What It Does
 
@@ -13,6 +13,9 @@ It is a bot-token crawler. No user-token hacks. Data stays local.
 - extracts small text-like attachments into the local search index
 - records structured user and role mentions for direct querying
 - tails Gateway events for live updates, with periodic repair syncs
+- publishes and imports private Git-backed archive snapshots for org-wide read access
+- supports Git-only read mode with no Discord credentials on reader machines
+- generates backup README activity reports, with optional AI-written field notes
 - exposes read-only SQL for ad hoc analysis
 - keeps schema multi-guild ready while preserving a simple single-guild default UX
 
@@ -124,7 +127,16 @@ discrawl init
 discrawl sync --full
 ```
 
+Git-only reader setup:
+
+```bash
+discrawl subscribe https://github.com/openclaw/discord-backup.git
+discrawl search "launch checklist"
+discrawl messages --channel general --hours 24
+```
+
 `init` discovers accessible guilds and writes `~/.discrawl/config.toml`. If exactly one guild is available, that guild becomes the default automatically.
+`subscribe` writes a token-free config, imports the private Git snapshot, and read commands auto-refresh when the local snapshot is older than `15m`.
 
 `doctor` is the fastest sanity check:
 
