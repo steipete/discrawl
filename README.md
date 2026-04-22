@@ -221,7 +221,7 @@ Modes:
 - `semantic` embeds the query, searches locally stored message vectors, and returns a clear error if embeddings are disabled or no compatible vectors exist.
 - `hybrid` runs FTS and semantic search, deduplicates by message id, and falls back to FTS when semantic search is unavailable.
 
-Semantic and hybrid search require `[search.embeddings]` plus local `message_embeddings` rows for the configured provider, model, and input version. Run `discrawl sync --with-embeddings` to enqueue changed messages, then `discrawl embed` to generate vectors.
+Semantic and hybrid search require `[search.embeddings]` plus local `message_embeddings` rows for the configured provider, model, and input version. Run `discrawl sync --with-embeddings` to enqueue changed messages, then `discrawl embed` to generate vectors. The input version is currently `message_normalized_v1`, so vectors are tied to normalized message text rather than raw Discord payloads.
 
 ### `messages`
 
@@ -375,16 +375,17 @@ Once `share.remote` is configured, read commands auto-fetch and import when the 
 
 Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync` and `discrawl messages --sync` import the Git snapshot first, then use live Discord only to fill anything newer or missing. This keeps day-to-day sync fast while preserving live repair behavior.
 
-Git snapshots publish archive tables only. Embedding queue state and generated vectors stay local to each machine. Git-only readers can use FTS immediately. To use semantic or hybrid search with semantic recall, configure a local embedding provider and run `discrawl embed --rebuild`. Hybrid search falls back to FTS when no local vectors exist.
+Git snapshots publish archive tables by default. Embedding queue state stays local to each machine, and Git-only readers can use FTS immediately without an embedding provider.
 
-If you want to back up generated vectors too, publish them explicitly:
+Generated vectors can be backed up explicitly:
 
 ```bash
 discrawl publish --with-embeddings --push
+discrawl subscribe --with-embeddings https://github.com/openclaw/discord-backup.git
 discrawl update --with-embeddings
 ```
 
-`--with-embeddings` exports and imports stored vectors for the configured `[search.embeddings]` provider/model/input version. It never exports `embedding_jobs`.
+`--with-embeddings` exports stored `message_embeddings` rows for the configured `[search.embeddings]` provider/model plus the current input version. The snapshot stores those vectors under `embeddings/<provider>/<model>/<input_version>/...` and records that identity in `manifest.json`. Import only restores matching embedding manifests, so an Ollama/nomic subscriber does not accidentally import OpenAI/text-embedding vectors into semantic search. `embedding_jobs` is never exported; subscribers that want fresh local vectors can run `discrawl embed --rebuild` to create their own queue and vectors.
 
 The Docker smoke test installs `discrawl` in a clean Go container, subscribes to a Git snapshot repo, then checks `search`, `messages`, `sql`, and `report`:
 
@@ -490,7 +491,14 @@ discrawl search --mode semantic "launch checklist"
 discrawl search --mode hybrid "launch checklist"
 ```
 
-`sync --with-embeddings` only queues changed messages. It does not call the embedding provider. `discrawl embed` drains that queue explicitly, using the configured provider and model.
+Embedding creation has two phases:
+
+1. `sync --with-embeddings` queues changed messages by writing `embedding_jobs` rows. New messages, changed normalized text, and messages that do not already have a job are queued. This phase does not call the embedding provider.
+2. `discrawl embed` drains pending jobs in bounded batches, calls the configured provider, and writes vectors to `message_embeddings` with provider, model, input version, dimensions, and binary vector data.
+
+During drain, `discrawl` claims jobs with a short lock so overlapping runs do not process the same batch. Rate limits requeue the batch and stop that drain run cleanly. Provider or validation failures retry up to three attempts before the job is marked failed. Messages with no normalized text are marked done and any stale vector for that message is removed.
+
+The provider/model/input-version identity is stored on each job and vector. If you change provider or model, pending jobs are retargeted to the new identity and prior attempts are reset. Existing vectors for another identity remain in SQLite, but semantic search only reads vectors compatible with the current config.
 
 Use `--rebuild` when changing provider, model, or input settings and you want to regenerate vectors for the existing archive:
 
