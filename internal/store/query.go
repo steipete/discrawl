@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -18,6 +20,21 @@ const (
 	searchCandidateMultiple = 20
 	messageFTSHealthProbe   = "__discrawl_probe__"
 )
+
+var ErrNoCompatibleEmbeddings = errors.New("no compatible message embeddings for provider/model/input version; run discrawl embed --rebuild")
+
+type SemanticSearchOptions struct {
+	QueryVector  []float32
+	Provider     string
+	Model        string
+	InputVersion string
+	Dimensions   int
+	GuildIDs     []string
+	Channel      string
+	Author       string
+	Limit        int
+	IncludeEmpty bool
+}
 
 func (s *Store) GetSyncState(ctx context.Context, scope string) (string, error) {
 	var cursor sql.NullString
@@ -120,6 +137,172 @@ func (s *Store) SearchMessages(ctx context.Context, opts SearchOptions) ([]Searc
 	return out, rows.Err()
 }
 
+func (s *Store) SearchMessagesSemantic(ctx context.Context, opts SemanticSearchOptions) ([]SearchResult, error) {
+	opts.Provider = strings.ToLower(strings.TrimSpace(opts.Provider))
+	opts.Model = strings.TrimSpace(opts.Model)
+	opts.InputVersion = strings.TrimSpace(opts.InputVersion)
+	if opts.InputVersion == "" {
+		opts.InputVersion = EmbeddingInputVersion
+	}
+	if opts.Limit <= 0 {
+		opts.Limit = 20
+	}
+	if len(opts.QueryVector) == 0 {
+		return nil, errors.New("semantic query embedding returned an empty vector")
+	}
+	if opts.Dimensions <= 0 {
+		opts.Dimensions = len(opts.QueryVector)
+	}
+	if len(opts.QueryVector) != opts.Dimensions {
+		return nil, fmt.Errorf("semantic query embedding dimensions mismatch: got %d want %d", len(opts.QueryVector), opts.Dimensions)
+	}
+	queryNorm := vectorNorm(opts.QueryVector)
+	if queryNorm == 0 {
+		return nil, errors.New("semantic query embedding returned a zero vector")
+	}
+
+	clauses := []string{
+		"e.provider = ?",
+		"e.model = ?",
+		"e.input_version = ?",
+		"e.dimensions = ?",
+	}
+	args := []any{opts.Provider, opts.Model, opts.InputVersion, opts.Dimensions}
+	if len(opts.GuildIDs) > 0 {
+		clauses = append(clauses, "m.guild_id in ("+placeholders(len(opts.GuildIDs))+")")
+		for _, guildID := range opts.GuildIDs {
+			args = append(args, guildID)
+		}
+	}
+	if strings.TrimSpace(opts.Channel) != "" {
+		clauses = append(clauses, "(m.channel_id = ? or c.name like ?)")
+		args = append(args, opts.Channel, "%"+opts.Channel+"%")
+	}
+	authorExpr := `coalesce(
+		json_extract(m.raw_json, '$.member.nick'),
+		json_extract(m.raw_json, '$.author.global_name'),
+		json_extract(m.raw_json, '$.author.username'),
+		''
+	)`
+	if strings.TrimSpace(opts.Author) != "" {
+		clauses = append(clauses, "(m.author_id = ? or "+authorExpr+" like ?)")
+		args = append(args, opts.Author, "%"+opts.Author+"%")
+	}
+	if !opts.IncludeEmpty {
+		clauses = append(clauses, "trim(coalesce(m.normalized_content, '')) <> ''")
+	}
+	args = append(args, searchCandidateLimit(opts.Limit))
+
+	queryCtx, cancel := withQueryTimeout(ctx)
+	defer cancel()
+	rows, err := s.db.QueryContext(queryCtx, `
+		select
+			m.id,
+			m.guild_id,
+			m.channel_id,
+			coalesce(c.name, ''),
+			coalesce(m.author_id, ''),
+			`+authorExpr+`,
+			case
+				when trim(coalesce(m.content, '')) <> '' then m.content
+				else m.normalized_content
+			end,
+			m.created_at,
+			e.dimensions,
+			e.embedding_blob
+		from message_embeddings e
+		join messages m on m.id = e.message_id
+		left join channels c on c.id = m.channel_id
+		where `+strings.Join(clauses, " and ")+`
+		order by m.created_at desc, m.id desc
+		limit ?
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	type scoredResult struct {
+		result SearchResult
+		score  float64
+	}
+	var scored []scoredResult
+	for rows.Next() {
+		var (
+			row        SearchResult
+			created    string
+			dimensions int
+			blob       []byte
+		)
+		if err := rows.Scan(&row.MessageID, &row.GuildID, &row.ChannelID, &row.ChannelName, &row.AuthorID, &row.AuthorName, &row.Content, &created, &dimensions, &blob); err != nil {
+			return nil, err
+		}
+		if dimensions != opts.Dimensions {
+			return nil, fmt.Errorf("stored embedding dimensions mismatch for message %s: got %d want %d", row.MessageID, dimensions, opts.Dimensions)
+		}
+		vector, err := DecodeEmbeddingVector(blob)
+		if err != nil {
+			return nil, fmt.Errorf("decode embedding for message %s: %w", row.MessageID, err)
+		}
+		if len(vector) != dimensions {
+			return nil, fmt.Errorf("stored embedding vector length mismatch for message %s: got %d want %d", row.MessageID, len(vector), dimensions)
+		}
+		score, err := cosineSimilarity(opts.QueryVector, queryNorm, vector)
+		if err != nil {
+			return nil, fmt.Errorf("score embedding for message %s: %w", row.MessageID, err)
+		}
+		row.CreatedAt = parseTime(created)
+		scored = append(scored, scoredResult{result: row, score: score})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(scored) == 0 {
+		compatible, err := s.hasCompatibleMessageEmbeddings(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		if !compatible {
+			return nil, ErrNoCompatibleEmbeddings
+		}
+		return []SearchResult{}, nil
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		if !scored[i].result.CreatedAt.Equal(scored[j].result.CreatedAt) {
+			return scored[i].result.CreatedAt.After(scored[j].result.CreatedAt)
+		}
+		return scored[i].result.MessageID > scored[j].result.MessageID
+	})
+	if len(scored) > opts.Limit {
+		scored = scored[:opts.Limit]
+	}
+	out := make([]SearchResult, 0, len(scored))
+	for _, item := range scored {
+		out = append(out, item.result)
+	}
+	return out, nil
+}
+
+func (s *Store) hasCompatibleMessageEmbeddings(ctx context.Context, opts SemanticSearchOptions) (bool, error) {
+	queryCtx, cancel := withQueryTimeout(ctx)
+	defer cancel()
+	var exists int
+	err := s.db.QueryRowContext(queryCtx, `
+		select exists(
+			select 1
+			from message_embeddings
+			where provider = ?
+			  and model = ?
+			  and input_version = ?
+			  and dimensions = ?
+		)
+	`, opts.Provider, opts.Model, opts.InputVersion, opts.Dimensions).Scan(&exists)
+	return exists == 1, err
+}
+
 func (s *Store) CheckMessageFTS(ctx context.Context) error {
 	db, cleanup, err := s.openReadOnlyDB()
 	if err != nil {
@@ -198,6 +381,29 @@ func (s *Store) searchFallback(ctx context.Context, opts SearchOptions) ([]Searc
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func cosineSimilarity(query []float32, queryNorm float64, vector []float32) (float64, error) {
+	if len(vector) != len(query) {
+		return 0, fmt.Errorf("dimensions mismatch: got %d want %d", len(vector), len(query))
+	}
+	vectorNorm := vectorNorm(vector)
+	if vectorNorm == 0 {
+		return 0, errors.New("stored embedding vector is zero")
+	}
+	var dot float64
+	for i := range query {
+		dot += float64(query[i]) * float64(vector[i])
+	}
+	return dot / (queryNorm * vectorNorm), nil
+}
+
+func vectorNorm(vector []float32) float64 {
+	var sum float64
+	for _, value := range vector {
+		sum += float64(value) * float64(value)
+	}
+	return math.Sqrt(sum)
 }
 
 func (s *Store) Members(ctx context.Context, guildID, query string, limit int) ([]MemberRow, error) {
