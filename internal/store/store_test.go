@@ -1064,6 +1064,32 @@ func TestOpenMigratesUnversionedV1SchemaToV2(t *testing.T) {
 	require.Equal(t, "0", rows[0][0])
 }
 
+func TestOpenHealsVersionTwoMissingEmbeddingStorage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+	require.NoError(t, createV1Schema(ctx, dbPath))
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `pragma user_version = 2`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select provider, model, input_version, last_error, locked_at from embedding_jobs")
+	require.NoError(t, err)
+	require.Empty(t, rows)
+
+	_, rows, err = s.ReadOnlyQuery(ctx, "select count(*) from message_embeddings")
+	require.NoError(t, err)
+	require.Equal(t, "0", rows[0][0])
+}
+
 func TestReadOnlyQueryGuards(t *testing.T) {
 	t.Parallel()
 

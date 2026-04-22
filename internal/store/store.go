@@ -217,6 +217,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	} else if version != storeSchemaVersion {
 		return fmt.Errorf("database schema version mismatch: got %d want %d", version, storeSchemaVersion)
 	}
+	if err := s.applyQueryIndexMigration(ctx); err != nil {
+		return err
+	}
 	if err := s.ensureFTSRowIDs(ctx); err != nil {
 		return err
 	}
@@ -437,6 +440,19 @@ func (s *Store) applyQueryIndexMigration(ctx context.Context) error {
 		return err
 	}
 	defer rollback(tx)
+	if _, err := tx.ExecContext(ctx, `create table if not exists embedding_jobs (
+		message_id text primary key,
+		state text not null,
+		attempts integer not null default 0,
+		provider text not null default '',
+		model text not null default '',
+		input_version text not null default '',
+		last_error text not null default '',
+		locked_at text,
+		updated_at text not null
+	);`); err != nil {
+		return fmt.Errorf("ensure embedding_jobs: %w", err)
+	}
 	for _, column := range []struct {
 		name string
 		sql  string

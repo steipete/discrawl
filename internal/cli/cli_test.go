@@ -1246,6 +1246,10 @@ func TestSQLRejectsMutationsByDefaultAndAllowsUnsafeConfirm(t *testing.T) {
 	require.Contains(t, err.Error(), "only read-only sql is allowed")
 
 	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "sql", "--unsafe", "--confirm", "select count(*) as total from messages"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "total")
+
+	out.Reset()
 	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "sql", "--unsafe", "--confirm", "delete from messages"}, &out, &bytes.Buffer{}))
 	require.Contains(t, out.String(), "rows_affected=1")
 

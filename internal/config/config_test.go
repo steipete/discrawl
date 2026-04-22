@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,20 @@ func TestNormalizeFillsDefaults(t *testing.T) {
 	require.Equal(t, 64, cfg.Search.Embeddings.BatchSize)
 	require.Equal(t, 12000, cfg.Search.Embeddings.MaxInputChars)
 	require.Equal(t, "2m", cfg.Search.Embeddings.RequestTimeout)
+}
+
+func TestDefaultSyncConcurrencyBounds(t *testing.T) {
+	old := runtime.GOMAXPROCS(0)
+	t.Cleanup(func() { runtime.GOMAXPROCS(old) })
+
+	runtime.GOMAXPROCS(1)
+	require.Equal(t, 8, defaultSyncConcurrency())
+
+	runtime.GOMAXPROCS(8)
+	require.Equal(t, 16, defaultSyncConcurrency())
+
+	runtime.GOMAXPROCS(100)
+	require.Equal(t, 32, defaultSyncConcurrency())
 }
 
 func TestResolveDiscordTokenPrefersOpenClaw(t *testing.T) {
@@ -143,6 +158,19 @@ func TestWriteAndLoadRoundTrip(t *testing.T) {
 	require.Equal(t, []string{"g1", "g2"}, loaded.GuildIDs)
 	require.NotNil(t, loaded.Sync.AttachmentText)
 	require.True(t, *loaded.Sync.AttachmentText)
+}
+
+func TestWriteRejectsNonPositiveEmbeddingTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Search.Embeddings.RequestTimeout = "0s"
+	err := Write(filepath.Join(t.TempDir(), "config.toml"), cfg)
+	require.ErrorContains(t, err, "must be positive")
+
+	cfg.Search.Embeddings.RequestTimeout = "not-a-duration"
+	err = cfg.Normalize()
+	require.ErrorContains(t, err, "parse search.embeddings.request_timeout")
 }
 
 func TestNormalizeEmbeddingProviderDefaults(t *testing.T) {
