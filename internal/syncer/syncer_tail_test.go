@@ -44,6 +44,26 @@ func TestNormalizeMessageIncludesRichFields(t *testing.T) {
 	require.Contains(t, content, "answer")
 }
 
+func TestNormalizeMessageSanitizesMalformedUnicodeAndWhitespace(t *testing.T) {
+	t.Parallel()
+
+	message := &discordgo.Message{
+		Content: string([]byte{'h', 'i', 0xff, ' ', 't', 'h', 'e', 'r', 'e'}) + "\u200b",
+		Attachments: []*discordgo.MessageAttachment{
+			{Filename: "Ｆｏｏ\u200d.txt"},
+		},
+		Embeds: []*discordgo.MessageEmbed{
+			{Title: " spaced\u00a0out ", Description: "line\u0000break"},
+		},
+		ReferencedMessage: &discordgo.Message{Content: "prior reply"},
+	}
+
+	content := normalizeMessage(message)
+	require.Equal(t, "hi there\nFoo.txt\nspaced out\nlinebreak\nreply:prior reply", content)
+	require.NotContains(t, content, "\u200b")
+	require.NotContains(t, content, "\u200d")
+}
+
 func TestTailHandlerWritesEvents(t *testing.T) {
 	t.Parallel()
 

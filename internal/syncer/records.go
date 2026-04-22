@@ -5,9 +5,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/steipete/discrawl/internal/store"
+	"golang.org/x/text/unicode/norm"
 )
 
 func toMemberRecord(guildID string, member *discordgo.Member) store.MemberRecord {
@@ -72,7 +74,7 @@ func normalizeMessage(message *discordgo.Message) string {
 }
 
 func normalizeMessageParts(message *discordgo.Message, attachmentParts []string) string {
-	parts := []string{strings.TrimSpace(message.Content)}
+	parts := []string{message.Content}
 	if len(attachmentParts) != 0 {
 		parts = append(parts, attachmentParts...)
 	} else {
@@ -106,12 +108,44 @@ func normalizeMessageParts(message *discordgo.Message, attachmentParts []string)
 	}
 	filtered := make([]string, 0, len(parts))
 	for _, part := range parts {
-		part = strings.TrimSpace(part)
+		part = sanitizeNormalizedPart(part)
 		if part != "" {
 			filtered = append(filtered, part)
 		}
 	}
 	return strings.Join(filtered, "\n")
+}
+
+func sanitizeNormalizedPart(raw string) string {
+	raw = strings.ToValidUTF8(raw, "")
+	raw = norm.NFKC.String(raw)
+
+	var b strings.Builder
+	b.Grow(len(raw))
+	spacePending := false
+	for _, r := range raw {
+		switch {
+		case isDroppedNormalizedRune(r):
+			continue
+		case unicode.IsSpace(r):
+			spacePending = b.Len() > 0
+		default:
+			if spacePending {
+				b.WriteByte(' ')
+				spacePending = false
+			}
+			b.WriteRune(r)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func isDroppedNormalizedRune(r rune) bool {
+	switch r {
+	case '\u200b', '\u200c', '\u200d', '\ufeff':
+		return true
+	}
+	return unicode.IsControl(r)
 }
 
 func displayName(member *discordgo.Member) string {
