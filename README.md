@@ -365,6 +365,8 @@ Once `share.remote` is configured, read commands auto-fetch and import when the 
 
 Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync` and `discrawl messages --sync` import the Git snapshot first, then use live Discord only to fill anything newer or missing. This keeps day-to-day sync fast while preserving live repair behavior.
 
+Git snapshots publish archive tables only. Embedding queue state and generated vectors stay local to each machine.
+
 The Docker smoke test installs `discrawl` in a clean Go container, subscribes to a Git snapshot repo, then checks `search`, `messages`, `sql`, and `report`:
 
 ```bash
@@ -474,7 +476,7 @@ discrawl sync --with-embeddings
 - canonical message rows
 - append-only message event records
 - FTS index rows
-- optional embedding backlog metadata
+- optional local embedding queue metadata and vectors
 
 SQLite schema migrations are versioned with `PRAGMA user_version`. Startup now fails fast when a local DB schema is newer than the supported binary.
 
