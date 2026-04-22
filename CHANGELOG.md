@@ -2,6 +2,12 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
+## 0.4.1 - 2026-04-22
+
+### Fixes
+
+- existing archives that already report schema version 2 now self-heal missing embedding tables and columns before 0.4.x sync/update commands continue.
+
 ## 0.4.0 - 2026-04-22
 
 ### Changes
