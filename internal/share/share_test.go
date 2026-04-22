@@ -75,6 +75,7 @@ func TestSnapshotExcludesLocalEmbeddingState(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, tableNames(manifest), "embedding_jobs")
 	require.NotContains(t, tableNames(manifest), "message_embeddings")
+	require.Empty(t, manifest.Embeddings)
 
 	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
 	require.NoError(t, err)
@@ -92,6 +93,60 @@ func TestSnapshotExcludesLocalEmbeddingState(t *testing.T) {
 		select state from embedding_jobs where message_id = 'm1'
 	`).Scan(&state))
 	require.Equal(t, "pending", state)
+}
+
+func TestExportImportEmbeddingsOptIn(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+
+	vector := []float32{1, 0.5}
+	blob, err := store.EncodeEmbeddingVector(vector)
+	require.NoError(t, err)
+	embeddedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err = src.DB().ExecContext(ctx, `
+		insert into message_embeddings(
+			message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+		) values ('m1', 'openai', 'text-embedding-3-small', ?, 2, ?, ?)
+	`, store.EmbeddingInputVersion, blob, embeddedAt)
+	require.NoError(t, err)
+
+	repo := filepath.Join(t.TempDir(), "share")
+	opts := Options{
+		RepoPath:              repo,
+		Branch:                "main",
+		IncludeEmbeddings:     true,
+		EmbeddingProvider:     "openai",
+		EmbeddingModel:        "text-embedding-3-small",
+		EmbeddingInputVersion: store.EmbeddingInputVersion,
+	}
+	manifest, err := Export(ctx, src, opts)
+	require.NoError(t, err)
+	require.Len(t, manifest.Embeddings, 1)
+	require.Equal(t, 1, manifest.Embeddings[0].Rows)
+	require.NotEmpty(t, manifest.Embeddings[0].Files)
+	require.FileExists(t, filepath.Join(repo, filepath.FromSlash(manifest.Embeddings[0].Files[0])))
+
+	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
+	require.NoError(t, err)
+	defer func() { _ = dst.Close() }()
+	_, err = Import(ctx, dst, opts)
+	require.NoError(t, err)
+
+	var gotBlob []byte
+	var gotDimensions int
+	require.NoError(t, dst.DB().QueryRowContext(ctx, `
+		select dimensions, embedding_blob
+		from message_embeddings
+		where message_id = 'm1'
+		  and provider = 'openai'
+		  and model = 'text-embedding-3-small'
+		  and input_version = ?
+	`, store.EmbeddingInputVersion).Scan(&gotDimensions, &gotBlob))
+	require.Equal(t, 2, gotDimensions)
+	gotVector, err := store.DecodeEmbeddingVector(gotBlob)
+	require.NoError(t, err)
+	require.Equal(t, vector, gotVector)
 }
 
 func TestImportIfChangedSkipsSameManifest(t *testing.T) {

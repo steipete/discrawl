@@ -377,6 +377,15 @@ Hybrid mode is supported too: keep normal Discord credentials configured and set
 
 Git snapshots publish archive tables only. Embedding queue state and generated vectors stay local to each machine. Git-only readers can use FTS immediately. To use semantic or hybrid search with semantic recall, configure a local embedding provider and run `discrawl embed --rebuild`. Hybrid search falls back to FTS when no local vectors exist.
 
+If you want to back up generated vectors too, publish them explicitly:
+
+```bash
+discrawl publish --with-embeddings --push
+discrawl update --with-embeddings
+```
+
+`--with-embeddings` exports and imports stored vectors for the configured `[search.embeddings]` provider/model/input version. It never exports `embedding_jobs`.
+
 The Docker smoke test installs `discrawl` in a clean Go container, subscribes to a Git snapshot repo, then checks `search`, `messages`, `sql`, and `report`:
 
 ```bash

@@ -24,6 +24,7 @@ func (r *runtime) runPublish(args []string) error {
 	readmePath := fs.String("readme", "", "")
 	noCommit := fs.Bool("no-commit", false, "")
 	push := fs.Bool("push", false, "")
+	withEmbeddings := fs.Bool("with-embeddings", false, "")
 	if err := fs.Parse(args); err != nil {
 		return usageErr(err)
 	}
@@ -33,6 +34,9 @@ func (r *runtime) runPublish(args []string) error {
 	opts, err := shareOptionsFromFlags(*repoPath, *remote, *branch)
 	if err != nil {
 		return err
+	}
+	if *withEmbeddings {
+		applyEmbeddingShareOptions(&opts, r.cfg)
 	}
 	manifest, err := share.Export(r.ctx, r.store, opts)
 	if err != nil {
@@ -75,6 +79,7 @@ func (r *runtime) runPublish(args []string) error {
 		"remote":       opts.Remote,
 		"generated_at": manifest.GeneratedAt,
 		"tables":       manifest.Tables,
+		"embeddings":   manifest.Embeddings,
 		"readme":       *readmePath,
 		"committed":    committed,
 		"pushed":       *push,
@@ -89,6 +94,7 @@ func (r *runtime) runSubscribe(args []string) error {
 	staleAfter := fs.String("stale-after", "15m", "")
 	noAutoUpdate := fs.Bool("no-auto-update", false, "")
 	noImport := fs.Bool("no-import", false, "")
+	withEmbeddings := fs.Bool("with-embeddings", false, "")
 	if err := fs.Parse(args); err != nil {
 		return usageErr(err)
 	}
@@ -134,6 +140,9 @@ func (r *runtime) runSubscribe(args []string) error {
 		return configErr(err)
 	}
 	opts := share.Options{RepoPath: expandedRepo, Remote: cfg.Share.Remote, Branch: cfg.Share.Branch}
+	if *withEmbeddings {
+		applyEmbeddingShareOptions(&opts, cfg)
+	}
 	if err := share.Pull(r.ctx, opts); err != nil {
 		return err
 	}
@@ -147,6 +156,7 @@ func (r *runtime) runSubscribe(args []string) error {
 		"remote":       opts.Remote,
 		"generated_at": manifest.GeneratedAt,
 		"tables":       manifest.Tables,
+		"embeddings":   manifest.Embeddings,
 		"imported":     imported,
 	})
 }
@@ -157,6 +167,7 @@ func (r *runtime) runUpdate(args []string) error {
 	repoPath := fs.String("repo", r.cfg.Share.RepoPath, "")
 	remote := fs.String("remote", r.cfg.Share.Remote, "")
 	branch := fs.String("branch", r.cfg.Share.Branch, "")
+	withEmbeddings := fs.Bool("with-embeddings", false, "")
 	if err := fs.Parse(args); err != nil {
 		return usageErr(err)
 	}
@@ -166,6 +177,9 @@ func (r *runtime) runUpdate(args []string) error {
 	opts, err := shareOptionsFromFlags(*repoPath, *remote, *branch)
 	if err != nil {
 		return err
+	}
+	if *withEmbeddings {
+		applyEmbeddingShareOptions(&opts, r.cfg)
 	}
 	if err := share.Pull(r.ctx, opts); err != nil {
 		return err
@@ -179,6 +193,7 @@ func (r *runtime) runUpdate(args []string) error {
 		"remote":       opts.Remote,
 		"generated_at": manifest.GeneratedAt,
 		"tables":       manifest.Tables,
+		"embeddings":   manifest.Embeddings,
 		"imported":     imported,
 	})
 }
@@ -195,6 +210,13 @@ func shareOptionsFromFlags(repoPath, remote, branch string) (share.Options, erro
 		branch = "main"
 	}
 	return share.Options{RepoPath: expandedRepo, Remote: remote, Branch: branch}, nil
+}
+
+func applyEmbeddingShareOptions(opts *share.Options, cfg config.Config) {
+	opts.IncludeEmbeddings = true
+	opts.EmbeddingProvider = cfg.Search.Embeddings.Provider
+	opts.EmbeddingModel = cfg.Search.Embeddings.Model
+	opts.EmbeddingInputVersion = store.EmbeddingInputVersion
 }
 
 func loadConfigOrDefault(path string) (config.Config, error) {
