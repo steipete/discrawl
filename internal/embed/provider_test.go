@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -212,4 +213,107 @@ func TestProviderRejectsInvalidResponses(t *testing.T) {
 
 	_, err = provider.Embed(context.Background(), []string{"one", "two"})
 	require.ErrorContains(t, err, "dimensions mismatch")
+}
+
+func TestEmbeddingProvidersHandleEmptyInputsAndIndexErrors(t *testing.T) {
+	t.Parallel()
+
+	settings := providerSettings{
+		Name:          ProviderOllama,
+		Model:         "model",
+		BaseURL:       "http://127.0.0.1:1",
+		MaxInputChars: 10,
+		HTTPClient:    http.DefaultClient,
+	}
+	ollama := newOllamaProvider(settings)
+	batch, err := ollama.Embed(context.Background(), nil)
+	require.NoError(t, err)
+	require.Equal(t, "model", batch.Model)
+
+	settings.Name = ProviderOpenAICompatible
+	openai := newOpenAICompatibleProvider(settings)
+	batch, err = openai.Embed(context.Background(), nil)
+	require.NoError(t, err)
+	require.Equal(t, "model", batch.Model)
+
+	tests := []struct {
+		name   string
+		body   string
+		inputs []string
+		want   string
+	}{
+		{
+			name:   "count",
+			body:   `{"data":[]}`,
+			inputs: []string{"one"},
+			want:   "returned 0 vectors for 1 inputs",
+		},
+		{
+			name:   "range",
+			body:   `{"data":[{"index":2,"embedding":[1]}]}`,
+			inputs: []string{"one"},
+			want:   "index 2 out of range",
+		},
+		{
+			name:   "duplicate",
+			body:   `{"data":[{"index":0,"embedding":[1]},{"index":0,"embedding":[2]}]}`,
+			inputs: []string{"one", "two"},
+			want:   "duplicated index 0",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			provider, err := NewProvider(config.EmbeddingsConfig{
+				Provider:       ProviderOpenAICompatible,
+				Model:          "model",
+				BaseURL:        server.URL,
+				RequestTimeout: "5s",
+			})
+			require.NoError(t, err)
+			_, err = provider.Embed(context.Background(), tc.inputs)
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestProviderOptionsAndProbeDecisions(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{Timeout: time.Second}
+	settings, err := resolveProviderConfig(config.EmbeddingsConfig{
+		Provider:       ProviderOllama,
+		BaseURL:        "http://127.0.0.1:11434/",
+		RequestTimeout: "30s",
+	}, true, WithHTTPClient(client), WithRequestTimeout(50*time.Millisecond))
+	require.NoError(t, err)
+	require.Same(t, client, settings.HTTPClient)
+	require.Equal(t, 50*time.Millisecond, settings.Timeout)
+	require.Equal(t, "http://127.0.0.1:11434", settings.BaseURL)
+	require.True(t, shouldProbe(settings))
+
+	require.True(t, isLoopbackBaseURL("http://localhost:8080/v1"))
+	require.True(t, isLoopbackBaseURL("http://[::1]:8080/v1"))
+	require.False(t, isLoopbackBaseURL("https://api.example.com/v1"))
+	require.False(t, isLoopbackBaseURL("://bad"))
+	require.False(t, shouldProbe(providerSettings{Name: ProviderOpenAI}))
+	require.True(t, shouldProbe(providerSettings{Name: ProviderOpenAICompatible, BaseURL: "http://localhost:8080/v1"}))
+	require.False(t, shouldProbe(providerSettings{Name: ProviderOpenAICompatible, BaseURL: "https://api.example.com/v1"}))
+}
+
+func TestCheckProviderSkipsRemoteCompatibleProbe(t *testing.T) {
+	t.Parallel()
+
+	result := CheckProvider(context.Background(), config.EmbeddingsConfig{
+		Provider:       ProviderOpenAICompatible,
+		Model:          "remote-model",
+		BaseURL:        "https://api.example.com/v1",
+		RequestTimeout: "5s",
+	})
+	require.Equal(t, "ok", result.Status)
+	require.False(t, result.Probed)
+	require.Empty(t, result.Warning)
 }

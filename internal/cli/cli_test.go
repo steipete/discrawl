@@ -1257,6 +1257,48 @@ func TestSQLRejectsMutationsByDefaultAndAllowsUnsafeConfirm(t *testing.T) {
 	require.Equal(t, "0", rows[0][0])
 }
 
+func TestCommandUsageBranches(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	require.NoError(t, config.Write(cfgPath, cfg))
+	s, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--config", cfgPath, "sql", "--confirm", "select 1"}, "--confirm requires --unsafe"},
+		{[]string{"--config", cfgPath, "sql", "--unsafe", "delete from messages"}, "--unsafe requires --confirm"},
+		{[]string{"--config", cfgPath, "search"}, "search requires a query"},
+		{[]string{"--config", cfgPath, "members"}, "members requires a subcommand"},
+		{[]string{"--config", cfgPath, "members", "search"}, "members search requires a query"},
+		{[]string{"--config", cfgPath, "members", "bogus"}, `unknown members subcommand "bogus"`},
+		{[]string{"--config", cfgPath, "channels"}, "channels requires a subcommand"},
+		{[]string{"--config", cfgPath, "channels", "bogus"}, `unknown channels subcommand "bogus"`},
+		{[]string{"--config", cfgPath, "status", "extra"}, "status takes no arguments"},
+		{[]string{"--config", cfgPath, "report", "extra"}, "report takes no positional arguments"},
+		{[]string{"--config", cfgPath, "embed"}, "embeddings are disabled"},
+		{[]string{"--config", cfgPath, "embed", "--limit", "0"}, "--limit must be positive"},
+		{[]string{"--config", cfgPath, "embed", "--batch-size", "0"}, "--batch-size must be positive"},
+		{[]string{"--config", cfgPath, "publish", "extra"}, "publish takes no positional arguments"},
+		{[]string{"--config", cfgPath, "update", "extra"}, "update takes no positional arguments"},
+		{[]string{"--config", cfgPath, "subscribe", "one", "two"}, "subscribe takes at most one remote"},
+	}
+	for _, tc := range cases {
+		err := Run(ctx, tc.args, &bytes.Buffer{}, &bytes.Buffer{})
+		require.Equal(t, 2, ExitCode(err), tc.args)
+		require.ErrorContains(t, err, tc.want, tc.args)
+	}
+}
+
 func TestHelpers(t *testing.T) {
 	t.Parallel()
 

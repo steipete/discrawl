@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -505,6 +506,74 @@ func TestRequeueAllEmbeddingJobsUsesCurrentIdentity(t *testing.T) {
 		{"m1", "pending", "0", "ollama", "nomic-embed-text", EmbeddingInputVersion, ""},
 		{"m2", "pending", "0", "ollama", "nomic-embed-text", EmbeddingInputVersion, ""},
 	}, rows)
+}
+
+func TestEmbeddingHelpersAndIdentityResetBranches(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	opts := normalizeEmbeddingDrainOptions(EmbeddingDrainOptions{
+		Provider:      " OLLAMA ",
+		Model:         " model ",
+		Limit:         1,
+		BatchSize:     5,
+		MaxInputChars: 3,
+		Now:           func() time.Time { return now },
+	})
+	require.Equal(t, "ollama", opts.Provider)
+	require.Equal(t, "model", opts.Model)
+	require.Equal(t, 1, opts.BatchSize)
+	require.Equal(t, EmbeddingInputVersion, opts.InputVersion)
+
+	stats, err := s.DrainEmbeddingJobs(ctx, nil, opts)
+	require.ErrorContains(t, err, "embedding provider is nil")
+	require.Equal(t, "ollama", stats.Provider)
+
+	require.NoError(t, s.UpsertMessageWithOptions(ctx, MessageRecord{
+		ID:                "m1",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		MessageType:       0,
+		CreatedAt:         now.Format(time.RFC3339Nano),
+		Content:           "hello",
+		NormalizedContent: "hello",
+		RawJSON:           `{}`,
+	}, WriteOptions{EnqueueEmbedding: true}))
+	_, err = s.DB().ExecContext(ctx, `
+		update embedding_jobs
+		set provider = 'old', model = 'old-model', input_version = 'old-version', attempts = 2, last_error = 'bad', locked_at = 'locked'
+		where message_id = 'm1'
+	`)
+	require.NoError(t, err)
+	require.NoError(t, s.resetEmbeddingJobIdentity(ctx, "m1", opts, true))
+	_, rows, err := s.ReadOnlyQuery(ctx, "select provider, model, input_version, attempts, last_error, coalesce(locked_at, '') from embedding_jobs where message_id = 'm1'")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"ollama", "model", EmbeddingInputVersion, "0", "", ""}}, rows)
+
+	_, err = s.DB().ExecContext(ctx, `update embedding_jobs set attempts = 2, locked_at = 'locked' where message_id = 'm1'`)
+	require.NoError(t, err)
+	require.NoError(t, s.resetEmbeddingJobIdentity(ctx, "m1", opts, false))
+	_, rows, err = s.ReadOnlyQuery(ctx, "select attempts, coalesce(locked_at, '') from embedding_jobs where message_id = 'm1'")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"2", ""}}, rows)
+
+	require.True(t, sameEmbeddingIdentity(embeddingJob{Provider: "ollama", Model: "model", InputVersion: EmbeddingInputVersion}, opts))
+	require.True(t, emptyEmbeddingIdentity(embeddingJob{}))
+	_, err = validateEmbeddingBatch(embed.EmbeddingBatch{Vectors: [][]float32{{1}, {2}}}, 1)
+	require.ErrorContains(t, err, "returned 2 vectors")
+	_, err = validateEmbeddingBatch(embed.EmbeddingBatch{Vectors: [][]float32{{}}}, 1)
+	require.ErrorContains(t, err, "empty vector")
+	require.Empty(t, trimStoredError(nil))
+	require.Len(t, []rune(trimStoredError(errors.New(strings.Repeat("x", maxStoredErrorChars+10)))), maxStoredErrorChars)
+	require.Equal(t, "abcdef", capRunes("abcdef", 0))
+	require.Equal(t, "abc", capRunes("abcdef", 3))
+	_, err = DecodeEmbeddingVector([]byte{1, 2, 3})
+	require.ErrorContains(t, err, "not a float32 multiple")
 }
 
 func TestConcurrentMessageUpsertsShareSingleWriter(t *testing.T) {

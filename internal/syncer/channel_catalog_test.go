@@ -17,6 +17,47 @@ func errMissingAccess() error {
 	return fmt.Errorf("HTTP 403 Forbidden, {\"message\": \"Missing Access\", \"code\": 50001}")
 }
 
+func TestActiveThreadCatalogEdges(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	allChannels := map[string]*discordgo.Channel{
+		"voice": {ID: "voice", GuildID: "g1", Type: discordgo.ChannelTypeGuildVoice},
+	}
+	client := &fakeClient{}
+	svc := New(client, nil, nil)
+	require.NoError(t, svc.appendActiveThreadCatalog(ctx, allChannels, "g1", []string{"voice"}))
+	require.Zero(t, client.guildThreadCalls)
+
+	allChannels["forum"] = &discordgo.Channel{ID: "forum", GuildID: "g1", Type: discordgo.ChannelTypeGuildForum}
+	client.guildThreadErrs = map[string]error{"g1": errMissingAccess()}
+	require.NoError(t, svc.appendActiveThreadCatalog(ctx, allChannels, "g1", []string{"forum"}))
+	require.Equal(t, 1, client.guildThreadCalls)
+
+	client.guildThreadErrs = map[string]error{"g1": fmt.Errorf("boom")}
+	require.ErrorContains(t, svc.appendActiveThreadCatalog(ctx, allChannels, "g1", []string{"forum"}), "boom")
+
+	client.guildThreadErrs = nil
+	client.guildThreads = map[string][]*discordgo.Channel{
+		"g1": {
+			nil,
+			{ID: "other-thread", GuildID: "g1", ParentID: "other", Type: discordgo.ChannelTypeGuildPublicThread},
+			{ID: "forum-thread", GuildID: "g1", ParentID: "forum", Type: discordgo.ChannelTypeGuildPublicThread},
+		},
+	}
+	require.NoError(t, svc.appendActiveThreadCatalog(ctx, allChannels, "g1", []string{"forum"}))
+	require.Contains(t, allChannels, "forum-thread")
+	require.NotContains(t, allChannels, "other-thread")
+
+	require.Nil(t, selectStoredChannels(nil, makeGuildSet([]string{"c1"})))
+	require.Nil(t, selectStoredChannels([]store.ChannelRow{{ID: "c1"}}, nil))
+	require.Equal(t, []string{"b", "a"}, uniqueIDs([]string{"", "b", "a", "b"}))
+	require.False(t, isThreadChannel(nil))
+	require.False(t, isThreadParent(nil))
+	require.False(t, isMessageChannel(nil))
+	require.False(t, isMessageChannel(&discordgo.Channel{Type: discordgo.ChannelTypeGuildCategory}))
+}
+
 func TestSyncChannelSubsetExpandsRequestedForumThreads(t *testing.T) {
 	t.Parallel()
 

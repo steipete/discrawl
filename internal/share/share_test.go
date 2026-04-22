@@ -1,7 +1,10 @@
 package share
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -412,6 +415,202 @@ func TestPushRebasesRemoteReadmeUpdates(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), "report: second")
 	require.Contains(t, string(body), "field notes: fresh")
+}
+
+func TestImportValueConvertsJSONNumbers(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, int64(42), importValue(json.Number("42")))
+	require.InDelta(t, 3.5, importValue(json.Number("3.5")), 0)
+	require.Equal(t, "not-a-number", importValue(json.Number("not-a-number")))
+	require.Equal(t, "plain", importValue("plain"))
+}
+
+func TestManifestStateAndReadEdges(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	_, err = ReadManifest(t.TempDir())
+	require.ErrorIs(t, err, ErrNoManifest)
+
+	repo := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ManifestName), []byte(`{`), 0o600))
+	_, err = ReadManifest(repo)
+	require.ErrorContains(t, err, "parse share manifest")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ManifestName), []byte(`{"version":99}`), 0o600))
+	_, err = ReadManifest(repo)
+	require.ErrorContains(t, err, "unsupported share manifest version 99")
+
+	now := time.Now().UTC().Truncate(time.Nanosecond)
+	manifest := Manifest{Version: 1, GeneratedAt: now}
+	require.False(t, ManifestAlreadyImported(ctx, s, Manifest{}))
+	require.False(t, ManifestAlreadyImported(ctx, s, manifest))
+	require.NoError(t, s.SetSyncState(ctx, LastImportManifestSyncScope, "not-time"))
+	require.False(t, ManifestAlreadyImported(ctx, s, manifest))
+	require.NoError(t, MarkImported(ctx, s, Manifest{}))
+	require.False(t, ManifestAlreadyImported(ctx, s, manifest))
+	require.NoError(t, MarkImported(ctx, s, manifest))
+	require.True(t, ManifestAlreadyImported(ctx, s, manifest))
+
+	require.False(t, NeedsImport(ctx, s, 15*time.Minute))
+	require.NoError(t, s.SetSyncState(ctx, LastImportSyncScope, "bad-time"))
+	require.True(t, NeedsImport(ctx, s, 15*time.Minute))
+	require.NoError(t, s.SetSyncState(ctx, LastImportSyncScope, time.Now().UTC().Add(-20*time.Minute).Format(time.RFC3339Nano)))
+	require.True(t, NeedsImport(ctx, s, 15*time.Minute))
+	require.NoError(t, s.SetSyncState(ctx, LastImportSyncScope, time.Now().UTC().Format(time.RFC3339Nano)))
+	require.False(t, NeedsImport(ctx, s, 0))
+}
+
+func TestRepoCommandEdges(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	require.ErrorContains(t, EnsureRepo(ctx, Options{}), "repo path is empty")
+	require.NoError(t, Pull(ctx, Options{}))
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
+	require.NoError(t, EnsureRepo(ctx, Options{RepoPath: repo}))
+
+	err := Push(ctx, Options{RepoPath: repo, Branch: "main"})
+	require.ErrorContains(t, err, "git push -u origin main")
+	require.ErrorContains(t, run(ctx, repo, "git", "definitely-not-a-command"), "git definitely-not-a-command")
+}
+
+func TestShareSmallHelpersAndValidation(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "_", safePathSegment(" "))
+	require.Equal(t, "OpenAI_compatible-v1.2", safePathSegment("OpenAI compatible-v1.2"))
+	require.Equal(t, `"weird""table"`, quoteIdent(`weird"table`))
+	require.Equal(t, `insert into "messages"("id","weird""column") values(?,?)`, insertSQL("messages", []string{"id", `weird"column`}))
+	require.Equal(t, "blob", exportValue([]byte("blob")))
+	require.Equal(t, "plain", exportValue("plain"))
+	require.True(t, isNonFastForwardPush("failed to push some refs; fetch first"))
+	require.True(t, isNonFastForwardPush("non-fast-forward"))
+	require.False(t, isNonFastForwardPush("everything up-to-date"))
+
+	var buf bytes.Buffer
+	cw := &countingWriter{w: &buf}
+	n, err := cw.Write([]byte("abc"))
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
+	require.Equal(t, int64(3), cw.n)
+
+	require.True(t, embeddingManifestMatches(Options{EmbeddingProvider: " OPENAI ", EmbeddingModel: "model"}, EmbeddingManifest{
+		Provider:     "openai",
+		Model:        "model",
+		InputVersion: store.EmbeddingInputVersion,
+	}))
+	require.False(t, embeddingManifestMatches(Options{EmbeddingProvider: "ollama"}, EmbeddingManifest{
+		Provider:     "openai",
+		Model:        "model",
+		InputVersion: store.EmbeddingInputVersion,
+	}))
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+	tx, err := s.DB().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.ErrorContains(t, importTable(ctx, tx, t.TempDir(), TableManifest{Name: "messages", Columns: []string{"id"}}), "has no files")
+	require.NoError(t, tx.Rollback())
+
+	require.ErrorContains(t, ImportEmbeddings(ctx, s, Options{
+		RepoPath:              t.TempDir(),
+		IncludeEmbeddings:     true,
+		EmbeddingProvider:     "openai",
+		EmbeddingModel:        "model",
+		EmbeddingInputVersion: store.EmbeddingInputVersion,
+	}, Manifest{Embeddings: []EmbeddingManifest{{
+		Provider:     "openai",
+		Model:        "model",
+		InputVersion: store.EmbeddingInputVersion,
+	}}}), "has no files")
+}
+
+func TestLegacyManifestFileImportAndEmbeddingDecodeErrors(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	repo := t.TempDir()
+	tableRel := filepath.ToSlash(filepath.Join("tables", "guilds", "legacy.jsonl.gz"))
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "tables", "guilds"), 0o755))
+	writeGzipJSONLines(t, filepath.Join(repo, filepath.FromSlash(tableRel)), []string{
+		`{"id":"g1","name":"Guild","icon":null,"raw_json":"{}","updated_at":"2026-04-22T12:00:00Z"}`,
+	})
+	tx, err := s.DB().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, importTable(ctx, tx, repo, TableManifest{
+		Name:    "guilds",
+		File:    tableRel,
+		Columns: []string{"id", "name", "icon", "raw_json", "updated_at"},
+	}))
+	require.NoError(t, tx.Commit())
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select id, name from guilds")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"g1", "Guild"}}, rows)
+
+	embeddingRel := filepath.ToSlash(filepath.Join("embeddings", "bad.jsonl.gz"))
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "embeddings"), 0o755))
+	writeGzipJSONLines(t, filepath.Join(repo, filepath.FromSlash(embeddingRel)), []string{
+		`{"message_id":"m1","provider":"openai","model":"model","input_version":"` + store.EmbeddingInputVersion + `","dimensions":3.5,"embedding_blob":"AAAA","embedded_at":"2026-04-22T12:00:00Z"}`,
+	})
+	tx, err = s.DB().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.ErrorContains(t, importEmbeddings(ctx, tx, Options{
+		RepoPath:              repo,
+		EmbeddingProvider:     "openai",
+		EmbeddingModel:        "model",
+		EmbeddingInputVersion: store.EmbeddingInputVersion,
+	}, []EmbeddingManifest{{
+		Provider:     "openai",
+		Model:        "model",
+		InputVersion: store.EmbeddingInputVersion,
+		Files:        []string{embeddingRel},
+	}}), "decode dimensions")
+	require.NoError(t, tx.Rollback())
+
+	writeGzipJSONLines(t, filepath.Join(repo, filepath.FromSlash(embeddingRel)), []string{
+		`{"message_id":"m1","provider":"openai","model":"model","input_version":"` + store.EmbeddingInputVersion + `","dimensions":2,"embedding_blob":"not-base64","embedded_at":"2026-04-22T12:00:00Z"}`,
+	})
+	tx, err = s.DB().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.ErrorContains(t, importEmbeddings(ctx, tx, Options{
+		RepoPath:              repo,
+		EmbeddingProvider:     "openai",
+		EmbeddingModel:        "model",
+		EmbeddingInputVersion: store.EmbeddingInputVersion,
+	}, []EmbeddingManifest{{
+		Provider:     "openai",
+		Model:        "model",
+		InputVersion: store.EmbeddingInputVersion,
+		Files:        []string{embeddingRel},
+	}}), "decode embedding blob")
+	require.NoError(t, tx.Rollback())
+}
+
+func writeGzipJSONLines(t *testing.T, path string, lines []string) {
+	t.Helper()
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	gz := gzip.NewWriter(file)
+	for _, line := range lines {
+		_, err = gz.Write([]byte(line + "\n"))
+		require.NoError(t, err)
+	}
+	require.NoError(t, gz.Close())
+	require.NoError(t, file.Close())
 }
 
 func seedStore(t *testing.T, path string) *store.Store {

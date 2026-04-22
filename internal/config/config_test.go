@@ -234,6 +234,41 @@ func TestExpandPath(t *testing.T) {
 	require.Contains(t, path, "discrawl-test")
 }
 
+func TestResolvePathAndLoadOpenClawFallbacks(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "env.toml")
+	t.Setenv(DefaultConfigEnv, envPath)
+	require.Equal(t, "flag.toml", ResolvePath("flag.toml"))
+	require.Equal(t, envPath, ResolvePath(""))
+	t.Setenv(DefaultConfigEnv, "")
+	require.Contains(t, ResolvePath(""), filepath.Join(".discrawl", "config.toml"))
+	_, err := ExpandPath("")
+	require.ErrorContains(t, err, "empty path")
+
+	openClawPath := filepath.Join(dir, "openclaw.json")
+	require.NoError(t, os.WriteFile(openClawPath, []byte(`{}`), 0o600))
+	require.NoError(t, os.WriteFile(openClawPath+".bak", []byte(`{
+		"channels": {
+			"discord": {
+				"accounts": {
+					"Work Account": {
+						"token": "backup-token",
+						"guilds": { "g9": {} }
+					}
+				}
+			}
+		}
+	}`), 0o600))
+
+	info, err := LoadOpenClawDiscord(openClawPath, "Work Account")
+	require.NoError(t, err)
+	require.Equal(t, "backup-token", info.Token)
+	require.Equal(t, []string{"g9"}, info.GuildIDs)
+
+	_, err = LoadOpenClawDiscord(filepath.Join(dir, "missing.json"), "default")
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 func TestOpenClawCandidatesIncludesBackups(t *testing.T) {
 	t.Parallel()
 
@@ -250,6 +285,15 @@ func TestOpenClawCandidatesIncludesBackups(t *testing.T) {
 
 func TestEffectiveDefaultGuildAndDirs(t *testing.T) {
 	t.Parallel()
+
+	require.Equal(t, "explicit", Config{DefaultGuildID: "explicit", GuildIDs: []string{"g1"}}.EffectiveDefaultGuildID())
+	require.Empty(t, Config{GuildIDs: []string{"g1", "g2"}}.EffectiveDefaultGuildID())
+	require.Equal(t, "default", normalizeAccount(""))
+	require.Equal(t, "work", normalizeAccount(" Work "))
+	require.Equal(t, []string{"a", "b"}, uniqueStrings([]string{" a ", "", "b", "a"}))
+	require.Equal(t, "token", NormalizeBotToken(" token "))
+	require.Nil(t, uniqueStrings(nil))
+	require.Equal(t, []string{"a", "b"}, mapKeys(map[string]int{"b": 2, "a": 1}))
 
 	cfg := Default()
 	cfg.GuildIDs = []string{"g1"}

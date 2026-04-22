@@ -13,6 +13,255 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDefaultEmbedLimit(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 1000, DefaultEmbedLimit())
+}
+
+func TestQueryHelpersAndEmbeddingPresence(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+		ID:                "m1",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		Content:           "hello",
+		NormalizedContent: "hello",
+		RawJSON:           `{}`,
+	}))
+	require.NoError(t, insertTestEmbedding(ctx, s, "m1", "ollama", "nomic-embed-text", []float32{1, 0}))
+
+	ok, err := s.HasMessageEmbeddings(ctx, " ollama ", " nomic-embed-text ", "")
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = s.HasMessageEmbeddings(ctx, "openai", "text-embedding-3-small", "")
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	require.Equal(t, 400, searchCandidateLimit(0))
+	require.Equal(t, searchCandidateFloor, searchCandidateLimit(1))
+	require.Equal(t, searchCandidateCap, searchCandidateLimit(1000))
+	require.True(t, IsReadOnlySQL("-- hello\n/* block */\nwith rows as (select 1) select * from rows"))
+	require.True(t, IsReadOnlySQL("EXPLAIN select 1"))
+	require.False(t, IsReadOnlySQL("/* unfinished"))
+	require.False(t, IsReadOnlySQL("delete from messages"))
+
+	parent, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	queryCtx, queryCancel := withQueryTimeout(parent)
+	defer queryCancel()
+	parentDeadline, ok := parent.Deadline()
+	require.True(t, ok)
+	queryDeadline, ok := queryCtx.Deadline()
+	require.True(t, ok)
+	require.Equal(t, parentDeadline, queryDeadline)
+
+	db, cleanup, err := (&Store{db: s.DB()}).openReadOnlyDB()
+	require.NoError(t, err)
+	require.Nil(t, cleanup)
+	require.Same(t, s.DB(), db)
+	require.NoError(t, s.CheckMessageFTS(ctx))
+}
+
+func TestSearchFallbackFilters(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	base := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c2", GuildID: "g2", Kind: "text", Name: "random", RawJSON: `{}`}))
+	for _, record := range []MessageRecord{
+		{
+			ID:                "m1",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u1",
+			AuthorName:        "Peter",
+			CreatedAt:         base.Format(time.RFC3339Nano),
+			Content:           "needle alpha",
+			NormalizedContent: "needle alpha",
+			RawJSON:           `{"author":{"username":"Peter"}}`,
+		},
+		{
+			ID:                "m2",
+			GuildID:           "g2",
+			ChannelID:         "c2",
+			ChannelName:       "random",
+			AuthorID:          "u2",
+			AuthorName:        "Other",
+			CreatedAt:         base.Add(time.Minute).Format(time.RFC3339Nano),
+			Content:           "needle beta",
+			NormalizedContent: "needle beta",
+			RawJSON:           `{"author":{"username":"Other"}}`,
+		},
+		{
+			ID:                "m3",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u1",
+			AuthorName:        "Peter",
+			CreatedAt:         base.Add(2 * time.Minute).Format(time.RFC3339Nano),
+			Content:           "",
+			NormalizedContent: "",
+			RawJSON:           `{"author":{"username":"Peter"}}`,
+		},
+	} {
+		require.NoError(t, s.UpsertMessage(ctx, record))
+	}
+
+	results, err := s.searchFallback(ctx, SearchOptions{
+		Query:    "needle",
+		GuildIDs: []string{"g1"},
+		Channel:  "gener",
+		Author:   "Peter",
+		Limit:    10,
+	})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "m1", results[0].MessageID)
+	require.Equal(t, "general", results[0].ChannelName)
+
+	results, err = s.searchFallback(ctx, SearchOptions{Query: "", IncludeEmpty: true, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+}
+
+func TestStoreMaintenanceHelpers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "discrawl.db")
+	s, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, ensureDBFile(dbPath))
+	require.NoError(t, tightenDBFilePerms(dbPath))
+	require.NoError(t, s.RebuildSearchIndexes(ctx))
+	version, err := s.schemaVersion(ctx)
+	require.NoError(t, err)
+	require.Equal(t, storeSchemaVersion, version)
+	require.NoError(t, s.setSchemaVersion(ctx, storeSchemaVersion))
+	require.NoError(t, s.ensureFTSRowIDs(ctx))
+	require.NoError(t, s.ensureMemberFTSRowIDs(ctx))
+	require.NoError(t, s.ensureEmbeddingSearchIndexes(ctx))
+
+	tx, err := s.DB().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.ErrorContains(t, configureFTSBulkLoad(ctx, tx, "bad_fts"), "unsupported fts table")
+	require.ErrorContains(t, optimizeFTS(ctx, tx, "bad_fts"), "unsupported fts table")
+	ok, err := columnExists(ctx, tx, "messages", "id")
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = columnExists(ctx, tx, "messages", "missing_column")
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.NoError(t, tx.Rollback())
+
+	rowID, ok := messageFTSRowID("")
+	require.False(t, ok)
+	require.Zero(t, rowID)
+	rowID, ok = messageFTSRowID("123")
+	require.True(t, ok)
+	require.Equal(t, int64(123), rowID)
+	rowID, ok = messageFTSRowID("not-a-snowflake")
+	require.True(t, ok)
+	require.NotZero(t, rowID)
+	require.NotZero(t, memberFTSRowID("g1", "u1"))
+	require.NoError(t, (*Store)(nil).Close())
+	require.NoError(t, (&Store{}).Close())
+}
+
+func TestClosedStoreOperationsReturnErrors(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	require.Error(t, s.UpsertGuild(ctx, GuildRecord{ID: "g1"}))
+	require.Error(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1"}))
+	require.Error(t, s.ReplaceMembers(ctx, "g1", nil))
+	require.Error(t, s.UpsertMember(ctx, MemberRecord{GuildID: "g1", UserID: "u1"}))
+	require.Error(t, s.DeleteMember(ctx, "g1", "u1"))
+	require.Error(t, s.UpsertMessageWithOptions(ctx, MessageRecord{ID: "m1"}, WriteOptions{}))
+	require.Error(t, s.UpsertMessages(ctx, []MessageMutation{{Record: MessageRecord{ID: "m1"}}}))
+	require.NoError(t, s.UpsertMessages(ctx, nil))
+	require.Error(t, s.MarkMessageDeleted(ctx, "g1", "c1", "m1", map[string]any{}))
+	require.Error(t, s.AppendMessageEvent(ctx, "g1", "c1", "m1", "create", map[string]any{}))
+	require.Error(t, s.SetSyncState(ctx, "scope", "cursor"))
+	require.Error(t, s.DeleteSyncState(ctx, "scope"))
+	_, err = s.GetSyncState(ctx, "scope")
+	require.Error(t, err)
+	_, _, err = s.ChannelMessageBounds(ctx, "c1")
+	require.Error(t, err)
+	_, err = s.SearchMessages(ctx, SearchOptions{Query: "needle", Limit: 1})
+	require.Error(t, err)
+	_, err = s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector: []float32{1},
+		Provider:    "ollama",
+		Model:       "model",
+		Dimensions:  1,
+		Limit:       1,
+	})
+	require.Error(t, err)
+	_, err = s.SearchMessagesHybrid(ctx, SearchOptions{Query: "needle", Limit: 1}, SemanticSearchOptions{
+		QueryVector: []float32{1},
+		Provider:    "ollama",
+		Model:       "model",
+		Dimensions:  1,
+		Limit:       1,
+	})
+	require.Error(t, err)
+	_, err = s.Members(ctx, "", "", 1)
+	require.Error(t, err)
+	_, err = s.MemberByID(ctx, "u1")
+	require.Error(t, err)
+	_, err = s.MemberProfile(ctx, "g1", "u1", 1)
+	require.Error(t, err)
+	_, err = s.ListMessages(ctx, MessageListOptions{GuildIDs: []string{"g1"}, Channel: "#general", Author: "u1", Since: time.Now().Add(-time.Hour), Before: time.Now(), Limit: 1, IncludeEmpty: true})
+	require.Error(t, err)
+	_, err = s.ListMentions(ctx, MentionListOptions{GuildIDs: []string{"g1"}, Channel: "#general", Author: "u1", Target: "u2", TargetType: "user", Since: time.Now().Add(-time.Hour), Before: time.Now(), Limit: 1})
+	require.Error(t, err)
+	_, err = s.Channels(ctx, "")
+	require.Error(t, err)
+	_, err = s.GuildChannelCount(ctx, "g1")
+	require.Error(t, err)
+	_, err = s.GuildMemberCount(ctx, "g1")
+	require.Error(t, err)
+	_, err = s.IncompleteMessageChannelIDs(ctx, "g1")
+	require.Error(t, err)
+	_, err = s.Status(ctx, "db", "g1")
+	require.Error(t, err)
+	_, _, err = s.Query(ctx, "select 1")
+	require.Error(t, err)
+	_, err = s.Exec(ctx, "delete from messages")
+	require.Error(t, err)
+	require.Error(t, s.RebuildSearchIndexes(ctx))
+	require.NoError(t, s.CheckMessageFTS(ctx))
+	_, err = s.HasMessageEmbeddings(ctx, "ollama", "model", "")
+	require.Error(t, err)
+	_, err = s.RequeueAllEmbeddingJobs(ctx, EmbeddingDrainOptions{Provider: "ollama", Model: "model"})
+	require.Error(t, err)
+	_, err = s.DrainEmbeddingJobs(ctx, &fakeEmbeddingProvider{}, EmbeddingDrainOptions{Provider: "ollama", Model: "model"})
+	require.Error(t, err)
+}
+
 func TestStoreReadWriteAndSearch(t *testing.T) {
 	t.Parallel()
 

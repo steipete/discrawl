@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -166,6 +167,69 @@ func TestTailRequiresHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, client.Tail(context.Background(), nil))
 	require.NoError(t, (&Client{}).Close())
+}
+
+func TestRunTailTaskRecoversPanics(t *testing.T) {
+	t.Parallel()
+
+	client := &Client{tailHandlerTimeout: 10 * time.Millisecond}
+	err := client.runTailTask(context.Background(), func(context.Context) error {
+		panic("boom")
+	})
+	require.ErrorContains(t, err, "tail handler panic: boom")
+
+	client.tailHandlerTimeout = 0
+	err = client.runTailTask(context.Background(), func(context.Context) error {
+		panic("again")
+	})
+	require.ErrorContains(t, err, "tail handler panic: again")
+}
+
+func TestRequestContextHonorsExistingDeadlineAndDisabledTimeout(t *testing.T) {
+	t.Parallel()
+
+	parent, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	client := &Client{requestTimeout: 20 * time.Millisecond}
+	reqCtx, reqCancel := client.requestContext(parent)
+	reqCancel()
+	parentDeadline, ok := parent.Deadline()
+	require.True(t, ok)
+	reqDeadline, ok := reqCtx.Deadline()
+	require.True(t, ok)
+	require.Equal(t, parentDeadline, reqDeadline)
+
+	reqCtx, reqCancel = (&Client{}).requestContext(context.Background())
+	defer reqCancel()
+	_, ok = reqCtx.Deadline()
+	require.False(t, ok)
+}
+
+func TestTailQueueAndWorkerSizing(t *testing.T) {
+	client := &Client{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	workCh := make(chan func(context.Context) error)
+	errCh := make(chan error, 1)
+	client.enqueueTailTask(ctx, workCh, errCh, func(context.Context) error { return nil })
+	require.Empty(t, errCh)
+
+	ctx = context.Background()
+	fullWorkCh := make(chan func(context.Context) error)
+	client.enqueueTailTask(ctx, fullWorkCh, errCh, func(context.Context) error { return nil })
+	require.ErrorContains(t, <-errCh, "tail worker queue full")
+	errCh <- errors.New("existing")
+	client.enqueueTailTask(ctx, fullWorkCh, errCh, func(context.Context) error { return nil })
+	require.ErrorContains(t, <-errCh, "existing")
+
+	prev := runtime.GOMAXPROCS(2)
+	defer runtime.GOMAXPROCS(prev)
+	require.Equal(t, 4, defaultTailWorkerCount())
+	runtime.GOMAXPROCS(8)
+	require.Equal(t, 8, defaultTailWorkerCount())
+	runtime.GOMAXPROCS(32)
+	require.Equal(t, 16, defaultTailWorkerCount())
+	require.Equal(t, defaultTailWorkerCount()*32, defaultTailQueueSize())
 }
 
 func TestClientChannelMessagesTimesOut(t *testing.T) {

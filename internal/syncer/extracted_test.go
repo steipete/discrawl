@@ -116,3 +116,65 @@ func TestTailHandlerAllowGuild(t *testing.T) {
 	require.True(t, handler.allowGuild("g1"))
 	require.False(t, handler.allowGuild("g2"))
 }
+
+func TestTailHandlerIgnoresFilteredGuildAndIncompleteMember(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	handler := &tailHandler{guilds: makeGuildSet([]string{"g1"}), store: s}
+	require.NoError(t, handler.OnMessageCreate(ctx, &discordgo.Message{ID: "m1", GuildID: "g2", ChannelID: "c1"}))
+	require.NoError(t, handler.OnMessageUpdate(ctx, &discordgo.Message{ID: "m1", GuildID: "g2", ChannelID: "c1"}))
+	require.NoError(t, handler.OnMessageDelete(ctx, &discordgo.MessageDelete{Message: &discordgo.Message{ID: "m1", GuildID: "g2", ChannelID: "c1"}}))
+	require.NoError(t, handler.OnChannelUpsert(ctx, &discordgo.Channel{ID: "c1", GuildID: "g2"}))
+	require.NoError(t, handler.OnMemberUpsert(ctx, "g1", nil))
+	require.NoError(t, handler.OnMemberUpsert(ctx, "g1", &discordgo.Member{}))
+	require.NoError(t, handler.OnMemberDelete(ctx, "g2", "u1"))
+
+	status, err := s.Status(ctx, "db", "")
+	require.NoError(t, err)
+	require.Zero(t, status.MessageCount)
+	require.Zero(t, status.ChannelCount)
+	require.Zero(t, status.MemberCount)
+}
+
+func TestSyncerMemberRefreshAndCatalogDecisions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	svc := New(&fakeClient{}, s, nil)
+	require.False(t, svc.shouldUseIncrementalFullCatalog(ctx, "g1"))
+	require.True(t, svc.shouldRefreshMembers(ctx, "g1"))
+
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.True(t, svc.shouldUseIncrementalFullCatalog(ctx, "g1"))
+	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{
+		GuildID:     "g1",
+		UserID:      "u1",
+		Username:    "peter",
+		DisplayName: "Peter",
+		RoleIDsJSON: `[]`,
+		RawJSON:     `{}`,
+	}))
+	require.False(t, svc.shouldRefreshMembers(ctx, "g1"))
+	require.False(t, svc.shouldRefreshMembers(ctx, "g1"))
+
+	require.NoError(t, s.SetSyncState(ctx, guildMemberSyncSuccessScope("g1"), "bad-time"))
+	require.True(t, svc.shouldRefreshMembers(ctx, "g1"))
+	require.NoError(t, s.SetSyncState(ctx, guildMemberSyncSuccessScope("g1"), time.Now().UTC().Add(-2*defaultMemberRefreshInterval).Format(time.RFC3339Nano)))
+	require.True(t, svc.shouldRefreshMembers(ctx, "g1"))
+	svc.memberRefreshInterval = 0
+	require.True(t, svc.shouldRefreshMembers(ctx, "g1"))
+
+	require.False(t, (*Syncer)(nil).shouldUseIncrementalFullCatalog(ctx, "g1"))
+	require.True(t, (*Syncer)(nil).shouldRefreshMembers(ctx, "g1"))
+	require.Equal(t, "none", timeoutLabel(0))
+	require.Equal(t, "1s", timeoutLabel(time.Second))
+}
