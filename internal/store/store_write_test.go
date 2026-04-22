@@ -374,7 +374,7 @@ func TestDrainEmbeddingJobsStopsOnRateLimit(t *testing.T) {
 	_, rows, err := s.ReadOnlyQuery(ctx, "select message_id, state, attempts, last_error, coalesce(locked_at, '') from embedding_jobs order by message_id")
 	require.NoError(t, err)
 	require.Equal(t, [][]string{
-		{"m1", "pending", "0", "http 429: slow down", ""},
+		{"m1", "pending", "0", "embedding request failed with HTTP 429: slow down", ""},
 		{"m2", "pending", "0", "", ""},
 	}, rows)
 }
