@@ -446,6 +446,124 @@ func TestSearchMessagesSemanticErrors(t *testing.T) {
 	require.ErrorContains(t, err, "stored embedding vector is zero")
 }
 
+func TestSearchMessagesHybridFusesAndDeduplicates(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	base := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertGuild(ctx, GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+
+	messages := []MessageRecord{
+		{
+			ID:                "m3",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u1",
+			MessageType:       0,
+			CreatedAt:         base.Format(time.RFC3339Nano),
+			Content:           "panic stack trace",
+			NormalizedContent: "panic stack trace",
+			RawJSON:           `{"author":{"username":"Alice"}}`,
+		},
+		{
+			ID:                "m2",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u2",
+			MessageType:       0,
+			CreatedAt:         base.Add(time.Minute).Format(time.RFC3339Nano),
+			Content:           "database worker stalled",
+			NormalizedContent: "database worker stalled",
+			RawJSON:           `{"author":{"username":"Bob"}}`,
+		},
+		{
+			ID:                "m1",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u3",
+			MessageType:       0,
+			CreatedAt:         base.Add(2 * time.Minute).Format(time.RFC3339Nano),
+			Content:           "panic database lock",
+			NormalizedContent: "panic database lock",
+			RawJSON:           `{"author":{"username":"Carol"}}`,
+		},
+	}
+	for _, message := range messages {
+		require.NoError(t, s.UpsertMessage(ctx, message))
+	}
+	require.NoError(t, insertTestEmbedding(ctx, s, "m1", "ollama", "nomic-embed-text", []float32{0.9, 0.1}))
+	require.NoError(t, insertTestEmbedding(ctx, s, "m2", "ollama", "nomic-embed-text", []float32{1, 0}))
+	require.NoError(t, insertTestEmbedding(ctx, s, "m3", "ollama", "nomic-embed-text", []float32{0, 1}))
+
+	results, err := s.SearchMessagesHybrid(ctx, SearchOptions{
+		Query:    "lock",
+		GuildIDs: []string{"g1"},
+		Limit:    3,
+	}, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		GuildIDs:     []string{"g1"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"m1", "m2", "m3"}, searchResultIDs(results))
+}
+
+func TestSearchMessagesHybridTieBreaksTowardFTS(t *testing.T) {
+	t.Parallel()
+
+	created := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	results := fuseSearchResults(
+		[]SearchResult{{MessageID: "fts", CreatedAt: created}},
+		[]SearchResult{{MessageID: "semantic", CreatedAt: created.Add(time.Hour)}},
+		2,
+	)
+	require.Equal(t, []string{"fts", "semantic"}, searchResultIDs(results))
+}
+
+func TestSearchMessagesHybridPropagatesCorruptEmbeddings(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+		ID:                "m1",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		Content:           "panic database lock",
+		NormalizedContent: "panic database lock",
+		RawJSON:           `{}`,
+	}))
+	require.NoError(t, insertTestEmbeddingBlob(ctx, s, "m1", "ollama", "nomic-embed-text", 2, []byte{0, 0, 0, 0}))
+
+	_, err = s.SearchMessagesHybrid(ctx, SearchOptions{
+		Query: "panic",
+		Limit: 10,
+	}, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+	})
+	require.ErrorContains(t, err, "vector length mismatch")
+}
+
 func insertTestEmbedding(ctx context.Context, s *Store, messageID, provider, model string, vector []float32) error {
 	blob, err := EncodeEmbeddingVector(vector)
 	if err != nil {
