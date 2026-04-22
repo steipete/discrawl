@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -60,11 +61,14 @@ type ShareConfig struct {
 }
 
 type EmbeddingsConfig struct {
-	Enabled   bool   `toml:"enabled"`
-	Provider  string `toml:"provider"`
-	Model     string `toml:"model"`
-	APIKeyEnv string `toml:"api_key_env"`
-	BatchSize int    `toml:"batch_size"`
+	Enabled        bool   `toml:"enabled"`
+	Provider       string `toml:"provider"`
+	Model          string `toml:"model"`
+	BaseURL        string `toml:"base_url"`
+	APIKeyEnv      string `toml:"api_key_env"`
+	BatchSize      int    `toml:"batch_size"`
+	MaxInputChars  int    `toml:"max_input_chars"`
+	RequestTimeout string `toml:"request_timeout"`
 }
 
 type TokenResolution struct {
@@ -120,11 +124,13 @@ func Default() Config {
 		Search: SearchConfig{
 			DefaultMode: "fts",
 			Embeddings: EmbeddingsConfig{
-				Enabled:   false,
-				Provider:  "openai",
-				Model:     "text-embedding-3-small",
-				APIKeyEnv: "OPENAI_API_KEY",
-				BatchSize: 64,
+				Enabled:        false,
+				Provider:       "openai",
+				Model:          "text-embedding-3-small",
+				APIKeyEnv:      "OPENAI_API_KEY",
+				BatchSize:      64,
+				MaxInputChars:  12000,
+				RequestTimeout: "2m",
 			},
 		},
 		Share: ShareConfig{
@@ -239,14 +245,27 @@ func (c *Config) Normalize() error {
 	if c.Search.DefaultMode == "" {
 		c.Search.DefaultMode = "fts"
 	}
+	c.Search.Embeddings.Provider = strings.ToLower(strings.TrimSpace(c.Search.Embeddings.Provider))
+	c.Search.Embeddings.Model = strings.TrimSpace(c.Search.Embeddings.Model)
+	c.Search.Embeddings.BaseURL = strings.TrimRight(strings.TrimSpace(c.Search.Embeddings.BaseURL), "/")
+	c.Search.Embeddings.APIKeyEnv = strings.TrimSpace(c.Search.Embeddings.APIKeyEnv)
+	c.Search.Embeddings.RequestTimeout = strings.TrimSpace(c.Search.Embeddings.RequestTimeout)
 	if c.Search.Embeddings.Provider == "" {
 		c.Search.Embeddings.Provider = "openai"
 	}
 	if c.Search.Embeddings.Model == "" {
-		c.Search.Embeddings.Model = "text-embedding-3-small"
+		switch strings.ToLower(strings.TrimSpace(c.Search.Embeddings.Provider)) {
+		case "ollama", "llamacpp":
+			c.Search.Embeddings.Model = "nomic-embed-text"
+		default:
+			c.Search.Embeddings.Model = "text-embedding-3-small"
+		}
 	}
-	if c.Search.Embeddings.APIKeyEnv == "" {
+	if c.Search.Embeddings.APIKeyEnv == "" && c.Search.Embeddings.Provider == "openai" {
 		c.Search.Embeddings.APIKeyEnv = "OPENAI_API_KEY"
+	}
+	if (c.Search.Embeddings.Provider == "ollama" || c.Search.Embeddings.Provider == "llamacpp") && c.Search.Embeddings.APIKeyEnv == "OPENAI_API_KEY" {
+		c.Search.Embeddings.APIKeyEnv = ""
 	}
 	if c.Search.Embeddings.BatchSize <= 0 {
 		c.Search.Embeddings.BatchSize = 64
@@ -259,6 +278,17 @@ func (c *Config) Normalize() error {
 	}
 	if c.Share.StaleAfter == "" {
 		c.Share.StaleAfter = "15m"
+	}
+	if c.Search.Embeddings.MaxInputChars <= 0 {
+		c.Search.Embeddings.MaxInputChars = 12000
+	}
+	if c.Search.Embeddings.RequestTimeout == "" {
+		c.Search.Embeddings.RequestTimeout = "2m"
+	}
+	if timeout, err := time.ParseDuration(c.Search.Embeddings.RequestTimeout); err != nil {
+		return fmt.Errorf("parse search.embeddings.request_timeout: %w", err)
+	} else if timeout <= 0 {
+		return errors.New("search.embeddings.request_timeout must be positive")
 	}
 	c.GuildIDs = uniqueStrings(c.GuildIDs)
 	return nil
