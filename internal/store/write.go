@@ -287,6 +287,30 @@ func (s *Store) UpsertMessages(ctx context.Context, messages []MessageMutation) 
 
 func upsertMessageTx(ctx context.Context, tx *sql.Tx, message MessageRecord, opts WriteOptions) error {
 	now := time.Now().UTC().Format(timeLayout)
+	var previousNormalized sql.NullString
+	previousErr := sql.ErrNoRows
+	jobExists := false
+	if opts.EnqueueEmbedding {
+		previousErr = tx.QueryRowContext(ctx, `
+			select normalized_content
+			from messages
+			where id = ?
+		`, message.ID).Scan(&previousNormalized)
+		if previousErr != nil && previousErr != sql.ErrNoRows {
+			return previousErr
+		}
+		if previousErr == nil {
+			var existingJobs int
+			if err := tx.QueryRowContext(ctx, `
+				select count(*)
+				from embedding_jobs
+				where message_id = ?
+			`, message.ID).Scan(&existingJobs); err != nil {
+				return err
+			}
+			jobExists = existingJobs > 0
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `
 		insert into messages(
 			id, guild_id, channel_id, author_id, message_type, created_at, edited_at, deleted_at,
@@ -323,11 +347,17 @@ func upsertMessageTx(ctx context.Context, tx *sql.Tx, message MessageRecord, opt
 			return err
 		}
 	}
-	if opts.EnqueueEmbedding {
+	queueEmbedding := opts.EnqueueEmbedding && (previousErr == sql.ErrNoRows || previousNormalized.String != message.NormalizedContent || !jobExists)
+	if queueEmbedding {
 		if _, err := tx.ExecContext(ctx, `
 			insert into embedding_jobs(message_id, state, attempts, updated_at)
 			values(?, 'pending', 0, ?)
-			on conflict(message_id) do nothing
+			on conflict(message_id) do update set
+				state = 'pending',
+				attempts = 0,
+				last_error = '',
+				locked_at = null,
+				updated_at = excluded.updated_at
 		`, message.ID, now); err != nil {
 			return err
 		}

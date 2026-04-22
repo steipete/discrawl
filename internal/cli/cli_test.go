@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -487,6 +488,70 @@ func runGit(t *testing.T, dir string, args ...string) {
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
+}
+
+func TestEmbedCommandDrainsBoundedBacklog(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/embeddings", r.URL.Path)
+		var req struct {
+			Input []string `json:"input"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.Len(t, req.Input, 1)
+		_, _ = w.Write([]byte(`{"data":[{"index":0,"embedding":[1,2]}]}`))
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Search.Embeddings.Enabled = true
+	cfg.Search.Embeddings.Provider = "openai_compatible"
+	cfg.Search.Embeddings.Model = "local-model"
+	cfg.Search.Embeddings.BaseURL = server.URL
+	cfg.Search.Embeddings.APIKeyEnv = ""
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	s, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	for _, id := range []string{"m1", "m2"} {
+		require.NoError(t, s.UpsertMessageWithOptions(ctx, store.MessageRecord{
+			ID:                id,
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			MessageType:       0,
+			CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+			Content:           "hello",
+			NormalizedContent: "hello",
+			RawJSON:           `{}`,
+		}, store.WriteOptions{EnqueueEmbedding: true}))
+	}
+	require.NoError(t, s.Close())
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "embed", "--limit", "1"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "processed=1")
+	require.Contains(t, out.String(), "succeeded=1")
+	require.Contains(t, out.String(), "remaining_backlog=1")
+	require.Contains(t, out.String(), "provider=openai_compatible")
+
+	s, err = store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	_, rows, err := s.ReadOnlyQuery(ctx, "select count(*) from message_embeddings")
+	require.NoError(t, err)
+	require.Equal(t, "1", rows[0][0])
+	require.NoError(t, s.Close())
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "embed", "--rebuild", "--limit", "1"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "processed=1")
+	require.Contains(t, out.String(), "succeeded=1")
+	require.Contains(t, out.String(), "remaining_backlog=1")
+	require.Contains(t, out.String(), "requeued=2")
 }
 
 type fakeDiscordClient struct {

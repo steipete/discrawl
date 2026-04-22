@@ -80,6 +80,7 @@ Commands:
   search
   messages
   mentions
+  embed
   sql
   members
   channels
@@ -107,6 +108,21 @@ func printHuman(w io.Writer, value any) error {
 		_, err := fmt.Fprintf(w, "db=%s\nguilds=%d\nchannels=%d\nthreads=%d\nmessages=%d\nmembers=%d\nembedding_backlog=%d\nlast_sync=%s\nlast_tail_event=%s\n",
 			v.DBPath, v.GuildCount, v.ChannelCount, v.ThreadCount, v.MessageCount, v.MemberCount, v.EmbeddingBacklog,
 			formatTime(v.LastSyncAt), formatTime(v.LastTailEventAt))
+		return err
+	case store.EmbeddingDrainStats:
+		_, err := fmt.Fprintf(w, "processed=%d\nsucceeded=%d\nfailed=%d\nskipped=%d\nremaining_backlog=%d\nprovider=%s\nmodel=%s\ninput_version=%s\n",
+			v.Processed, v.Succeeded, v.Failed, v.Skipped, v.RemainingBacklog, v.Provider, v.Model, v.InputVersion)
+		if err != nil {
+			return err
+		}
+		if v.Requeued > 0 {
+			if _, err := fmt.Fprintf(w, "requeued=%d\n", v.Requeued); err != nil {
+				return err
+			}
+		}
+		if v.RateLimited {
+			_, err = fmt.Fprintln(w, "rate_limited=true")
+		}
 		return err
 	case []store.SearchResult:
 		for _, row := range v {

@@ -211,6 +211,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err := s.setSchemaVersion(ctx, storeSchemaVersion); err != nil {
 			return err
 		}
+		currentVersion = storeSchemaVersion
 	}
 	if version, err := s.schemaVersion(ctx); err != nil {
 		return err
@@ -368,7 +369,22 @@ func (s *Store) applyBaselineSchema(ctx context.Context) error {
 			message_id text primary key,
 			state text not null,
 			attempts integer not null default 0,
+			provider text not null default '',
+			model text not null default '',
+			input_version text not null default '',
+			last_error text not null default '',
+			locked_at text,
 			updated_at text not null
+		);`,
+		`create table if not exists message_embeddings (
+			message_id text not null,
+			provider text not null,
+			model text not null,
+			input_version text not null,
+			dimensions integer not null,
+			embedding_blob blob not null,
+			embedded_at text not null,
+			primary key (message_id, provider, model, input_version)
 		);`,
 		`create virtual table if not exists message_fts using fts5(
 			message_id unindexed,
@@ -402,6 +418,7 @@ func (s *Store) applyBaselineSchema(ctx context.Context) error {
 		`create index if not exists idx_mentions_channel_event on mention_events(channel_id, event_at, event_id);`,
 		`create index if not exists idx_mentions_target on mention_events(target_type, target_id, event_at);`,
 		`create index if not exists idx_mentions_author on mention_events(author_id, event_at);`,
+		`create index if not exists idx_embedding_jobs_state_updated on embedding_jobs(state, updated_at);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -417,12 +434,43 @@ func (s *Store) applyQueryIndexMigration(ctx context.Context) error {
 		return err
 	}
 	defer rollback(tx)
+	for _, column := range []struct {
+		name string
+		sql  string
+	}{
+		{"provider", `alter table embedding_jobs add column provider text not null default ''`},
+		{"model", `alter table embedding_jobs add column model text not null default ''`},
+		{"input_version", `alter table embedding_jobs add column input_version text not null default ''`},
+		{"last_error", `alter table embedding_jobs add column last_error text not null default ''`},
+		{"locked_at", `alter table embedding_jobs add column locked_at text`},
+	} {
+		ok, err := columnExists(ctx, tx, "embedding_jobs", column.name)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if _, err := tx.ExecContext(ctx, column.sql); err != nil {
+				return fmt.Errorf("add embedding_jobs.%s: %w", column.name, err)
+			}
+		}
+	}
 	stmts := []string{
+		`create table if not exists message_embeddings (
+			message_id text not null,
+			provider text not null,
+			model text not null,
+			input_version text not null,
+			dimensions integer not null,
+			embedding_blob blob not null,
+			embedded_at text not null,
+			primary key (message_id, provider, model, input_version)
+		);`,
 		`create index if not exists idx_messages_guild_created_id on messages(guild_id, created_at, id);`,
 		`create index if not exists idx_messages_channel_created_id on messages(channel_id, created_at, id);`,
 		`create index if not exists idx_messages_author_created_id on messages(author_id, created_at, id);`,
 		`create index if not exists idx_mentions_guild_event on mention_events(guild_id, event_at, event_id);`,
 		`create index if not exists idx_mentions_channel_event on mention_events(channel_id, event_at, event_id);`,
+		`create index if not exists idx_embedding_jobs_state_updated on embedding_jobs(state, updated_at);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -432,6 +480,27 @@ func (s *Store) applyQueryIndexMigration(ctx context.Context) error {
 	return tx.Commit()
 }
 
+func columnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.QueryContext(ctx, `pragma table_info(`+table+`)`)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
 func (s *Store) ensureFTSRowIDs(ctx context.Context) error {
 	var version sql.NullString
 	err := s.db.QueryRowContext(ctx, `

@@ -13,6 +13,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/steipete/discrawl/internal/config"
 	"github.com/steipete/discrawl/internal/discord"
+	"github.com/steipete/discrawl/internal/embed"
 	"github.com/steipete/discrawl/internal/share"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/syncer"
@@ -96,6 +97,7 @@ type runtime struct {
 	openStore  func(context.Context, string) (*store.Store, error)
 	newDiscord func(config.Config) (discordClient, error)
 	newSyncer  func(syncer.Client, *store.Store, *slog.Logger) syncService
+	newEmbed   func(config.EmbeddingsConfig) (embed.Provider, error)
 	now        func() time.Time
 }
 
@@ -130,6 +132,8 @@ func (r *runtime) dispatch(rest []string) error {
 		return r.withServicesAuto(hasBoolFlag(rest[1:], "--sync"), true, func() error { return r.runMessages(rest[1:]) })
 	case "mentions":
 		return r.withServices(false, func() error { return r.runMentions(rest[1:]) })
+	case "embed":
+		return r.withServices(false, func() error { return r.runEmbed(rest[1:]) })
 	case "sql":
 		return r.withServices(false, func() error { return r.runSQL(rest[1:]) })
 	case "members":
