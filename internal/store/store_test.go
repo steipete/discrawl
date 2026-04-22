@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -325,6 +326,63 @@ func TestSearchMessagesSemanticRanksAndFilters(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Empty(t, results)
+}
+
+func TestSearchMessagesSemanticScoresOlderMatchesBeyondRecentWindow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	base := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertGuild(ctx, GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+		ID:                "old-best",
+		GuildID:           "g1",
+		ChannelID:         "c1",
+		ChannelName:       "general",
+		AuthorID:          "u1",
+		AuthorName:        "Peter",
+		MessageType:       0,
+		CreatedAt:         base.Format(time.RFC3339Nano),
+		Content:           "older best semantic match",
+		NormalizedContent: "older best semantic match",
+		RawJSON:           `{}`,
+	}))
+	require.NoError(t, insertTestEmbedding(ctx, s, "old-best", "ollama", "nomic-embed-text", []float32{1, 0}))
+
+	for i := 0; i < searchCandidateFloor+10; i++ {
+		messageID := "newer-weak-" + strconv.Itoa(i)
+		require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
+			ID:                messageID,
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u1",
+			AuthorName:        "Peter",
+			MessageType:       0,
+			CreatedAt:         base.Add(time.Duration(i+1) * time.Minute).Format(time.RFC3339Nano),
+			Content:           "newer weak semantic candidate " + strconv.Itoa(i),
+			NormalizedContent: "newer weak semantic candidate " + strconv.Itoa(i),
+			RawJSON:           `{}`,
+		}))
+		require.NoError(t, insertTestEmbedding(ctx, s, messageID, "ollama", "nomic-embed-text", []float32{0, 1}))
+	}
+
+	results, err := s.SearchMessagesSemantic(ctx, SemanticSearchOptions{
+		QueryVector:  []float32{1, 0},
+		Provider:     "ollama",
+		Model:        "nomic-embed-text",
+		InputVersion: EmbeddingInputVersion,
+		Dimensions:   2,
+		GuildIDs:     []string{"g1"},
+		Limit:        1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"old-best"}, searchResultIDs(results))
 }
 
 func TestSearchMessagesSemanticErrors(t *testing.T) {
