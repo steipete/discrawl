@@ -510,6 +510,74 @@ func TestSyncLatestOnlySkipsUnchangedIncompleteChannel(t *testing.T) {
 	require.Zero(t, client.messageCalls["c1"])
 }
 
+func TestSyncLatestOnlyUsesIncrementalCatalog(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{
+		ID:       "archived",
+		GuildID:  "g1",
+		ParentID: "c1",
+		Kind:     "thread_public",
+		Name:     "archived-thread",
+		RawJSON:  `{"id":"archived"}`,
+	}))
+	require.NoError(t, s.SetSyncState(ctx, channelLatestScope("c1"), "100"))
+	require.NoError(t, s.SetSyncState(ctx, channelLatestScope("active"), "200"))
+	require.NoError(t, s.SetSyncState(ctx, channelLatestScope("archived"), "300"))
+
+	now := time.Now().UTC()
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		channels: map[string][]*discordgo.Channel{
+			"g1": {{
+				ID:            "c1",
+				GuildID:       "g1",
+				Name:          "general",
+				Type:          discordgo.ChannelTypeGuildText,
+				LastMessageID: "100",
+			}},
+		},
+		guildThreads: map[string][]*discordgo.Channel{
+			"g1": {{
+				ID:            "active",
+				GuildID:       "g1",
+				ParentID:      "c1",
+				Name:          "active-thread",
+				Type:          discordgo.ChannelTypeGuildPublicThread,
+				LastMessageID: "201",
+			}},
+		},
+		messages: map[string][]*discordgo.Message{
+			"active": {{
+				ID:        "201",
+				GuildID:   "g1",
+				ChannelID: "active",
+				Content:   "new active thread message",
+				Timestamp: now,
+				Author:    &discordgo.User{ID: "u1", Username: "user"},
+			}},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{LatestOnly: true, GuildIDs: []string{"g1"}, SkipMembers: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.Messages)
+	require.Equal(t, 1, client.guildThreadCalls)
+	require.Zero(t, client.threadCalls)
+	require.Zero(t, client.messageCalls["archived"])
+	require.Equal(t, 1, client.messageCalls["active"])
+}
+
 func TestSyncFullAutoBatchesIncompleteStoredChannels(t *testing.T) {
 	t.Parallel()
 

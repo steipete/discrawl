@@ -1076,11 +1076,21 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	rt = newRuntime()
 	require.NoError(t, rt.withServices(true, func() error { return rt.runSync([]string{"--guilds", "g2"}) }))
 	require.Equal(t, []string{"g2"}, fakeSync.lastSync.GuildIDs)
+	require.True(t, fakeSync.lastSync.LatestOnly)
+	require.True(t, fakeSync.lastSync.SkipMembers)
 	require.True(t, fakeSync.attachmentTextEnabled)
 
 	rt = newRuntime()
 	require.NoError(t, rt.withServices(true, func() error { return rt.runSync([]string{"--all"}) }))
 	require.Nil(t, fakeSync.lastSync.GuildIDs)
+	require.True(t, fakeSync.lastSync.LatestOnly)
+	require.True(t, fakeSync.lastSync.SkipMembers)
+
+	rt = newRuntime()
+	require.NoError(t, rt.withServices(true, func() error { return rt.runSync([]string{"--guilds", "g2", "--all-channels"}) }))
+	require.Equal(t, []string{"g2"}, fakeSync.lastSync.GuildIDs)
+	require.False(t, fakeSync.lastSync.LatestOnly)
+	require.False(t, fakeSync.lastSync.SkipMembers)
 
 	rt = newRuntime()
 	require.NoError(t, rt.withServices(true, func() error { return rt.runTail([]string{"--repair-every", "30s"}) }))

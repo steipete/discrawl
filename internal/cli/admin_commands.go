@@ -99,6 +99,7 @@ func (r *runtime) runSync(args []string) error {
 	fs.SetOutput(io.Discard)
 	full := fs.Bool("full", false, "")
 	all := fs.Bool("all", false, "")
+	allChannels := fs.Bool("all-channels", false, "")
 	since := fs.String("since", "", "")
 	channels := fs.String("channels", "", "")
 	concurrency := fs.Int("concurrency", r.cfg.Sync.Concurrency, "")
@@ -122,6 +123,8 @@ func (r *runtime) runSync(args []string) error {
 	if err != nil {
 		return usageErr(err)
 	}
+	defaultLatest := !*full && !*allChannels && *since == "" && *channels == ""
+	latestMode := *latestOnly || defaultLatest
 	opts := syncer.SyncOptions{
 		Full:        *full,
 		GuildIDs:    guildIDs,
@@ -129,8 +132,8 @@ func (r *runtime) runSync(args []string) error {
 		Concurrency: *concurrency,
 		Since:       sinceTime,
 		Embeddings:  *withEmbeddings,
-		SkipMembers: *skipMembers,
-		LatestOnly:  *latestOnly,
+		SkipMembers: *skipMembers || defaultLatest,
+		LatestOnly:  latestMode,
 	}
 	stats, err := r.syncer.Sync(r.ctx, opts)
 	if err != nil {

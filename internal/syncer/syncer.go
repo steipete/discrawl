@@ -136,6 +136,9 @@ func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions
 
 	stats := SyncStats{}
 	catalogMode := channelCatalogFull
+	if opts.LatestOnly && !opts.Full && len(opts.ChannelIDs) == 0 {
+		catalogMode = channelCatalogIncremental
+	}
 	if opts.Full && len(opts.ChannelIDs) == 0 {
 		batched, ok, err := s.syncGuildIncompleteBatches(ctx, guildID, opts)
 		if err != nil {
