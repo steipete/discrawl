@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "usage: $0 <discrawl-config> <backup-repo>" >&2
+if [ "$#" -ne 3 ]; then
+  echo "usage: $0 <discrawl-config> <backup-repo> <output-file>" >&2
   exit 2
 fi
 
 CONFIG=$1
 BACKUP_REPO=$2
+OUTPUT_FILE=$3
 OPENCLAW_BIN=${OPENCLAW_BIN:-openclaw}
 OPENCLAW_TIMEOUT=${OPENCLAW_TIMEOUT:-300}
 OPENCLAW_THINKING=${OPENCLAW_THINKING:-low}
@@ -371,6 +372,8 @@ if [ ! -s "$TMP_DIR/field-notes.md" ]; then
   echo "openclaw did not return field notes text; using deterministic fallback" >&2
   write_fallback_notes >"$TMP_DIR/field-notes.md"
 fi
+
+cp "$TMP_DIR/field-notes.md" "$OUTPUT_FILE"
 
 awk -v start="$START_MARKER" -v end="$END_MARKER" -v notes="$TMP_DIR/field-notes.md" '
   BEGIN {

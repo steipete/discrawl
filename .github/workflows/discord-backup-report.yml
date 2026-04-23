@@ -58,6 +58,7 @@ jobs:
           DB: ${{ github.workspace }}/.discrawl-ci/discrawl.db
           BACKUP_REPO: ${{ runner.temp }}/discord-backup
           OPENCLAW_STATE_DIR: ${{ runner.temp }}/openclaw
+          FIELD_NOTES_OUT: ${{ runner.temp }}/field-notes.md
           DISCORD_FIELD_NOTES_GITHUB_REPO: openclaw/openclaw
         run: |
           if [ -z "${DISCORD_BACKUP_TOKEN:-}" ]; then
@@ -87,7 +88,7 @@ jobs:
             jq '.agents.defaults.model = "openai/gpt-5.2" | .agents.defaults.timeoutSeconds = 300 | .agents.defaults.llm.idleTimeoutSeconds = 240' \
               "$OPENCLAW_STATE_DIR/openclaw.json" > "$tmp_config"
             mv "$tmp_config" "$OPENCLAW_STATE_DIR/openclaw.json"
-            scripts/discord-backup-field-notes.sh "$CONFIG" "$BACKUP_REPO"
+            scripts/discord-backup-field-notes.sh "$CONFIG" "$BACKUP_REPO" "$FIELD_NOTES_OUT"
           else
             echo "OPENAI_API_KEY not configured; skipping OpenClaw field notes"
           fi
@@ -99,6 +100,31 @@ jobs:
           git -C "$BACKUP_REPO" commit -m "docs: update discord activity report"
           git -C "$BACKUP_REPO" pull --rebase --autostash origin main
           git -C "$BACKUP_REPO" push
+
+      - name: Post field notes to Discord
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_FIELD_NOTES_CHANNEL_ID: ${{ vars.DISCORD_FIELD_NOTES_CHANNEL_ID }}
+          FIELD_NOTES_OUT: ${{ runner.temp }}/field-notes.md
+        run: |
+          if [ -z "${DISCORD_FIELD_NOTES_CHANNEL_ID:-}" ]; then
+            echo "DISCORD_FIELD_NOTES_CHANNEL_ID not configured; skipping Discord post"
+            exit 0
+          fi
+          if [ ! -s "$FIELD_NOTES_OUT" ]; then
+            echo "no field notes written at $FIELD_NOTES_OUT; skipping Discord post"
+            exit 0
+          fi
+          notes=$(cat "$FIELD_NOTES_OUT")
+          if [ "${#notes}" -gt 4096 ]; then
+            notes="${notes:0:4000}…(full notes in backup repo README)"
+          fi
+          jq -n --arg desc "$notes" '{embeds: [{description: $desc}]}' \
+            | curl -fsS -X POST \
+                -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data @- \
+                "https://discord.com/api/v10/channels/$DISCORD_FIELD_NOTES_CHANNEL_ID/messages"
 
       - name: Save Discord DB cache
         uses: actions/cache/save@v5.0.5
