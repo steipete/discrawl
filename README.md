@@ -108,6 +108,7 @@ Reuse an existing OpenClaw Discord bot config:
 discrawl init --from-openclaw ~/.openclaw/openclaw.json
 discrawl doctor
 discrawl sync --full
+discrawl sync
 discrawl search "panic: nil pointer"
 discrawl tail
 ```
@@ -125,6 +126,7 @@ export DISCORD_BOT_TOKEN="..."
 discrawl doctor
 discrawl init
 discrawl sync --full
+discrawl sync
 ```
 
 Git-only reader setup:
@@ -164,7 +166,7 @@ When OpenClaw config tokens use `${ENV_VAR}` placeholders, `init` and `doctor` r
 
 ### `sync`
 
-Backfills guild state into SQLite.
+Refreshes guild state into SQLite. Run one explicit `--full` pass when you want a complete historical archive; use plain `sync` afterward for frequent latest-message refreshes.
 
 ```bash
 discrawl sync
@@ -176,12 +178,18 @@ discrawl sync --guild 123456789012345678 --all-channels
 discrawl sync --channels 111,222 --since 2026-03-01T00:00:00Z
 ```
 
-By default, `sync` is optimized for frequent "latest message" refreshes: it skips member refreshes, checks live top-level channels plus active threads, and avoids archived-thread repair crawls.
-Use `--all-channels` for the older broad incremental sweep across every stored channel/thread, and `--full` for historical backfill.
+Sync modes:
+
+| Command | Use when | Behavior |
+| --- | --- | --- |
+| `discrawl sync` | routine refresh | imports any stale Git snapshot first, skips member refreshes, checks live top-level channels plus active threads, and only fetches new messages for channels with a stored latest cursor |
+| `discrawl sync --all-channels` | repair pass | broad incremental sweep across every stored channel/thread, including archived threads |
+| `discrawl sync --full` | historical backfill | crawls older history until channels are complete; can take a long time on large servers |
+
 `sync` already uses parallel channel workers. `--concurrency` overrides the default, and the default is auto-sized from `GOMAXPROCS` with a floor of `8` and a cap of `32`.
 `--all` ignores `default_guild_id` and fans out across every discovered guild the bot can access.
 `--skip-members` refreshes guild/channel/message data without crawling the full member list, which is useful for frequent Git snapshot publishers that only need latest messages.
-`--latest-only` is still accepted for explicit latest-only runs; it is now the default for untargeted `sync`.
+`--latest-only` is still accepted for explicit latest-only runs; it is now the default for untargeted `sync`. Use `--all-channels` to opt out of the fast default without doing a full historical crawl.
 When `--channels` includes a forum channel id, `discrawl` expands that forum's threads and syncs their messages as part of the targeted run.
 `--since` limits initial history/bootstrap and full-history backfill to messages at or after the given RFC3339 timestamp. It does not mark older history as complete, so a later `sync --full` without `--since` can continue the backfill.
 Long runs now emit periodic progress logs to stderr so large backfills do not look hung.
@@ -376,7 +384,7 @@ discrawl subscribe --no-auto-update https://github.com/openclaw/discord-backup.g
 
 Once `share.remote` is configured, read commands auto-fetch and import when the local share import is older than `share.stale_after` (default `15m`). `discrawl update` forces the same pull/import step manually.
 
-Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync` and `discrawl messages --sync` import the Git snapshot first, then use live Discord only to fill anything newer or missing. This keeps day-to-day sync fast while preserving live repair behavior.
+Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync` and `discrawl messages --sync` import the Git snapshot first, then use live Discord for latest-message deltas. Use `sync --all-channels` or `sync --full` when you intentionally want a broader live repair/backfill pass.
 
 Git snapshots publish archive tables by default. Embedding queue state stays local to each machine, and Git-only readers can use FTS immediately without an embedding provider.
 
