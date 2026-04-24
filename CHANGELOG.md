@@ -2,6 +2,22 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
+## 0.5.2 - Unreleased
+
+### Changes
+
+- `dms` now lists local wiretap DM conversations and can read or search one DM thread with `--with`, `--last`, and `--search`, so common DM queries no longer require raw SQL.
+- `search --dm` and `messages --dm` now target the local-only `@me` archive directly and skip Git snapshot auto-update, since DMs are never imported from the shared mirror.
+
+### Fixes
+
+- Wiretap now infers fallback DM channel names from cached Discord user/profile data, so channels discovered only from route/message cache entries resolve to names like `Vincent K` instead of `channel-*`.
+- Wiretap message output now preserves sanitized author labels in stored metadata, improving `dms` and `messages` output without storing raw desktop cache payloads.
+
+### Tests
+
+- Added regression coverage for DM channel-name inference from cached profile data when Discord Desktop cache lacks explicit channel recipient metadata.
+
 ## 0.5.1 - 2026-04-24
 
 ### Fixes
