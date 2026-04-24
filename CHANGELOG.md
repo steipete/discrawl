@@ -2,6 +2,13 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
+## 0.5.1 - 2026-04-24
+
+### Fixes
+
+- Git snapshot export/import now keeps wiretap DMs strictly local: `@me` rows, wiretap sync state, and DM vectors are excluded from published snapshots while existing local DM rows are preserved on import.
+- Publishing without `--with-embeddings` now omits old embedding manifests instead of carrying forward a stale vector bundle.
+
 ## 0.5.0 - 2026-04-24
 
 ### Changes
