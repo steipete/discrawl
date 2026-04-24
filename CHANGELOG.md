@@ -17,6 +17,7 @@ All notable changes to `discrawl` will be documented in this file.
 ### Tests
 
 - Added regression coverage for DM channel-name inference from cached profile data when Discord Desktop cache lacks explicit channel recipient metadata.
+- Added coverage for local DM conversation listing/filtering, DM cleanup paths, and Discord Desktop import helper edge cases.
 
 ## 0.5.1 - 2026-04-24
 

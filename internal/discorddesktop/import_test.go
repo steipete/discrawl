@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -13,6 +14,42 @@ import (
 
 	"github.com/steipete/discrawl/internal/store"
 )
+
+func TestDesktopPathAndImportHelpers(t *testing.T) {
+	home := t.TempDir()
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("USERPROFILE", home)
+		require.Equal(t, filepath.Join(home, "AppData", "Roaming", "discord"), DefaultPath())
+	case "darwin":
+		t.Setenv("HOME", home)
+		require.Equal(t, filepath.Join(home, "Library", "Application Support", "discord"), DefaultPath())
+	default:
+		xdg := filepath.Join(home, "xdg")
+		t.Setenv("XDG_CONFIG_HOME", xdg)
+		require.Equal(t, filepath.Join(xdg, "discord"), DefaultPath())
+	}
+
+	require.Equal(t, "dm", kindForChannelType(1, true))
+	require.Equal(t, "group_dm", kindForChannelType(3, true))
+	require.Equal(t, "text", kindForChannelType(0, false))
+	require.Equal(t, "announcement", kindForChannelType(5, false))
+	require.Equal(t, "thread_announcement", kindForChannelType(10, false))
+	require.Equal(t, "thread_public", kindForChannelType(11, false))
+	require.Equal(t, "thread_private", kindForChannelType(12, false))
+	require.Equal(t, "forum", kindForChannelType(15, false))
+	require.Equal(t, "desktop", kindForChannelType(99, false))
+	embedParts := embedText(map[string]any{"embeds": []any{
+		map[string]any{"title": " title ", "description": "body"},
+	}})
+	require.Equal(t, []string{"title", "body"}, embedParts)
+	require.Equal(t, time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC), snowflakeTime("0"))
+	require.True(t, snowflakeTime("not-a-snowflake").IsZero())
+	require.Equal(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC), parseDiscordTime("2026-04-24T12:00:00Z"))
+	require.True(t, parseDiscordTime("bad").IsZero())
+	require.Empty(t, formatOptionalTime(time.Time{}))
+	require.NotEmpty(t, formatOptionalTime(time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)))
+}
 
 func TestImportExtractsDirectMessageFromDesktopCache(t *testing.T) {
 	ctx := context.Background()

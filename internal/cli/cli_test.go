@@ -1680,6 +1680,17 @@ func TestRunMentionsValidation(t *testing.T) {
 	rt := &runtime{stderr: &bytes.Buffer{}}
 	rt.now = func() time.Time { return time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC) }
 
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"extra"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--hours", "-1"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--days", "-1"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--hours", "1", "--days", "1"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--hours", "1", "--since", "2026-03-01T00:00:00Z"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--limit", "-1"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--last", "-1"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--all", "--last", "1"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--limit", "1", "--last", "1"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--since", "bad"})))
+	require.Equal(t, 2, ExitCode(rt.runDirectMessages([]string{"--before", "bad"})))
 	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--hours", "-1", "--channel", "general"})))
 	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--hours", "1", "--days", "1", "--channel", "general"})))
 	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--hours", "1", "--since", "2026-03-01T00:00:00Z", "--channel", "general"})))
