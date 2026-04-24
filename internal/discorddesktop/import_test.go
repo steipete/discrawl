@@ -195,6 +195,53 @@ func TestImportClassifiesMessagesFromCachedChannelRoutes(t *testing.T) {
 	require.Equal(t, [][]string{{"Discord Desktop Guild 999999999999999998"}}, guildRows)
 }
 
+func TestImportInfersDirectMessageNamesFromCachedUsers(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "Cache", "Cache_Data")
+	require.NoError(t, os.MkdirAll(cachePath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_0"), []byte(`https://discord.com/channels/@me/111111111111111119
+[
+{"id":"333333333333333341","channel_id":"111111111111111119","content":"self first","timestamp":"2026-04-23T18:20:43Z","author":{"id":"999999999999999991","username":"steipete","global_name":"Peter"}},
+{"id":"333333333333333342","channel_id":"111111111111111119","content":"self second","timestamp":"2026-04-23T18:20:44Z","author":{"id":"999999999999999991","username":"steipete","global_name":"Peter"}},
+{"id":"333333333333333343","channel_id":"111111111111111119","content":"counterparty","timestamp":"2026-04-23T18:20:45Z","author":{"id":"222222222222222230","username":"vincentkoc"}}
+]
+{"user":{"id":"222222222222222230","username":"vincentkoc","global_name":"Vincent K"}}
+https://discord.com/channels/@me/111111111111111120
+{"id":"333333333333333344","channel_id":"111111111111111120","content":"another dm","timestamp":"2026-04-23T18:20:46Z","author":{"id":"999999999999999991","username":"steipete","global_name":"Peter"}}
+{"id":"333333333333333345","channel_id":"111111111111111120","content":"alice reply","timestamp":"2026-04-23T18:20:47Z","author":{"id":"222222222222222231","username":"alice","global_name":"Alice"}}
+`), 0o600))
+
+	dbPath := filepath.Join(dir, "discrawl.db")
+	st, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = st.Close() }()
+
+	stats, err := Import(ctx, st, Options{Path: dir})
+	require.NoError(t, err)
+	require.Equal(t, 5, stats.Messages)
+	require.Equal(t, 2, stats.DMChannels)
+
+	channels, err := st.Channels(ctx, DirectMessageGuildID)
+	require.NoError(t, err)
+	namesByID := map[string]string{}
+	for _, channel := range channels {
+		namesByID[channel.ID] = channel.Name
+	}
+	require.Equal(t, "Vincent K", namesByID["111111111111111119"])
+	require.Equal(t, "Alice", namesByID["111111111111111120"])
+
+	rows, err := st.ListMessages(ctx, store.MessageListOptions{
+		GuildIDs: []string{DirectMessageGuildID},
+		Channel:  "Vincent",
+		Last:     1,
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "Vincent K", rows[0].ChannelName)
+	require.Equal(t, "Vincent K", rows[0].AuthorName)
+}
+
 func TestImportDropsPreviousUnknownWiretapRows(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

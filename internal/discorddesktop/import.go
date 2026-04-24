@@ -58,10 +58,11 @@ type Stats struct {
 }
 
 type snapshot struct {
-	guilds   map[string]store.GuildRecord
-	channels map[string]store.ChannelRecord
-	messages map[string]store.MessageMutation
-	routes   map[string]string
+	guilds     map[string]store.GuildRecord
+	channels   map[string]store.ChannelRecord
+	messages   map[string]store.MessageMutation
+	routes     map[string]string
+	userLabels map[string]userLabel
 }
 
 func DefaultPath() string {
@@ -115,10 +116,11 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 	}
 	stats := Stats{Path: root, StartedAt: now().UTC()}
 	snap := snapshot{
-		guilds:   map[string]store.GuildRecord{},
-		channels: map[string]store.ChannelRecord{},
-		messages: map[string]store.MessageMutation{},
-		routes:   map[string]string{},
+		guilds:     map[string]store.GuildRecord{},
+		channels:   map[string]store.ChannelRecord{},
+		messages:   map[string]store.MessageMutation{},
+		routes:     map[string]string{},
+		userLabels: map[string]userLabel{},
 	}
 	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -167,6 +169,8 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 	}); err != nil {
 		return stats, snap, err
 	}
+	reconcileMessages(snap)
+	inferDirectMessageNames(snap)
 	reconcileMessages(snap)
 	skippedChannels := map[string]struct{}{}
 	for id, msg := range snap.messages {
@@ -247,6 +251,7 @@ func writeSnapshot(ctx context.Context, st *store.Store, snap snapshot) error {
 func collectValue(snap snapshot, value any, fallbackTime time.Time) {
 	switch typed := value.(type) {
 	case map[string]any:
+		collectUserLabel(snap, typed)
 		if channel, ok := parseChannel(typed); ok {
 			snap.channels[channel.ID] = channel
 			if channel.GuildID == DirectMessageGuildID {
@@ -758,7 +763,7 @@ func channelRawJSON(raw map[string]any, id, guildID, name, kind string) string {
 }
 
 func messageRawJSON(raw map[string]any, id, guildID, channelID, authorID string) string {
-	body, _ := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"id":                 id,
 		"guild_id":           guildID,
 		"channel_id":         channelID,
@@ -771,7 +776,11 @@ func messageRawJSON(raw map[string]any, id, guildID, channelID, authorID string)
 		"attachment_count":   lenArray(raw["attachments"]),
 		"mention_count":      lenArray(raw["mentions"]),
 		"desktop_cache_note": "raw desktop cache payload intentionally not stored",
-	})
+	}
+	if author := sanitizedRawAuthor(raw, authorID); len(author) > 0 {
+		payload["author"] = author
+	}
+	body, _ := json.Marshal(payload)
 	return string(body)
 }
 
