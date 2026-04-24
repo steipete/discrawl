@@ -2,7 +2,7 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
-## 0.5.2 - Unreleased
+## 0.6.0 - 2026-04-24
 
 ### Changes
 
@@ -106,7 +106,7 @@ All notable changes to `discrawl` will be documented in this file.
 - attachment-text indexing for small text-like uploads
 - structured user and role mention indexing/querying
 - empty-message filtering based on real searchable/displayable content instead of raw body only
-- CI with lint, tests, secret scanning, and `80%+` coverage enforcement
+- CI with lint, tests, secret scanning, and coverage enforcement
 - release plumbing via GoReleaser, GitHub Actions, and Homebrew tap packaging
 - sync correctness fixes for empty channels, inaccessible channels, unknown channels, and large-channel resume behavior
 - SQLite/FTS performance fixes for backfill throughput and lower write amplification

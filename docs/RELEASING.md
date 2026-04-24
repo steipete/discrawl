@@ -22,14 +22,15 @@ Assumptions:
 ## 1) Verify build + tests
 
 ```sh
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0 run
-go test ./... -coverprofile=coverage.out
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.1 run
+go test -count=1 ./... -coverprofile=coverage.out
 go tool cover -func=coverage.out | tail -n 1
+go test -count=1 -race ./...
 go build -o /tmp/discrawl ./cmd/discrawl
 gh run list -L 5 --branch main
 ```
 
-Coverage floor: `80%+`
+Coverage floor: `85%+`
 
 ## 2) Update changelog
 
