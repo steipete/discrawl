@@ -25,6 +25,8 @@ type fakeClient struct {
 	guildThreadErrs  map[string]error
 	publicArchived   map[string][]*discordgo.Channel
 	privateArchive   map[string][]*discordgo.Channel
+	archivedErrors   map[string]error
+	archivedCalls    map[string]int
 	members          map[string][]*discordgo.Member
 	messages         map[string][]*discordgo.Message
 	messageErrors    map[string]error
@@ -84,6 +86,13 @@ func (f *fakeClient) GuildThreadsActive(_ context.Context, guildID string) ([]*d
 
 func (f *fakeClient) ThreadsArchived(_ context.Context, channelID string, private bool) ([]*discordgo.Channel, error) {
 	f.threadCalls++
+	if f.archivedCalls == nil {
+		f.archivedCalls = make(map[string]int)
+	}
+	f.archivedCalls[channelID]++
+	if err := f.archivedErrors[channelID]; err != nil {
+		return nil, err
+	}
 	if private {
 		return f.privateArchive[channelID], nil
 	}
