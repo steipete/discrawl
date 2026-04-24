@@ -138,6 +138,105 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 	}
 }
 
+func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+	desktopPath := filepath.Join(dir, "discord")
+	require.NoError(t, os.MkdirAll(filepath.Join(desktopPath, "IndexedDB"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(desktopPath, "IndexedDB", "000001.log"), []byte(`{"id":"111111111111111111","type":1,"recipients":[{"id":"222222222222222222","username":"alice","global_name":"Alice"}]}
+{"id":"333333333333333333","channel_id":"111111111111111111","content":"secret DM launch plan","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222222","username":"alice","global_name":"Alice"}}`), 0o600))
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Desktop.Path = desktopPath
+	cfg.Discord.TokenSource = "none"
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "wiretap"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "messages=1")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "launch"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "secret DM launch plan")
+	require.Contains(t, out.String(), "@me")
+}
+
+func TestWiretapAndSearchWorkWithoutConfig(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	desktopPath := filepath.Join(dir, "discord")
+	require.NoError(t, os.MkdirAll(filepath.Join(desktopPath, "IndexedDB"), 0o755))
+	require.NoError(t, os.MkdirAll(home, 0o755))
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	require.NoError(t, os.WriteFile(filepath.Join(desktopPath, "IndexedDB", "000001.log"), []byte(`{"id":"111111111111111112","type":1,"recipients":[{"id":"222222222222222223","username":"alice","global_name":"Alice"}]}
+{"id":"333333333333333334","channel_id":"111111111111111112","content":"local-only DM import","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222223","username":"alice","global_name":"Alice"}}`), 0o600))
+
+	cfgPath := filepath.Join(dir, "missing.toml")
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "wiretap", "--path", desktopPath}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "messages=1")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "local-only"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "local-only DM import")
+	require.Contains(t, out.String(), "@me")
+}
+
+func TestSyncWiretapSourceImportsDesktopMessages(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+	desktopPath := filepath.Join(dir, "discord")
+	require.NoError(t, os.MkdirAll(filepath.Join(desktopPath, "IndexedDB"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(desktopPath, "IndexedDB", "000001.log"), []byte(`{"id":"111111111111111117","type":1,"recipients":[{"id":"222222222222222228","username":"alice","global_name":"Alice"}]}
+{"id":"333333333333333339","channel_id":"111111111111111117","content":"sync wiretap import","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222228","username":"alice","global_name":"Alice"}}`), 0o600))
+
+	cfg := config.Default()
+	cfg.DBPath = dbPath
+	cfg.Desktop.Path = desktopPath
+	cfg.Discord.TokenSource = "none"
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "sync", "--source", "wiretap"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "dm_messages=1")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "sync wiretap"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "sync wiretap import")
+	require.Contains(t, out.String(), "@me")
+}
+
+func TestParseSyncSources(t *testing.T) {
+	for _, tc := range []struct {
+		raw     string
+		name    string
+		discord bool
+		wiretap bool
+	}{
+		{"", "both", true, true},
+		{"both", "both", true, true},
+		{"key", "discord", true, false},
+		{"discord", "discord", true, false},
+		{"wiretap", "wiretap", false, true},
+		{"key+wiretap", "both", true, true},
+	} {
+		sources, err := parseSyncSources(tc.raw)
+		require.NoError(t, err)
+		require.Equal(t, tc.name, sources.name)
+		require.Equal(t, tc.discord, sources.discord)
+		require.Equal(t, tc.wiretap, sources.wiretap)
+	}
+	_, err := parseSyncSources("nope")
+	require.Error(t, err)
+}
+
 func TestReadCommandsAutoImportStaleShare(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

@@ -123,27 +123,32 @@ func (r *runtime) dispatch(rest []string) error {
 	case "init":
 		return r.runInit(rest[1:])
 	case "sync":
-		return r.withServicesAuto(true, true, func() error { return r.runSync(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runSync(rest[1:]) })
 	case "tail":
 		return r.withServices(true, func() error { return r.runTail(rest[1:]) })
+	case "wiretap":
+		return r.withLocalStoreDefault(false, func() error { return r.runWiretap(rest[1:]) })
 	case "search":
-		return r.withServices(false, func() error { return r.runSearch(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runSearch(rest[1:]) })
 	case "messages":
-		return r.withServicesAuto(hasBoolFlag(rest[1:], "--sync"), true, func() error { return r.runMessages(rest[1:]) })
+		if hasBoolFlag(rest[1:], "--sync") {
+			return r.withServicesAuto(true, true, func() error { return r.runMessages(rest[1:]) })
+		}
+		return r.withLocalStoreDefault(true, func() error { return r.runMessages(rest[1:]) })
 	case "mentions":
-		return r.withServices(false, func() error { return r.runMentions(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runMentions(rest[1:]) })
 	case "embed":
-		return r.withServices(false, func() error { return r.runEmbed(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runEmbed(rest[1:]) })
 	case "sql":
-		return r.withServices(false, func() error { return r.runSQL(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runSQL(rest[1:]) })
 	case "members":
-		return r.withServices(false, func() error { return r.runMembers(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runMembers(rest[1:]) })
 	case "channels":
-		return r.withServices(false, func() error { return r.runChannels(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runChannels(rest[1:]) })
 	case "status":
-		return r.withServices(false, func() error { return r.runStatus(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runStatus(rest[1:]) })
 	case "report":
-		return r.withServices(false, func() error { return r.runReport(rest[1:]) })
+		return r.withLocalStoreDefault(true, func() error { return r.runReport(rest[1:]) })
 	case "publish":
 		return r.withServicesAuto(false, false, func() error { return r.runPublish(rest[1:]) })
 	case "subscribe":
@@ -159,6 +164,42 @@ func (r *runtime) dispatch(rest []string) error {
 
 func (r *runtime) withServices(withDiscord bool, fn func() error) error {
 	return r.withServicesAuto(withDiscord, !withDiscord, fn)
+}
+
+func (r *runtime) withLocalStoreDefault(autoShareUpdate bool, fn func() error) error {
+	cfg, err := config.Load(r.configPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return configErr(err)
+		}
+		cfg = config.Default()
+		if err := cfg.Normalize(); err != nil {
+			return configErr(err)
+		}
+	}
+	if err := config.EnsureRuntimeDirs(cfg); err != nil {
+		return configErr(err)
+	}
+	dbPath, err := config.ExpandPath(cfg.DBPath)
+	if err != nil {
+		return configErr(err)
+	}
+	r.cfg = cfg
+	storeFactory := r.openStore
+	if storeFactory == nil {
+		storeFactory = store.Open
+	}
+	r.store, err = storeFactory(r.ctx, dbPath)
+	if err != nil {
+		return dbErr(err)
+	}
+	defer func() { _ = r.store.Close() }()
+	if autoShareUpdate && os.Getenv("DISCRAWL_NO_AUTO_UPDATE") != "1" {
+		if err := r.autoUpdateShare(); err != nil {
+			return err
+		}
+	}
+	return fn()
 }
 
 func (r *runtime) withServicesAuto(withDiscord, autoShareUpdate bool, fn func() error) error {
@@ -189,33 +230,43 @@ func (r *runtime) withServicesAuto(withDiscord, autoShareUpdate bool, fn func() 
 		}
 	}
 	if withDiscord {
-		discordFactory := r.newDiscord
-		if discordFactory == nil {
-			discordFactory = func(cfg config.Config) (discordClient, error) {
-				token, err := config.ResolveDiscordToken(cfg)
-				if err != nil {
-					return nil, err
-				}
-				return discord.New(token.Token)
-			}
+		if err := r.ensureDiscordServices(); err != nil {
+			return err
 		}
-		r.client, err = discordFactory(cfg)
-		if err != nil {
-			return authErr(err)
-		}
-		defer func() { _ = r.client.Close() }()
-		syncerFactory := r.newSyncer
-		if syncerFactory == nil {
-			syncerFactory = func(client syncer.Client, s *store.Store, logger *slog.Logger) syncService {
-				return syncer.New(client, s, logger)
-			}
-		}
-		r.syncer = syncerFactory(r.client, r.store, r.logger)
-		if configurable, ok := r.syncer.(attachmentTextConfigurer); ok {
-			configurable.SetAttachmentTextEnabled(cfg.AttachmentTextEnabled())
+		if r.client != nil {
+			defer func() { _ = r.client.Close() }()
 		}
 	}
 	return fn()
+}
+
+func (r *runtime) ensureDiscordServices() error {
+	discordFactory := r.newDiscord
+	if discordFactory == nil {
+		discordFactory = func(cfg config.Config) (discordClient, error) {
+			token, err := config.ResolveDiscordToken(cfg)
+			if err != nil {
+				return nil, err
+			}
+			return discord.New(token.Token)
+		}
+	}
+	client, err := discordFactory(r.cfg)
+	if err != nil {
+		return authErr(err)
+	}
+	r.client = client
+	syncerFactory := r.newSyncer
+	if syncerFactory == nil {
+		syncerFactory = func(client syncer.Client, s *store.Store, logger *slog.Logger) syncService {
+			return syncer.New(client, s, logger)
+		}
+	}
+	r.syncer = syncerFactory(r.client, r.store, r.logger)
+	if configurable, ok := r.syncer.(attachmentTextConfigurer); ok {
+		configurable.SetAttachmentTextEnabled(r.cfg.AttachmentTextEnabled())
+	}
+	return nil
 }
 
 func (r *runtime) autoUpdateShare() error {

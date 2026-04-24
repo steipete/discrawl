@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/steipete/discrawl/internal/discorddesktop"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/syncer"
 )
@@ -77,6 +78,7 @@ Commands:
   init
   sync
   tail
+  wiretap
   search
   messages
   mentions
@@ -101,8 +103,29 @@ func printRows(w io.Writer, cols []string, rows [][]string) error {
 
 func printHuman(w io.Writer, value any) error {
 	switch v := value.(type) {
+	case syncRunStats:
+		if _, err := fmt.Fprintf(w, "source=%s\n", v.Source); err != nil {
+			return err
+		}
+		if v.Discord != nil {
+			if _, err := fmt.Fprintf(w, "discord_guilds=%d\ndiscord_channels=%d\ndiscord_threads=%d\ndiscord_members=%d\ndiscord_messages=%d\n",
+				v.Discord.Guilds, v.Discord.Channels, v.Discord.Threads, v.Discord.Members, v.Discord.Messages); err != nil {
+				return err
+			}
+		}
+		if v.Wiretap != nil {
+			if _, err := fmt.Fprintf(w, "wiretap_messages=%d\nwiretap_dm_messages=%d\nwiretap_dm_channels=%d\nwiretap_guild_messages=%d\nwiretap_skipped_messages=%d\nwiretap_skipped_channels=%d\n",
+				v.Wiretap.Messages, v.Wiretap.DMMessages, v.Wiretap.DMChannels, v.Wiretap.GuildMessages, v.Wiretap.SkippedMessages, v.Wiretap.SkippedChannels); err != nil {
+				return err
+			}
+		}
+		return nil
 	case syncer.SyncStats:
 		_, err := fmt.Fprintf(w, "guilds=%d channels=%d threads=%d members=%d messages=%d\n", v.Guilds, v.Channels, v.Threads, v.Members, v.Messages)
+		return err
+	case discorddesktop.Stats:
+		_, err := fmt.Fprintf(w, "path=%s\nfiles=%d\nskipped=%d\nobjects=%d\nguilds=%d\nchannels=%d\nmessages=%d\ndm_messages=%d\ndm_channels=%d\nguild_messages=%d\nskipped_messages=%d\nskipped_channels=%d\ndry_run=%t\n",
+			v.Path, v.FilesScanned, v.FilesSkipped, v.JSONObjects, v.Guilds, v.Channels, v.Messages, v.DMMessages, v.DMChannels, v.GuildMessages, v.SkippedMessages, v.SkippedChannels, v.DryRun)
 		return err
 	case store.Status:
 		_, err := fmt.Fprintf(w, "db=%s\nguilds=%d\nchannels=%d\nthreads=%d\nmessages=%d\nmembers=%d\nembedding_backlog=%d\nlast_sync=%s\nlast_tail_event=%s\n",

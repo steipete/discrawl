@@ -28,6 +28,7 @@ type Config struct {
 	CacheDir       string        `toml:"cache_dir"`
 	LogDir         string        `toml:"log_dir"`
 	Discord        DiscordConfig `toml:"discord"`
+	Desktop        DesktopConfig `toml:"desktop"`
 	Sync           SyncConfig    `toml:"sync"`
 	Search         SearchConfig  `toml:"search"`
 	Share          ShareConfig   `toml:"share"`
@@ -40,7 +41,13 @@ type DiscordConfig struct {
 	TokenEnv       string `toml:"token_env"`
 }
 
+type DesktopConfig struct {
+	Path         string `toml:"path"`
+	MaxFileBytes int64  `toml:"max_file_bytes"`
+}
+
 type SyncConfig struct {
+	Source         string `toml:"source"`
 	Concurrency    int    `toml:"concurrency"`
 	RepairEvery    string `toml:"repair_every"`
 	FullHistory    bool   `toml:"full_history"`
@@ -115,7 +122,12 @@ func Default() Config {
 			Account:        "default",
 			TokenEnv:       DefaultTokenEnv,
 		},
+		Desktop: DesktopConfig{
+			Path:         defaultDiscordDesktopPath(home),
+			MaxFileBytes: 64 << 20,
+		},
 		Sync: SyncConfig{
+			Source:         "both",
 			Concurrency:    defaultSyncConcurrency(),
 			RepairEvery:    "6h",
 			FullHistory:    true,
@@ -233,8 +245,18 @@ func (c *Config) Normalize() error {
 	if c.Discord.TokenEnv == "" {
 		c.Discord.TokenEnv = DefaultTokenEnv
 	}
+	if c.Desktop.Path == "" {
+		c.Desktop.Path = defaultDiscordDesktopPath(homeDir())
+	}
+	if c.Desktop.MaxFileBytes <= 0 {
+		c.Desktop.MaxFileBytes = 64 << 20
+	}
 	if c.Sync.Concurrency <= 0 {
 		c.Sync.Concurrency = defaultSyncConcurrency()
+	}
+	c.Sync.Source = strings.ToLower(strings.TrimSpace(c.Sync.Source))
+	if c.Sync.Source == "" {
+		c.Sync.Source = "both"
 	}
 	if c.Sync.RepairEvery == "" {
 		c.Sync.RepairEvery = "6h"
@@ -292,6 +314,28 @@ func (c *Config) Normalize() error {
 	}
 	c.GuildIDs = uniqueStrings(c.GuildIDs)
 	return nil
+}
+
+func defaultDiscordDesktopPath(home string) string {
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "discord")
+	case "windows":
+		if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+			return filepath.Join(appData, "discord")
+		}
+		return filepath.Join(home, "AppData", "Roaming", "discord")
+	default:
+		if configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); configHome != "" {
+			return filepath.Join(configHome, "discord")
+		}
+		return filepath.Join(home, ".config", "discord")
+	}
+}
+
+func homeDir() string {
+	home, _ := os.UserHomeDir()
+	return home
 }
 
 func (c Config) EffectiveDefaultGuildID() string {

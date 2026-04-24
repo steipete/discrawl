@@ -1,0 +1,922 @@
+package discorddesktop
+
+import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
+	"github.com/steipete/discrawl/internal/store"
+)
+
+const (
+	DirectMessageGuildID   = "@me"
+	DirectMessageGuildName = "Discord Direct Messages"
+	defaultMaxFileBytes    = 64 << 20
+	maxObjectBytes         = 4 << 20
+)
+
+var channelRouteRE = regexp.MustCompile(`/channels/(@me|[0-9]{12,24})/([0-9]{12,24})`)
+
+type Options struct {
+	Path         string
+	MaxFileBytes int64
+	DryRun       bool
+	Now          func() time.Time
+}
+
+type Stats struct {
+	Path            string    `json:"path"`
+	FilesScanned    int       `json:"files_scanned"`
+	FilesSkipped    int       `json:"files_skipped"`
+	BytesScanned    int64     `json:"bytes_scanned"`
+	JSONObjects     int       `json:"json_objects"`
+	Guilds          int       `json:"guilds"`
+	Channels        int       `json:"channels"`
+	Messages        int       `json:"messages"`
+	DMMessages      int       `json:"dm_messages"`
+	DMChannels      int       `json:"dm_channels"`
+	GuildMessages   int       `json:"guild_messages"`
+	SkippedMessages int       `json:"skipped_messages"`
+	SkippedChannels int       `json:"skipped_channels"`
+	DryRun          bool      `json:"dry_run,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
+	FinishedAt      time.Time `json:"finished_at"`
+}
+
+type snapshot struct {
+	guilds   map[string]store.GuildRecord
+	channels map[string]store.ChannelRecord
+	messages map[string]store.MessageMutation
+	routes   map[string]string
+}
+
+func DefaultPath() string {
+	home, _ := os.UserHomeDir()
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "discord")
+	case "windows":
+		if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+			return filepath.Join(appData, "discord")
+		}
+		return filepath.Join(home, "AppData", "Roaming", "discord")
+	default:
+		if configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); configHome != "" {
+			return filepath.Join(configHome, "discord")
+		}
+		return filepath.Join(home, ".config", "discord")
+	}
+}
+
+func Import(ctx context.Context, st *store.Store, opts Options) (Stats, error) {
+	if st == nil && !opts.DryRun {
+		return Stats{}, errors.New("store is required")
+	}
+	stats, snap, err := scan(ctx, opts)
+	if err != nil {
+		return stats, err
+	}
+	stats.DryRun = opts.DryRun
+	if opts.DryRun {
+		return stats, nil
+	}
+	if err := writeSnapshot(ctx, st, snap); err != nil {
+		return stats, err
+	}
+	return stats, nil
+}
+
+func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+	root := strings.TrimSpace(opts.Path)
+	if root == "" {
+		root = DefaultPath()
+	}
+	maxBytes := opts.MaxFileBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxFileBytes
+	}
+	stats := Stats{Path: root, StartedAt: now().UTC()}
+	snap := snapshot{
+		guilds:   map[string]store.GuildRecord{},
+		channels: map[string]store.ChannelRecord{},
+		messages: map[string]store.MessageMutation{},
+		routes:   map[string]string{},
+	}
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if entry.IsDir() {
+			if shouldSkipDir(entry.Name()) && path != root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			stats.FilesSkipped++
+			return nil
+		}
+		if !isCandidateFile(path) || info.Size() <= 0 || info.Size() > maxBytes {
+			stats.FilesSkipped++
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			stats.FilesSkipped++
+			return nil
+		}
+		stats.FilesScanned++
+		stats.BytesScanned += int64(len(data))
+		collectChannelRoutes(snap, bytes.ToValidUTF8(data, nil))
+		objects := extractJSONValues(bytes.ToValidUTF8(data, nil))
+		for _, payload := range extractGzipPayloads(data, maxBytes) {
+			collectChannelRoutes(snap, bytes.ToValidUTF8(payload, nil))
+			objects = append(objects, extractJSONValues(bytes.ToValidUTF8(payload, nil))...)
+		}
+		stats.JSONObjects += len(objects)
+		for _, raw := range objects {
+			var value any
+			if err := json.Unmarshal(raw, &value); err != nil {
+				continue
+			}
+			collectValue(snap, value, info.ModTime().UTC())
+		}
+		return nil
+	}); err != nil {
+		return stats, snap, err
+	}
+	reconcileMessages(snap)
+	skippedChannels := map[string]struct{}{}
+	for id, msg := range snap.messages {
+		guildID := msg.Record.GuildID
+		if guildID == "" {
+			stats.SkippedMessages++
+			skippedChannels[msg.Record.ChannelID] = struct{}{}
+			delete(snap.messages, id)
+			continue
+		}
+		if guildID == DirectMessageGuildID {
+			if _, ok := snap.guilds[guildID]; !ok {
+				snap.guilds[guildID] = syntheticGuild(guildID, guildName(guildID))
+			}
+		}
+		if _, ok := snap.channels[msg.Record.ChannelID]; !ok && guildID == DirectMessageGuildID {
+			snap.channels[msg.Record.ChannelID] = syntheticChannel(msg.Record.ChannelID, guildID, msg.Record.ChannelName)
+		}
+		snap.messages[id] = msg
+	}
+	dmChannels := map[string]struct{}{}
+	for _, msg := range snap.messages {
+		switch msg.Record.GuildID {
+		case DirectMessageGuildID:
+			stats.DMMessages++
+			dmChannels[msg.Record.ChannelID] = struct{}{}
+		default:
+			stats.GuildMessages++
+		}
+	}
+	for id, channel := range snap.channels {
+		if channel.GuildID != DirectMessageGuildID {
+			delete(snap.channels, id)
+			continue
+		}
+		if _, ok := dmChannels[id]; !ok {
+			delete(snap.channels, id)
+		}
+	}
+	stats.DMChannels = len(dmChannels)
+	stats.SkippedChannels = len(skippedChannels)
+	stats.Guilds = len(snap.guilds)
+	stats.Channels = len(snap.channels)
+	stats.Messages = len(snap.messages)
+	stats.FinishedAt = now().UTC()
+	return stats, snap, nil
+}
+
+func writeSnapshot(ctx context.Context, st *store.Store, snap snapshot) error {
+	if err := st.DeleteGuildData(ctx, "@unknown"); err != nil {
+		return err
+	}
+	guilds := mapValues(snap.guilds)
+	sort.Slice(guilds, func(i, j int) bool { return guilds[i].ID < guilds[j].ID })
+	for _, guild := range guilds {
+		if err := st.UpsertGuild(ctx, guild); err != nil {
+			return err
+		}
+	}
+	channels := mapValues(snap.channels)
+	sort.Slice(channels, func(i, j int) bool { return channels[i].ID < channels[j].ID })
+	for _, channel := range channels {
+		if err := st.UpsertChannel(ctx, channel); err != nil {
+			return err
+		}
+	}
+	messages := mapValues(snap.messages)
+	sort.Slice(messages, func(i, j int) bool { return messages[i].Record.ID < messages[j].Record.ID })
+	if err := st.UpsertMessages(ctx, messages); err != nil {
+		return err
+	}
+	if err := st.DeleteOrphanChannels(ctx, DirectMessageGuildID); err != nil {
+		return err
+	}
+	return st.SetSyncState(ctx, "wiretap:last_import", time.Now().UTC().Format(time.RFC3339Nano))
+}
+
+func collectValue(snap snapshot, value any, fallbackTime time.Time) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if channel, ok := parseChannel(typed); ok {
+			snap.channels[channel.ID] = channel
+			if channel.GuildID == DirectMessageGuildID {
+				if _, ok := snap.guilds[channel.GuildID]; !ok {
+					snap.guilds[channel.GuildID] = syntheticGuild(channel.GuildID, guildName(channel.GuildID))
+				}
+			}
+		}
+		if message, ok := parseMessage(typed, fallbackTime, snap.channels); ok {
+			snap.messages[message.Record.ID] = message
+		}
+		for _, child := range typed {
+			collectValue(snap, child, fallbackTime)
+		}
+	case []any:
+		for _, child := range typed {
+			collectValue(snap, child, fallbackTime)
+		}
+	}
+}
+
+func collectChannelRoutes(snap snapshot, data []byte) {
+	for _, match := range channelRouteRE.FindAllSubmatch(data, -1) {
+		if len(match) != 3 {
+			continue
+		}
+		guildID := string(match[1])
+		channelID := string(match[2])
+		if !looksSnowflake(channelID) {
+			continue
+		}
+		if existing, ok := snap.routes[channelID]; ok && existing != guildID {
+			snap.routes[channelID] = ""
+			continue
+		}
+		snap.routes[channelID] = guildID
+	}
+}
+
+func parseChannel(raw map[string]any) (store.ChannelRecord, bool) {
+	id := stringField(raw, "id")
+	if !looksSnowflake(id) {
+		return store.ChannelRecord{}, false
+	}
+	if _, hasChannelID := raw["channel_id"]; hasChannelID {
+		return store.ChannelRecord{}, false
+	}
+	typeValue, hasType := intField(raw, "type")
+	name := strings.TrimSpace(stringField(raw, "name"))
+	recipients, hasRecipients := raw["recipients"].([]any)
+	guildID := stringField(raw, "guild_id")
+	isDM := guildID == "" && (typeValue == 1 || typeValue == 3 || hasRecipients)
+	if !hasType && !hasRecipients && name == "" {
+		return store.ChannelRecord{}, false
+	}
+	if isDM {
+		guildID = DirectMessageGuildID
+	}
+	if guildID == "" {
+		return store.ChannelRecord{}, false
+	}
+	if name == "" {
+		name = recipientLabel(recipients)
+	}
+	if name == "" {
+		if isDM {
+			name = "dm-" + shortID(id)
+		} else {
+			name = "channel-" + shortID(id)
+		}
+	}
+	rawJSON := channelRawJSON(raw, id, guildID, name, kindForChannelType(typeValue, isDM))
+	return store.ChannelRecord{
+		ID:      id,
+		GuildID: guildID,
+		Kind:    kindForChannelType(typeValue, isDM),
+		Name:    name,
+		RawJSON: rawJSON,
+	}, true
+}
+
+func parseMessage(raw map[string]any, fallbackTime time.Time, channels map[string]store.ChannelRecord) (store.MessageMutation, bool) {
+	id := stringField(raw, "id")
+	channelID := stringField(raw, "channel_id")
+	if !looksSnowflake(id) || !looksSnowflake(channelID) {
+		return store.MessageMutation{}, false
+	}
+	author, _ := raw["author"].(map[string]any)
+	content, hasContent := raw["content"].(string)
+	if !hasContent && len(author) == 0 {
+		return store.MessageMutation{}, false
+	}
+	createdAt := parseDiscordTime(stringField(raw, "timestamp"))
+	if createdAt.IsZero() {
+		createdAt = snowflakeTime(id)
+	}
+	if createdAt.IsZero() {
+		createdAt = fallbackTime
+	}
+	if createdAt.IsZero() {
+		return store.MessageMutation{}, false
+	}
+	guildID := stringField(raw, "guild_id")
+	if guildID == "" {
+		if channel, ok := channels[channelID]; ok && channel.GuildID != "" {
+			guildID = channel.GuildID
+		}
+	}
+	channelName := "channel-" + shortID(channelID)
+	if channel, ok := channels[channelID]; ok && channel.Name != "" {
+		channelName = channel.Name
+	}
+	authorID := stringField(author, "id")
+	authorName := firstNonEmpty(
+		stringField(author, "global_name"),
+		stringField(author, "display_name"),
+		stringField(author, "username"),
+	)
+	msgType, _ := intField(raw, "type")
+	editedAt := parseDiscordTime(stringField(raw, "edited_timestamp"))
+	attachments := parseAttachments(raw, id, guildID, channelID, authorID)
+	mentions := parseMentions(raw, id, guildID, channelID, authorID, createdAt)
+	normalized := normalizeText(content, attachmentText(attachments), embedText(raw))
+	return store.MessageMutation{
+		Record: store.MessageRecord{
+			ID:                id,
+			GuildID:           guildID,
+			ChannelID:         channelID,
+			ChannelName:       channelName,
+			AuthorID:          authorID,
+			AuthorName:        authorName,
+			MessageType:       msgType,
+			CreatedAt:         createdAt.UTC().Format(time.RFC3339Nano),
+			EditedAt:          formatOptionalTime(editedAt),
+			Content:           content,
+			NormalizedContent: normalized,
+			ReplyToMessageID:  messageReferenceID(raw),
+			Pinned:            boolField(raw, "pinned"),
+			HasAttachments:    len(attachments) > 0,
+			RawJSON:           messageRawJSON(raw, id, guildID, channelID, authorID),
+		},
+		EventType:   "wiretap",
+		PayloadJSON: messageRawJSON(raw, id, guildID, channelID, authorID),
+		Options: store.WriteOptions{
+			AppendEvent:      true,
+			EnqueueEmbedding: false,
+		},
+		Attachments: attachments,
+		Mentions:    mentions,
+	}, true
+}
+
+func reconcileMessages(snap snapshot) {
+	for id, msg := range snap.messages {
+		channel, ok := snap.channels[msg.Record.ChannelID]
+		if !ok {
+			if guildID := snap.routes[msg.Record.ChannelID]; guildID != "" {
+				msg.Record.GuildID = guildID
+				if guildID == DirectMessageGuildID {
+					channel = syntheticChannel(msg.Record.ChannelID, guildID, "")
+					snap.channels[msg.Record.ChannelID] = channel
+					ok = true
+				}
+			}
+		}
+		if !ok {
+			if msg.Record.GuildID != "" {
+				for i := range msg.Attachments {
+					msg.Attachments[i].GuildID = msg.Record.GuildID
+				}
+				for i := range msg.Mentions {
+					msg.Mentions[i].GuildID = msg.Record.GuildID
+				}
+				msg.Record.RawJSON = withRawGuildID(msg.Record.RawJSON, msg.Record.GuildID)
+				msg.PayloadJSON = withRawGuildID(msg.PayloadJSON, msg.Record.GuildID)
+			}
+			snap.messages[id] = msg
+			continue
+		}
+		if channel.GuildID != "" {
+			msg.Record.GuildID = channel.GuildID
+			for i := range msg.Attachments {
+				msg.Attachments[i].GuildID = channel.GuildID
+			}
+			for i := range msg.Mentions {
+				msg.Mentions[i].GuildID = channel.GuildID
+			}
+		}
+		if channel.Name != "" {
+			msg.Record.ChannelName = channel.Name
+		}
+		msg.Record.RawJSON = withRawGuildID(msg.Record.RawJSON, msg.Record.GuildID)
+		msg.PayloadJSON = withRawGuildID(msg.PayloadJSON, msg.Record.GuildID)
+		snap.messages[id] = msg
+	}
+}
+
+func withRawGuildID(rawJSON, guildID string) string {
+	if rawJSON == "" || guildID == "" {
+		return rawJSON
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(rawJSON), &raw); err != nil {
+		return rawJSON
+	}
+	raw["guild_id"] = guildID
+	body, err := json.Marshal(raw)
+	if err != nil {
+		return rawJSON
+	}
+	return string(body)
+}
+
+func extractGzipPayloads(data []byte, maxBytes int64) [][]byte {
+	var out [][]byte
+	for offset := 0; offset < len(data)-1; offset++ {
+		if data[offset] != 0x1f || data[offset+1] != 0x8b {
+			continue
+		}
+		reader, err := gzip.NewReader(bytes.NewReader(data[offset:]))
+		if err != nil {
+			continue
+		}
+		reader.Multistream(false)
+		payload, readErr := io.ReadAll(io.LimitReader(reader, maxBytes+1))
+		closeErr := reader.Close()
+		if readErr != nil || closeErr != nil || int64(len(payload)) > maxBytes {
+			continue
+		}
+		out = append(out, payload)
+	}
+	return out
+}
+
+func extractJSONValues(data []byte) [][]byte {
+	candidate := bytes.TrimSpace(data)
+	if len(candidate) <= maxObjectBytes && len(candidate) > 0 && json.Valid(candidate) {
+		switch candidate[0] {
+		case '{', '[':
+			return [][]byte{append([]byte(nil), candidate...)}
+		}
+	}
+	return extractJSONObjects(data)
+}
+
+func extractJSONObjects(data []byte) [][]byte {
+	var out [][]byte
+	depth := 0
+	start := -1
+	inString := false
+	escaped := false
+	for i, b := range data {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch b {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			if depth > 0 {
+				inString = true
+			}
+		case '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case '}':
+			if depth == 0 {
+				continue
+			}
+			depth--
+			if depth == 0 && start >= 0 {
+				if i-start+1 <= maxObjectBytes {
+					candidate := bytes.TrimSpace(data[start : i+1])
+					if json.Valid(candidate) {
+						out = append(out, append([]byte(nil), candidate...))
+					}
+				}
+				start = -1
+			}
+		}
+	}
+	return out
+}
+
+func shouldSkipDir(name string) bool {
+	switch strings.ToLower(name) {
+	case "crashpad", "gpu-cache", "shadercache", "spellcheck", "dawncache":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCandidateFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ldb", ".log", ".json", ".txt":
+		return true
+	default:
+		clean := filepath.ToSlash(path)
+		return strings.Contains(clean, "/Cache/Cache_Data/") ||
+			strings.Contains(clean, "/Service Worker/CacheStorage/") ||
+			strings.Contains(clean, "/WebStorage/")
+	}
+}
+
+func parseAttachments(raw map[string]any, messageID, guildID, channelID, authorID string) []store.AttachmentRecord {
+	items, _ := raw["attachments"].([]any)
+	out := make([]store.AttachmentRecord, 0, len(items))
+	for i, item := range items {
+		attachment, _ := item.(map[string]any)
+		if len(attachment) == 0 {
+			continue
+		}
+		id := stringField(attachment, "id")
+		if id == "" {
+			id = fmt.Sprintf("%s:%d", messageID, i)
+		}
+		out = append(out, store.AttachmentRecord{
+			AttachmentID: id,
+			MessageID:    messageID,
+			GuildID:      guildID,
+			ChannelID:    channelID,
+			AuthorID:     authorID,
+			Filename:     firstNonEmpty(stringField(attachment, "filename"), id),
+			ContentType:  stringField(attachment, "content_type"),
+			Size:         int64Field(attachment, "size"),
+			URL:          stringField(attachment, "url"),
+			ProxyURL:     stringField(attachment, "proxy_url"),
+		})
+	}
+	return out
+}
+
+func parseMentions(raw map[string]any, messageID, guildID, channelID, authorID string, eventAt time.Time) []store.MentionEventRecord {
+	items, _ := raw["mentions"].([]any)
+	out := make([]store.MentionEventRecord, 0, len(items))
+	for _, item := range items {
+		mention, _ := item.(map[string]any)
+		id := stringField(mention, "id")
+		if id == "" {
+			continue
+		}
+		out = append(out, store.MentionEventRecord{
+			MessageID:  messageID,
+			GuildID:    guildID,
+			ChannelID:  channelID,
+			AuthorID:   authorID,
+			TargetType: "user",
+			TargetID:   id,
+			TargetName: firstNonEmpty(stringField(mention, "global_name"), stringField(mention, "username")),
+			EventAt:    eventAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return out
+}
+
+func attachmentText(attachments []store.AttachmentRecord) []string {
+	out := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		out = append(out, attachment.Filename)
+	}
+	return out
+}
+
+func embedText(raw map[string]any) []string {
+	items, _ := raw["embeds"].([]any)
+	out := []string{}
+	for _, item := range items {
+		embed, _ := item.(map[string]any)
+		for _, key := range []string{"title", "description"} {
+			if value := strings.TrimSpace(stringField(embed, key)); value != "" {
+				out = append(out, value)
+			}
+		}
+	}
+	return out
+}
+
+func normalizeText(parts ...any) string {
+	flat := []string{}
+	for _, part := range parts {
+		switch typed := part.(type) {
+		case string:
+			if text := cleanText(typed); text != "" {
+				flat = append(flat, text)
+			}
+		case []string:
+			for _, item := range typed {
+				if text := cleanText(item); text != "" {
+					flat = append(flat, text)
+				}
+			}
+		}
+	}
+	return strings.Join(flat, "\n")
+}
+
+func cleanText(raw string) string {
+	raw = strings.ToValidUTF8(raw, "")
+	var b strings.Builder
+	spacePending := false
+	for _, r := range raw {
+		switch {
+		case r == '\u200b' || r == '\u200c' || r == '\u200d' || r == '\ufeff':
+			continue
+		case unicode.IsControl(r):
+			continue
+		case unicode.IsSpace(r):
+			spacePending = b.Len() > 0
+		default:
+			if spacePending {
+				b.WriteByte(' ')
+				spacePending = false
+			}
+			b.WriteRune(r)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func messageReferenceID(raw map[string]any) string {
+	ref, _ := raw["message_reference"].(map[string]any)
+	return stringField(ref, "message_id")
+}
+
+func syntheticGuild(id, name string) store.GuildRecord {
+	raw, _ := json.Marshal(map[string]any{
+		"id":     id,
+		"name":   name,
+		"source": "discord_desktop",
+	})
+	return store.GuildRecord{ID: id, Name: name, RawJSON: string(raw)}
+}
+
+func syntheticChannel(id, guildID, name string) store.ChannelRecord {
+	if name == "" {
+		name = "channel-" + shortID(id)
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"id":       id,
+		"guild_id": guildID,
+		"name":     name,
+		"source":   "discord_desktop",
+	})
+	kind := "text"
+	if guildID == DirectMessageGuildID {
+		kind = "dm"
+		if strings.Contains(name, ", ") {
+			kind = "group_dm"
+		}
+	}
+	return store.ChannelRecord{ID: id, GuildID: guildID, Kind: kind, Name: name, RawJSON: string(raw)}
+}
+
+func guildName(id string) string {
+	switch id {
+	case DirectMessageGuildID:
+		return DirectMessageGuildName
+	default:
+		return "Discord Desktop Guild " + id
+	}
+}
+
+func kindForChannelType(typeValue int, dm bool) string {
+	if dm {
+		if typeValue == 3 {
+			return "group_dm"
+		}
+		return "dm"
+	}
+	switch typeValue {
+	case 0:
+		return "text"
+	case 5:
+		return "announcement"
+	case 10:
+		return "thread_announcement"
+	case 11:
+		return "thread_public"
+	case 12:
+		return "thread_private"
+	case 15:
+		return "forum"
+	default:
+		return "desktop"
+	}
+}
+
+func channelRawJSON(raw map[string]any, id, guildID, name, kind string) string {
+	body, _ := json.Marshal(map[string]any{
+		"id":       id,
+		"guild_id": guildID,
+		"name":     name,
+		"kind":     kind,
+		"source":   "discord_desktop",
+		"type":     raw["type"],
+	})
+	return string(body)
+}
+
+func messageRawJSON(raw map[string]any, id, guildID, channelID, authorID string) string {
+	body, _ := json.Marshal(map[string]any{
+		"id":                 id,
+		"guild_id":           guildID,
+		"channel_id":         channelID,
+		"author_id":          authorID,
+		"source":             "discord_desktop",
+		"type":               raw["type"],
+		"timestamp":          raw["timestamp"],
+		"edited_timestamp":   raw["edited_timestamp"],
+		"message_reference":  raw["message_reference"],
+		"attachment_count":   lenArray(raw["attachments"]),
+		"mention_count":      lenArray(raw["mentions"]),
+		"desktop_cache_note": "raw desktop cache payload intentionally not stored",
+	})
+	return string(body)
+}
+
+func recipientLabel(items []any) string {
+	names := []string{}
+	for _, item := range items {
+		recipient, _ := item.(map[string]any)
+		name := firstNonEmpty(
+			stringField(recipient, "global_name"),
+			stringField(recipient, "display_name"),
+			stringField(recipient, "username"),
+		)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+func parseDiscordTime(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t.UTC()
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t.UTC()
+	}
+	return time.Time{}
+}
+
+func snowflakeTime(id string) time.Time {
+	value, err := strconv.ParseUint(id, 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	ms := int64((value >> 22) + 1420070400000)
+	return time.UnixMilli(ms).UTC()
+}
+
+func formatOptionalTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func looksSnowflake(value string) bool {
+	if len(value) < 12 || len(value) > 24 {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func shortID(id string) string {
+	if len(id) <= 6 {
+		return id
+	}
+	return id[len(id)-6:]
+}
+
+func stringField(raw map[string]any, key string) string {
+	value, ok := raw[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case json.Number:
+		return typed.String()
+	default:
+		return ""
+	}
+}
+
+func intField(raw map[string]any, key string) (int, bool) {
+	value, ok := raw[key]
+	if !ok || value == nil {
+		return 0, false
+	}
+	switch typed := value.(type) {
+	case float64:
+		return int(typed), true
+	case int:
+		return typed, true
+	case json.Number:
+		i, err := typed.Int64()
+		return int(i), err == nil
+	default:
+		return 0, false
+	}
+}
+
+func int64Field(raw map[string]any, key string) int64 {
+	value, ok := raw[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch typed := value.(type) {
+	case float64:
+		return int64(typed)
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	case json.Number:
+		i, _ := typed.Int64()
+		return i
+	default:
+		return 0
+	}
+}
+
+func boolField(raw map[string]any, key string) bool {
+	value, _ := raw[key].(bool)
+	return value
+}
+
+func lenArray(value any) int {
+	items, _ := value.([]any)
+	return len(items)
+}
+
+func firstNonEmpty(items ...string) string {
+	for _, item := range items {
+		if strings.TrimSpace(item) != "" {
+			return strings.TrimSpace(item)
+		}
+	}
+	return ""
+}
+
+func mapValues[M ~map[string]T, T any](m M) []T {
+	out := make([]T, 0, len(m))
+	for _, value := range m {
+		out = append(out, value)
+	}
+	return out
+}

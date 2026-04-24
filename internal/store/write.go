@@ -218,6 +218,45 @@ func (s *Store) UpsertMember(ctx context.Context, member MemberRecord) error {
 	return tx.Commit()
 }
 
+func (s *Store) DeleteGuildData(ctx context.Context, guildID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
+	for _, stmt := range []string{
+		`delete from embedding_jobs where message_id in (select id from messages where guild_id = ?)`,
+		`delete from message_embeddings where message_id in (select id from messages where guild_id = ?)`,
+		`delete from message_fts where guild_id = ?`,
+		`delete from message_events where guild_id = ?`,
+		`delete from message_attachments where guild_id = ?`,
+		`delete from mention_events where guild_id = ?`,
+		`delete from messages where guild_id = ?`,
+		`delete from member_fts where guild_id = ?`,
+		`delete from members where guild_id = ?`,
+		`delete from channels where guild_id = ?`,
+		`delete from guilds where id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt, guildID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) DeleteOrphanChannels(ctx context.Context, guildID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		delete from channels
+		where guild_id = ?
+		  and not exists (
+			select 1
+			from messages
+			where messages.channel_id = channels.id
+		  )
+	`, guildID)
+	return err
+}
+
 func (s *Store) DeleteMember(ctx context.Context, guildID, userID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
