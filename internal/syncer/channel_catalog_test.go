@@ -168,11 +168,15 @@ func TestSyncToleratesArchivedThread403(t *testing.T) {
 	svc := New(client, s, nil)
 	stats, err := svc.Sync(ctx, SyncOptions{Full: true, GuildIDs: []string{"g1"}})
 	require.NoError(t, err)
-	// ThreadsArchived was invoked for "rules" (public + private = 2 calls minimum),
+	// ThreadsArchived was invoked for "rules" (public + private),
 	// confirming the error path was reached and tolerated, not bypassed.
-	require.GreaterOrEqual(t, client.threadCalls, 2)
+	require.Equal(t, 2, client.archivedCalls["rules"])
 	require.Equal(t, 1, stats.Messages)
 	require.Equal(t, 1, client.messageCalls["c1"])
+
+	cursor, err := s.GetSyncState(ctx, "channel:rules:unavailable")
+	require.NoError(t, err)
+	require.Empty(t, cursor)
 }
 
 func TestSyncSkipsInaccessibleForumThreadCatalog(t *testing.T) {
