@@ -29,7 +29,7 @@ func (r *runtime) runSearch(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 1 {
-		return usageErr(fmt.Errorf("search requires a query"))
+		return usageErr(errors.New("search requires a query"))
 	}
 	guildIDs, err := directMessageGuildScope(*dm, *guildFlag, *guildsFlag)
 	if err != nil {
@@ -107,7 +107,7 @@ func (r *runtime) searchMessagesHybrid(opts store.SearchOptions) ([]store.Search
 
 func (r *runtime) semanticSearchOptions(opts store.SearchOptions) (store.SemanticSearchOptions, error) {
 	if !r.cfg.Search.Embeddings.Enabled {
-		return store.SemanticSearchOptions{}, fmt.Errorf("embeddings are disabled; enable [search.embeddings] first")
+		return store.SemanticSearchOptions{}, errors.New("embeddings are disabled; enable [search.embeddings] first")
 	}
 	providerFactory := r.newEmbed
 	if providerFactory == nil {
@@ -158,7 +158,7 @@ func (r *runtime) runSQL(args []string) error {
 		return usageErr(err)
 	}
 	if *confirm && !*unsafe {
-		return usageErr(fmt.Errorf("--confirm requires --unsafe"))
+		return usageErr(errors.New("--confirm requires --unsafe"))
 	}
 
 	var query string
@@ -184,7 +184,7 @@ func (r *runtime) runSQL(args []string) error {
 		return printRows(r.stdout, cols, rows)
 	}
 	if !*confirm {
-		return usageErr(fmt.Errorf("--unsafe requires --confirm"))
+		return usageErr(errors.New("--unsafe requires --confirm"))
 	}
 
 	if store.IsReadOnlySQL(query) {
@@ -207,7 +207,7 @@ func (r *runtime) runSQL(args []string) error {
 
 func (r *runtime) runMembers(args []string) error {
 	if len(args) == 0 {
-		return usageErr(fmt.Errorf("members requires a subcommand"))
+		return usageErr(errors.New("members requires a subcommand"))
 	}
 	switch args[0] {
 	case "list":
@@ -220,7 +220,7 @@ func (r *runtime) runMembers(args []string) error {
 		return r.runMembersShow(args[1:])
 	case "search":
 		if len(args) < 2 {
-			return usageErr(fmt.Errorf("members search requires a query"))
+			return usageErr(errors.New("members search requires a query"))
 		}
 		rows, err := r.store.Members(r.ctx, "", strings.Join(args[1:], " "), 100)
 		if err != nil {
@@ -240,7 +240,7 @@ func (r *runtime) runMembersShow(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() < 1 {
-		return usageErr(fmt.Errorf("members show requires a user id or query"))
+		return usageErr(errors.New("members show requires a user id or query"))
 	}
 	query := strings.Join(fs.Args(), " ")
 
@@ -282,7 +282,7 @@ func (r *runtime) runMembersShow(args []string) error {
 
 func (r *runtime) runChannels(args []string) error {
 	if len(args) == 0 {
-		return usageErr(fmt.Errorf("channels requires a subcommand"))
+		return usageErr(errors.New("channels requires a subcommand"))
 	}
 	rows, err := r.store.Channels(r.ctx, "")
 	if err != nil {
@@ -293,7 +293,7 @@ func (r *runtime) runChannels(args []string) error {
 		return r.print(rows)
 	case "show":
 		if len(args) < 2 {
-			return usageErr(fmt.Errorf("channels show requires a channel id"))
+			return usageErr(errors.New("channels show requires a channel id"))
 		}
 		filtered := make([]store.ChannelRow, 0, 1)
 		for _, row := range rows {

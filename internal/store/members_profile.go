@@ -13,8 +13,8 @@ type MemberProfile struct {
 	Member         MemberRow    `json:"member"`
 	RawJSON        string       `json:"raw_json,omitempty"`
 	MessageCount   int          `json:"message_count"`
-	FirstMessageAt time.Time    `json:"first_message_at,omitempty"`
-	LastMessageAt  time.Time    `json:"last_message_at,omitempty"`
+	FirstMessageAt time.Time    `json:"first_message_at,omitzero"`
+	LastMessageAt  time.Time    `json:"last_message_at,omitzero"`
 	RecentMessages []MessageRow `json:"recent_messages,omitempty"`
 }
 

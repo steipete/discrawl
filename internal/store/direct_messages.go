@@ -18,8 +18,8 @@ type DirectMessageConversationRow struct {
 	Name           string    `json:"name"`
 	MessageCount   int       `json:"message_count"`
 	AuthorCount    int       `json:"author_count"`
-	FirstMessageAt time.Time `json:"first_message_at,omitempty"`
-	LastMessageAt  time.Time `json:"last_message_at,omitempty"`
+	FirstMessageAt time.Time `json:"first_message_at,omitzero"`
+	LastMessageAt  time.Time `json:"last_message_at,omitzero"`
 }
 
 func (s *Store) DirectMessageConversations(ctx context.Context, opts DirectMessageConversationOptions) ([]DirectMessageConversationRow, error) {

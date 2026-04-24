@@ -121,9 +121,7 @@ func (s *Syncer) syncMessageChannelsConcurrent(
 	var wg sync.WaitGroup
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for channel := range jobs {
 				if ctx.Err() != nil {
 					return
@@ -151,7 +149,7 @@ func (s *Syncer) syncMessageChannelsConcurrent(
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	go func() {

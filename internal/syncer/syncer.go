@@ -2,7 +2,6 @@ package syncer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -124,12 +123,11 @@ func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions
 	if err != nil {
 		return SyncStats{}, fmt.Errorf("fetch guild %s: %w", guildID, err)
 	}
-	rawGuild, _ := json.Marshal(guild)
 	if err := s.store.UpsertGuild(ctx, store.GuildRecord{
 		ID:      guild.ID,
 		Name:    guild.Name,
 		Icon:    guild.Icon,
-		RawJSON: string(rawGuild),
+		RawJSON: marshalJSONString(guild, "{}"),
 	}); err != nil {
 		return SyncStats{}, err
 	}
@@ -160,8 +158,7 @@ func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions
 		return stats, err
 	}
 	for _, channel := range channelList {
-		raw, _ := json.Marshal(channel)
-		record := toChannelRecord(channel, string(raw))
+		record := toChannelRecord(channel, marshalJSONString(channel, "{}"))
 		if err := s.store.UpsertChannel(ctx, record); err != nil {
 			return stats, err
 		}
@@ -204,10 +201,7 @@ func (s *Syncer) syncGuildIncompleteBatches(ctx context.Context, guildID string,
 	}
 	stats := SyncStats{}
 	for start := 0; start < len(incomplete); start += fullSyncBatchSize {
-		end := start + fullSyncBatchSize
-		if end > len(incomplete) {
-			end = len(incomplete)
-		}
+		end := min(start+fullSyncBatchSize, len(incomplete))
 		batchOpts := opts
 		batchOpts.ChannelIDs = incomplete[start:end]
 		one, err := s.syncGuild(ctx, guildID, batchOpts)

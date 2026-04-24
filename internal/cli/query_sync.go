@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,7 +11,7 @@ import (
 
 func (r *runtime) syncMessagesQuery(channel, guild, guilds string) error {
 	if r.syncer == nil {
-		return usageErr(fmt.Errorf("messages --sync requires Discord access"))
+		return usageErr(errors.New("messages --sync requires Discord access"))
 	}
 	opts, err := r.messageSyncOptions(channel, guild, guilds)
 	if err != nil {
@@ -30,7 +31,7 @@ func (r *runtime) messageSyncOptions(channel, guild, guilds string) (syncer.Sync
 	channelFilter := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(channel), "#"))
 	if channelFilter == "" {
 		if len(opts.GuildIDs) == 0 {
-			return opts, fmt.Errorf("messages --sync needs --channel or --guild")
+			return opts, errors.New("messages --sync needs --channel or --guild")
 		}
 		return opts, nil
 	}

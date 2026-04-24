@@ -586,7 +586,7 @@ func TestConcurrentMessageUpsertsShareSingleWriter(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 8)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

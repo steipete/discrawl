@@ -3,7 +3,7 @@ package syncer
 import (
 	"bytes"
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -63,9 +63,9 @@ func TestMessageSyncProgressFinishReportsSummaryCounts(t *testing.T) {
 	third := &discordgo.Channel{ID: "c3", Name: "ok"}
 
 	progress.start(first)
-	progress.recordSkip(first, fmt.Errorf(`HTTP 403 Forbidden, {"message": "Missing Access", "code": 50001}`))
+	progress.recordSkip(first, errors.New(`HTTP 403 Forbidden, {"message": "Missing Access", "code": 50001}`))
 	progress.start(second)
-	progress.recordSkip(second, fmt.Errorf(`HTTP 404 Not Found, {"message": "Unknown Channel", "code": 10003}`))
+	progress.recordSkip(second, errors.New(`HTTP 404 Not Found, {"message": "Unknown Channel", "code": 10003}`))
 	progress.start(third)
 	progress.record(third, 42)
 	progress.finish(nil)

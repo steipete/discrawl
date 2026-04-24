@@ -1,8 +1,8 @@
 package cli
 
 import (
+	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"os"
 
@@ -29,7 +29,7 @@ func (r *runtime) runPublish(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 0 {
-		return usageErr(fmt.Errorf("publish takes no positional arguments"))
+		return usageErr(errors.New("publish takes no positional arguments"))
 	}
 	opts, err := shareOptionsFromFlags(*repoPath, *remote, *branch)
 	if err != nil {
@@ -100,7 +100,7 @@ func (r *runtime) runSubscribe(args []string) error {
 	}
 	remote := defaultShareRemote
 	if fs.NArg() > 1 {
-		return usageErr(fmt.Errorf("subscribe takes at most one remote"))
+		return usageErr(errors.New("subscribe takes at most one remote"))
 	}
 	if fs.NArg() == 1 {
 		remote = fs.Arg(0)
@@ -172,7 +172,7 @@ func (r *runtime) runUpdate(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 0 {
-		return usageErr(fmt.Errorf("update takes no positional arguments"))
+		return usageErr(errors.New("update takes no positional arguments"))
 	}
 	opts, err := shareOptionsFromFlags(*repoPath, *remote, *branch)
 	if err != nil {

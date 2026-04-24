@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -147,10 +148,8 @@ func shouldIgnoreProfileValue(key, value string) bool {
 }
 
 func appendUnique(items []string, value string) []string {
-	for _, item := range items {
-		if item == value {
-			return items
-		}
+	if slices.Contains(items, value) {
+		return items
 	}
 	return append(items, value)
 }

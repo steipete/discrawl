@@ -705,10 +705,10 @@ func (s *Store) Status(ctx context.Context, dbPath, defaultGuildID string) (Stat
 func (s *Store) ReadOnlyQuery(ctx context.Context, query string) ([]string, [][]string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return nil, nil, fmt.Errorf("empty query")
+		return nil, nil, errors.New("empty query")
 	}
 	if !IsReadOnlySQL(query) {
-		return nil, nil, fmt.Errorf("only read-only sql is allowed")
+		return nil, nil, errors.New("only read-only sql is allowed")
 	}
 	db, closeFn, err := s.openReadOnlyDB()
 	if err != nil {
@@ -723,7 +723,7 @@ func (s *Store) ReadOnlyQuery(ctx context.Context, query string) ([]string, [][]
 func (s *Store) Query(ctx context.Context, query string) ([]string, [][]string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return nil, nil, fmt.Errorf("empty query")
+		return nil, nil, errors.New("empty query")
 	}
 	return queryRows(ctx, s.db, query)
 }
@@ -731,7 +731,7 @@ func (s *Store) Query(ctx context.Context, query string) ([]string, [][]string, 
 func (s *Store) Exec(ctx context.Context, query string) (int64, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return 0, fmt.Errorf("empty query")
+		return 0, errors.New("empty query")
 	}
 	queryCtx, cancel := withQueryTimeout(ctx)
 	defer cancel()
@@ -762,7 +762,7 @@ func queryRows(ctx context.Context, db *sql.DB, query string) ([]string, [][]str
 		return nil, nil, err
 	}
 	if len(cols) == 0 {
-		return nil, nil, fmt.Errorf("query returned no columns")
+		return nil, nil, errors.New("query returned no columns")
 	}
 
 	var out [][]string

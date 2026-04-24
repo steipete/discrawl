@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -33,29 +34,29 @@ func (r *runtime) runMessages(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 0 {
-		return usageErr(fmt.Errorf("messages takes flags only"))
+		return usageErr(errors.New("messages takes flags only"))
 	}
 	if *hours < 0 {
-		return usageErr(fmt.Errorf("--hours must be >= 0"))
+		return usageErr(errors.New("--hours must be >= 0"))
 	}
 	if *days < 0 {
-		return usageErr(fmt.Errorf("--days must be >= 0"))
+		return usageErr(errors.New("--days must be >= 0"))
 	}
 	if countNonZero(*hours > 0, *days > 0, strings.TrimSpace(*since) != "") > 1 {
-		return usageErr(fmt.Errorf("use only one of --hours, --days, or --since"))
+		return usageErr(errors.New("use only one of --hours, --days, or --since"))
 	}
 	if *limit < 0 {
-		return usageErr(fmt.Errorf("--limit must be >= 0"))
+		return usageErr(errors.New("--limit must be >= 0"))
 	}
 	if *last < 0 {
-		return usageErr(fmt.Errorf("--last must be >= 0"))
+		return usageErr(errors.New("--last must be >= 0"))
 	}
 	limitSet := flagPassed(fs, "limit")
 	if *all && *last > 0 {
-		return usageErr(fmt.Errorf("use either --all or --last"))
+		return usageErr(errors.New("use either --all or --last"))
 	}
 	if limitSet && *last > 0 {
-		return usageErr(fmt.Errorf("use either --limit or --last"))
+		return usageErr(errors.New("use either --limit or --last"))
 	}
 	if *last > 0 {
 		*limit = 0
@@ -96,10 +97,10 @@ func (r *runtime) runMessages(args []string) error {
 		return usageErr(err)
 	}
 	if *dm && *syncNow {
-		return usageErr(fmt.Errorf("messages --sync is not supported with --dm; run wiretap or sync --source wiretap first"))
+		return usageErr(errors.New("messages --sync is not supported with --dm; run wiretap or sync --source wiretap first"))
 	}
 	if strings.TrimSpace(*channel) == "" && strings.TrimSpace(*author) == "" && sinceTime.IsZero() && beforeTime.IsZero() && len(guildIDs) == 0 {
-		return usageErr(fmt.Errorf("messages needs at least one filter"))
+		return usageErr(errors.New("messages needs at least one filter"))
 	}
 	if *all {
 		*limit = 0

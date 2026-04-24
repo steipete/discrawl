@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -250,10 +251,10 @@ func (r *runtime) runWiretap(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 0 {
-		return usageErr(fmt.Errorf("wiretap takes flags only"))
+		return usageErr(errors.New("wiretap takes flags only"))
 	}
 	if *maxFileBytes <= 0 {
-		return usageErr(fmt.Errorf("--max-file-bytes must be positive"))
+		return usageErr(errors.New("--max-file-bytes must be positive"))
 	}
 	runOnce := func(ctx context.Context) error {
 		stats, err := discorddesktop.Import(ctx, r.store, discorddesktop.Options{
@@ -271,7 +272,7 @@ func (r *runtime) runWiretap(args []string) error {
 		return runOnce(r.ctx)
 	}
 	if *watchEvery < time.Second {
-		return usageErr(fmt.Errorf("--watch-every must be at least 1s"))
+		return usageErr(errors.New("--watch-every must be at least 1s"))
 	}
 	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -294,7 +295,7 @@ func (r *runtime) runWiretap(args []string) error {
 
 func (r *runtime) runStatus(args []string) error {
 	if len(args) != 0 {
-		return usageErr(fmt.Errorf("status takes no arguments"))
+		return usageErr(errors.New("status takes no arguments"))
 	}
 	dbPath, err := config.ExpandPath(r.cfg.DBPath)
 	if err != nil {
@@ -317,16 +318,16 @@ func (r *runtime) runEmbed(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 0 {
-		return usageErr(fmt.Errorf("embed takes no positional arguments"))
+		return usageErr(errors.New("embed takes no positional arguments"))
 	}
 	if *limit <= 0 {
-		return usageErr(fmt.Errorf("--limit must be positive"))
+		return usageErr(errors.New("--limit must be positive"))
 	}
 	if *batchSize <= 0 {
-		return usageErr(fmt.Errorf("--batch-size must be positive"))
+		return usageErr(errors.New("--batch-size must be positive"))
 	}
 	if !r.cfg.Search.Embeddings.Enabled {
-		return usageErr(fmt.Errorf("embeddings are disabled in config"))
+		return usageErr(errors.New("embeddings are disabled in config"))
 	}
 	providerFactory := r.newEmbed
 	if providerFactory == nil {
@@ -364,7 +365,7 @@ func (r *runtime) runEmbed(args []string) error {
 
 func (r *runtime) runDoctor(args []string) error {
 	if len(args) != 0 {
-		return usageErr(fmt.Errorf("doctor takes no arguments"))
+		return usageErr(errors.New("doctor takes no arguments"))
 	}
 	report := map[string]any{
 		"config_path": r.configPath,

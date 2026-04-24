@@ -8,6 +8,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 - `dms` now lists local wiretap DM conversations and can read or search one DM thread with `--with`, `--last`, and `--search`, so common DM queries no longer require raw SQL.
 - `search --dm` and `messages --dm` now target the local-only `@me` archive directly and skip Git snapshot auto-update, since DMs are never imported from the shared mirror.
+- Go module dependencies and lint rules were refreshed for the current Go toolchain, including stricter JSON marshal checks and modern simplification rules.
 
 ### Fixes
 

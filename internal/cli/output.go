@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -69,7 +70,7 @@ func printPlain(w io.Writer, value any) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("no plain printer")
+		return errors.New("no plain printer")
 	}
 }
 
@@ -286,7 +287,7 @@ func printHuman(w io.Writer, value any) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("no human printer")
+		return errors.New("no human printer")
 	}
 }
 

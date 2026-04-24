@@ -13,8 +13,8 @@ import (
 )
 
 func toMemberRecord(guildID string, member *discordgo.Member) store.MemberRecord {
-	raw, _ := json.Marshal(member)
-	roles, _ := json.Marshal(member.Roles)
+	raw := marshalJSONString(member, "{}")
+	roles := marshalJSONString(member.Roles, "[]")
 	return store.MemberRecord{
 		GuildID:       guildID,
 		UserID:        member.User.ID,
@@ -26,13 +26,13 @@ func toMemberRecord(guildID string, member *discordgo.Member) store.MemberRecord
 		Avatar:        member.Avatar,
 		Bot:           member.User.Bot,
 		JoinedAt:      member.JoinedAt.Format(time.RFC3339Nano),
-		RoleIDsJSON:   string(roles),
-		RawJSON:       string(raw),
+		RoleIDsJSON:   roles,
+		RawJSON:       raw,
 	}
 }
 
 func toMessageRecord(message *discordgo.Message, channelName, normalizedContent string) store.MessageRecord {
-	raw, _ := json.Marshal(message)
+	raw := marshalJSONString(message, "{}")
 	authorID := ""
 	authorName := ""
 	if message.Author != nil {
@@ -65,8 +65,16 @@ func toMessageRecord(message *discordgo.Message, channelName, normalizedContent 
 		ReplyToMessageID:  replyTo,
 		Pinned:            message.Pinned,
 		HasAttachments:    len(message.Attachments) > 0,
-		RawJSON:           string(raw),
+		RawJSON:           raw,
 	}
+}
+
+func marshalJSONString(value any, fallback string) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fallback
+	}
+	return string(raw)
 }
 
 func normalizeMessage(message *discordgo.Message) string {

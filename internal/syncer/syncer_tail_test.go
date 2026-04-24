@@ -3,7 +3,6 @@ package syncer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -186,16 +185,16 @@ func TestHelpers(t *testing.T) {
 	require.Equal(t, "Nick", displayName(&discordgo.Member{Nick: "Nick", User: &discordgo.User{Username: "user"}}))
 	require.Equal(t, "Global", displayName(&discordgo.Member{User: &discordgo.User{GlobalName: "Global", Username: "user"}}))
 	require.Equal(t, "user", displayName(&discordgo.Member{User: &discordgo.User{Username: "user"}}))
-	require.True(t, isMissingAccess(fmt.Errorf("HTTP 403 Forbidden")))
-	require.True(t, isMissingAccess(fmt.Errorf("Missing Access")))
-	require.False(t, isMissingAccess(fmt.Errorf("boom")))
-	require.Equal(t, "missing_access", unavailableReason(fmt.Errorf("HTTP 403 Forbidden")))
-	require.Equal(t, "unknown_channel", unavailableReason(fmt.Errorf("HTTP 404 Not Found, {\"message\": \"Unknown Channel\", \"code\": 10003}")))
-	require.True(t, isUnknownChannel(fmt.Errorf("Unknown Channel")))
-	require.False(t, isUnknownChannel(fmt.Errorf("boom")))
+	require.True(t, isMissingAccess(errors.New("HTTP 403 Forbidden")))
+	require.True(t, isMissingAccess(errors.New("Missing Access")))
+	require.False(t, isMissingAccess(errors.New("boom")))
+	require.Equal(t, "missing_access", unavailableReason(errors.New("HTTP 403 Forbidden")))
+	require.Equal(t, "unknown_channel", unavailableReason(errors.New("HTTP 404 Not Found, {\"message\": \"Unknown Channel\", \"code\": 10003}")))
+	require.True(t, isUnknownChannel(errors.New("Unknown Channel")))
+	require.False(t, isUnknownChannel(errors.New("boom")))
 	require.True(t, isRetryableSyncError(context.Background(), context.DeadlineExceeded))
-	require.True(t, isRetryableSyncError(context.Background(), fmt.Errorf("HTTP 503 Service Unavailable")))
-	require.True(t, isRetryableSyncError(context.Background(), fmt.Errorf("stream error: stream ID 1; INTERNAL_ERROR")))
+	require.True(t, isRetryableSyncError(context.Background(), errors.New("HTTP 503 Service Unavailable")))
+	require.True(t, isRetryableSyncError(context.Background(), errors.New("stream error: stream ID 1; INTERNAL_ERROR")))
 	require.False(t, isRetryableSyncError(context.Background(), context.Canceled))
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()

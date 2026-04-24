@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -30,28 +31,28 @@ func (r *runtime) runDirectMessages(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 0 {
-		return usageErr(fmt.Errorf("dms takes flags only"))
+		return usageErr(errors.New("dms takes flags only"))
 	}
 	if *hours < 0 {
-		return usageErr(fmt.Errorf("--hours must be >= 0"))
+		return usageErr(errors.New("--hours must be >= 0"))
 	}
 	if *days < 0 {
-		return usageErr(fmt.Errorf("--days must be >= 0"))
+		return usageErr(errors.New("--days must be >= 0"))
 	}
 	if countNonZero(*hours > 0, *days > 0, strings.TrimSpace(*since) != "") > 1 {
-		return usageErr(fmt.Errorf("use only one of --hours, --days, or --since"))
+		return usageErr(errors.New("use only one of --hours, --days, or --since"))
 	}
 	if *limit < 0 {
-		return usageErr(fmt.Errorf("--limit must be >= 0"))
+		return usageErr(errors.New("--limit must be >= 0"))
 	}
 	if *last < 0 {
-		return usageErr(fmt.Errorf("--last must be >= 0"))
+		return usageErr(errors.New("--last must be >= 0"))
 	}
 	if *all && *last > 0 && flagPassed(fs, "last") {
-		return usageErr(fmt.Errorf("use either --all or --last"))
+		return usageErr(errors.New("use either --all or --last"))
 	}
 	if flagPassed(fs, "limit") && flagPassed(fs, "last") {
-		return usageErr(fmt.Errorf("use either --limit or --last"))
+		return usageErr(errors.New("use either --limit or --last"))
 	}
 
 	if *list || (strings.TrimSpace(*with) == "" && strings.TrimSpace(*search) == "" && noDMMessageTimeFilter(*hours, *days, *since, *before)) {

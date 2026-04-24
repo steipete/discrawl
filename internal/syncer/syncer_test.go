@@ -2,7 +2,7 @@ package syncer
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -777,7 +777,7 @@ func TestSyncSkipsMissingAccessChannels(t *testing.T) {
 			"c1": {{ID: "10", GuildID: "g1", ChannelID: "c1", Content: "ok", Timestamp: time.Now().UTC(), Author: &discordgo.User{ID: "u1", Username: "user"}}},
 		},
 		messageErrors: map[string]error{
-			"c2": fmt.Errorf("HTTP 403 Forbidden, {\"message\": \"Missing Access\", \"code\": 50001}"),
+			"c2": errors.New("HTTP 403 Forbidden, {\"message\": \"Missing Access\", \"code\": 50001}"),
 		},
 	}
 
@@ -814,7 +814,7 @@ func TestSyncSkipsUnknownChannels(t *testing.T) {
 			"c1": {{ID: "10", GuildID: "g1", ChannelID: "c1", Content: "ok", Timestamp: time.Now().UTC(), Author: &discordgo.User{ID: "u1", Username: "user"}}},
 		},
 		messageErrors: map[string]error{
-			"c2": fmt.Errorf("HTTP 404 Not Found, {\"message\": \"Unknown Channel\", \"code\": 10003}"),
+			"c2": errors.New("HTTP 404 Not Found, {\"message\": \"Unknown Channel\", \"code\": 10003}"),
 		},
 	}
 

@@ -603,7 +603,7 @@ func TestSearchMessagesSemanticScoresOlderMatchesBeyondRecentWindow(t *testing.T
 	}))
 	require.NoError(t, insertTestEmbedding(ctx, s, "old-best", "ollama", "nomic-embed-text", []float32{1, 0}))
 
-	for i := 0; i < searchCandidateFloor+10; i++ {
+	for i := range searchCandidateFloor + 10 {
 		messageID := "newer-weak-" + strconv.Itoa(i)
 		require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
 			ID:                messageID,

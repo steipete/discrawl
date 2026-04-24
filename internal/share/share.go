@@ -80,7 +80,7 @@ type EmbeddingManifest struct {
 
 func EnsureRepo(ctx context.Context, opts Options) error {
 	if strings.TrimSpace(opts.RepoPath) == "" {
-		return fmt.Errorf("share repo path is empty")
+		return errors.New("share repo path is empty")
 	}
 	if _, err := os.Stat(filepath.Join(opts.RepoPath, ".git")); err == nil {
 		return nil
@@ -477,7 +477,7 @@ func exportEmbeddings(ctx context.Context, db *sql.DB, opts Options) (EmbeddingM
 		inputVersion = store.EmbeddingInputVersion
 	}
 	if provider == "" || model == "" {
-		return EmbeddingManifest{}, fmt.Errorf("embedding provider and model are required")
+		return EmbeddingManifest{}, errors.New("embedding provider and model are required")
 	}
 	relDir := filepath.ToSlash(filepath.Join("embeddings", safePathSegment(provider), safePathSegment(model), safePathSegment(inputVersion)))
 	if err := os.RemoveAll(filepath.Join(opts.RepoPath, "embeddings")); err != nil {

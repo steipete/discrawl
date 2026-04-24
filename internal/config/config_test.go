@@ -249,7 +249,7 @@ func TestAttachmentTextExplicitFalseSurvivesNormalize(t *testing.T) {
 	t.Parallel()
 
 	cfg := Default()
-	cfg.Sync.AttachmentText = boolPtr(false)
+	cfg.Sync.AttachmentText = new(false)
 	require.NoError(t, cfg.Normalize())
 	require.False(t, cfg.AttachmentTextEnabled())
 }

@@ -1,8 +1,8 @@
 package cli
 
 import (
+	"errors"
 	"flag"
-	"fmt"
 	"strings"
 	"time"
 
@@ -26,7 +26,7 @@ func (r *runtime) resolveSyncGuildsAll(guild, guilds string, all bool) ([]string
 		return r.resolveSyncGuilds(guild, guilds), nil
 	}
 	if len(csvList(guilds)) > 0 || strings.TrimSpace(guild) != "" {
-		return nil, fmt.Errorf("use either --all or --guild/--guilds")
+		return nil, errors.New("use either --all or --guild/--guilds")
 	}
 	return nil, nil
 }
@@ -42,7 +42,7 @@ func directMessageGuildScope(dm bool, guild, guilds string) ([]string, error) {
 		return csvList(strings.Join(requested, ",")), nil
 	}
 	if len(csvList(guilds)) > 0 || strings.TrimSpace(guild) != "" {
-		return nil, fmt.Errorf("use either --dm or --guild/--guilds")
+		return nil, errors.New("use either --dm or --guild/--guilds")
 	}
 	return []string{store.DirectMessageGuildID}, nil
 }

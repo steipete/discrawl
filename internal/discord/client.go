@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"slices"
@@ -179,7 +180,7 @@ func (c *Client) ChannelMessage(ctx context.Context, channelID, messageID string
 
 func (c *Client) Tail(ctx context.Context, handler EventHandler) error {
 	if handler == nil {
-		return fmt.Errorf("missing event handler")
+		return errors.New("missing event handler")
 	}
 	tailCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -187,10 +188,8 @@ func (c *Client) Tail(ctx context.Context, handler EventHandler) error {
 	errCh := make(chan error, 1)
 	workCh := make(chan func(context.Context) error, c.tailQueueSize)
 	var wg sync.WaitGroup
-	for i := 0; i < c.tailWorkerCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range c.tailWorkerCount {
+		wg.Go(func() {
 			for {
 				select {
 				case <-tailCtx.Done():
@@ -207,7 +206,7 @@ func (c *Client) Tail(ctx context.Context, handler EventHandler) error {
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	c.session.AddHandler(func(_ *discordgo.Session, evt *discordgo.MessageCreate) {
@@ -299,7 +298,7 @@ func (c *Client) enqueueTailTask(
 	case workCh <- task:
 	default:
 		select {
-		case errCh <- fmt.Errorf("tail worker queue full"):
+		case errCh <- errors.New("tail worker queue full"):
 		default:
 		}
 	}

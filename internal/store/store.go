@@ -34,8 +34,8 @@ type Status struct {
 	MessageCount       int       `json:"message_count"`
 	MemberCount        int       `json:"member_count"`
 	EmbeddingBacklog   int       `json:"embedding_backlog"`
-	LastSyncAt         time.Time `json:"last_sync_at,omitempty"`
-	LastTailEventAt    time.Time `json:"last_tail_event_at,omitempty"`
+	LastSyncAt         time.Time `json:"last_sync_at,omitzero"`
+	LastTailEventAt    time.Time `json:"last_tail_event_at,omitzero"`
 	DefaultGuildID     string    `json:"default_guild_id,omitempty"`
 	DefaultGuildName   string    `json:"default_guild_name,omitempty"`
 	AccessibleGuildIDs []string  `json:"accessible_guild_ids,omitempty"`
@@ -86,7 +86,7 @@ type MemberRow struct {
 	Avatar        string    `json:"avatar,omitempty"`
 	RoleIDsJSON   string    `json:"role_ids_json"`
 	Bot           bool      `json:"bot"`
-	JoinedAt      time.Time `json:"joined_at,omitempty"`
+	JoinedAt      time.Time `json:"joined_at,omitzero"`
 	Bio           string    `json:"bio,omitempty"`
 	Pronouns      string    `json:"pronouns,omitempty"`
 	Location      string    `json:"location,omitempty"`
@@ -110,7 +110,7 @@ type ChannelRow struct {
 	IsLocked         bool      `json:"is_locked"`
 	IsPrivateThread  bool      `json:"is_private_thread"`
 	ThreadParentID   string    `json:"thread_parent_id,omitempty"`
-	ArchiveTimestamp time.Time `json:"archive_timestamp,omitempty"`
+	ArchiveTimestamp time.Time `json:"archive_timestamp,omitzero"`
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {

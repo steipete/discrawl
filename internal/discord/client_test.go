@@ -400,7 +400,7 @@ func TestTailFailsFastWhenWorkerQueueFills(t *testing.T) {
 			return
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			if err := conn.WriteJSON(map[string]any{
 				"op": 0,
 				"t":  "MESSAGE_CREATE",

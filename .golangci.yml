@@ -6,11 +6,17 @@ linters:
     - copyloopvar
     - durationcheck
     - errcheck
+    - errchkjson
     - errorlint
     - govet
+    - intrange
     - ineffassign
     - misspell
+    - modernize
     - nilerr
+    - nilnesserr
+    - nolintlint
+    - perfsprint
     - rowserrcheck
     - sloglint
     - sqlclosecheck
@@ -18,6 +24,7 @@ linters:
     - testifylint
     - unconvert
     - unused
+    - usestdlibvars
     - wastedassign
 
 formatters:

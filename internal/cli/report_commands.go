@@ -1,8 +1,8 @@
 package cli
 
 import (
+	"errors"
 	"flag"
-	"fmt"
 	"io"
 
 	"github.com/steipete/discrawl/internal/report"
@@ -16,7 +16,7 @@ func (r *runtime) runReport(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 0 {
-		return usageErr(fmt.Errorf("report takes no positional arguments"))
+		return usageErr(errors.New("report takes no positional arguments"))
 	}
 	activity, err := report.Build(r.ctx, r.store, report.Options{})
 	if err != nil {

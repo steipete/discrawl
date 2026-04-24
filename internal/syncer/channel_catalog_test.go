@@ -2,7 +2,7 @@ package syncer
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,7 +14,7 @@ import (
 )
 
 func errMissingAccess() error {
-	return fmt.Errorf("HTTP 403 Forbidden, {\"message\": \"Missing Access\", \"code\": 50001}")
+	return errors.New("HTTP 403 Forbidden, {\"message\": \"Missing Access\", \"code\": 50001}")
 }
 
 func TestActiveThreadCatalogEdges(t *testing.T) {
@@ -34,7 +34,7 @@ func TestActiveThreadCatalogEdges(t *testing.T) {
 	require.NoError(t, svc.appendActiveThreadCatalog(ctx, allChannels, "g1", []string{"forum"}))
 	require.Equal(t, 1, client.guildThreadCalls)
 
-	client.guildThreadErrs = map[string]error{"g1": fmt.Errorf("boom")}
+	client.guildThreadErrs = map[string]error{"g1": errors.New("boom")}
 	require.ErrorContains(t, svc.appendActiveThreadCatalog(ctx, allChannels, "g1", []string{"forum"}), "boom")
 
 	client.guildThreadErrs = nil

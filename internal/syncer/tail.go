@@ -2,7 +2,6 @@ package syncer
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -97,8 +96,7 @@ func (t *tailHandler) OnChannelUpsert(ctx context.Context, channel *discordgo.Ch
 	if !t.allowGuild(channel.GuildID) {
 		return nil
 	}
-	raw, _ := json.Marshal(channel)
-	return t.store.UpsertChannel(ctx, toChannelRecord(channel, string(raw)))
+	return t.store.UpsertChannel(ctx, toChannelRecord(channel, marshalJSONString(channel, "{}")))
 }
 
 func (t *tailHandler) OnMemberUpsert(ctx context.Context, guildID string, member *discordgo.Member) error {

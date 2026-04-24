@@ -467,7 +467,7 @@ func withRawGuildID(rawJSON, guildID string) string {
 
 func extractGzipPayloads(data []byte, maxBytes int64) [][]byte {
 	var out [][]byte
-	for offset := 0; offset < len(data)-1; offset++ {
+	for offset := range len(data) - 1 {
 		if data[offset] != 0x1f || data[offset+1] != 0x8b {
 			continue
 		}
@@ -688,24 +688,24 @@ func messageReferenceID(raw map[string]any) string {
 }
 
 func syntheticGuild(id, name string) store.GuildRecord {
-	raw, _ := json.Marshal(map[string]any{
+	raw := marshalJSONString(map[string]any{
 		"id":     id,
 		"name":   name,
 		"source": "discord_desktop",
-	})
-	return store.GuildRecord{ID: id, Name: name, RawJSON: string(raw)}
+	}, "{}")
+	return store.GuildRecord{ID: id, Name: name, RawJSON: raw}
 }
 
 func syntheticChannel(id, guildID, name string) store.ChannelRecord {
 	if name == "" {
 		name = "channel-" + shortID(id)
 	}
-	raw, _ := json.Marshal(map[string]any{
+	raw := marshalJSONString(map[string]any{
 		"id":       id,
 		"guild_id": guildID,
 		"name":     name,
 		"source":   "discord_desktop",
-	})
+	}, "{}")
 	kind := "text"
 	if guildID == DirectMessageGuildID {
 		kind = "dm"
@@ -713,7 +713,7 @@ func syntheticChannel(id, guildID, name string) store.ChannelRecord {
 			kind = "group_dm"
 		}
 	}
-	return store.ChannelRecord{ID: id, GuildID: guildID, Kind: kind, Name: name, RawJSON: string(raw)}
+	return store.ChannelRecord{ID: id, GuildID: guildID, Kind: kind, Name: name, RawJSON: raw}
 }
 
 func guildName(id string) string {
@@ -751,15 +751,14 @@ func kindForChannelType(typeValue int, dm bool) string {
 }
 
 func channelRawJSON(raw map[string]any, id, guildID, name, kind string) string {
-	body, _ := json.Marshal(map[string]any{
+	return marshalJSONString(map[string]any{
 		"id":       id,
 		"guild_id": guildID,
 		"name":     name,
 		"kind":     kind,
 		"source":   "discord_desktop",
 		"type":     raw["type"],
-	})
-	return string(body)
+	}, "{}")
 }
 
 func messageRawJSON(raw map[string]any, id, guildID, channelID, authorID string) string {
@@ -780,8 +779,7 @@ func messageRawJSON(raw map[string]any, id, guildID, channelID, authorID string)
 	if author := sanitizedRawAuthor(raw, authorID); len(author) > 0 {
 		payload["author"] = author
 	}
-	body, _ := json.Marshal(payload)
-	return string(body)
+	return marshalJSONString(payload, "{}")
 }
 
 func recipientLabel(items []any) string {
@@ -928,4 +926,12 @@ func mapValues[M ~map[string]T, T any](m M) []T {
 		out = append(out, value)
 	}
 	return out
+}
+
+func marshalJSONString(value any, fallback string) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fallback
+	}
+	return string(raw)
 }

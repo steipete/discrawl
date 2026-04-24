@@ -131,7 +131,7 @@ func Default() Config {
 			Concurrency:    defaultSyncConcurrency(),
 			RepairEvery:    "6h",
 			FullHistory:    true,
-			AttachmentText: boolPtr(true),
+			AttachmentText: new(true),
 		},
 		Search: SearchConfig{
 			DefaultMode: "fts",
@@ -262,7 +262,7 @@ func (c *Config) Normalize() error {
 		c.Sync.RepairEvery = "6h"
 	}
 	if c.Sync.AttachmentText == nil {
-		c.Sync.AttachmentText = boolPtr(true)
+		c.Sync.AttachmentText = new(true)
 	}
 	if c.Search.DefaultMode == "" {
 		c.Search.DefaultMode = "fts"
@@ -495,10 +495,6 @@ func normalizeAccount(account string) string {
 		return "default"
 	}
 	return account
-}
-
-func boolPtr(value bool) *bool {
-	return &value
 }
 
 func mapKeys[V any](m map[string]V) []string {

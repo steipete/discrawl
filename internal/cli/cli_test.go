@@ -1365,7 +1365,7 @@ func TestRuntimeConfiguresAttachmentTextOnSyncer(t *testing.T) {
 	require.NoError(t, rt.withServices(true, func() error { return nil }))
 	require.True(t, fakeSync.attachmentTextEnabled)
 
-	cfg.Sync.AttachmentText = ptrBool(false)
+	cfg.Sync.AttachmentText = new(false)
 	require.NoError(t, config.Write(cfgPath, cfg))
 	require.NoError(t, rt.withServices(true, func() error { return nil }))
 	require.False(t, fakeSync.attachmentTextEnabled)
@@ -1496,10 +1496,6 @@ func (e assertErr) Error() string { return string(e) }
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
-}
-
-func ptrBool(value bool) *bool {
-	return &value
 }
 
 func TestRuntimeHelpersAndSubcommands(t *testing.T) {

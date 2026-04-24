@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,19 +28,19 @@ func (r *runtime) runMentions(args []string) error {
 		return usageErr(err)
 	}
 	if fs.NArg() != 0 {
-		return usageErr(fmt.Errorf("mentions takes flags only"))
+		return usageErr(errors.New("mentions takes flags only"))
 	}
 	if *days < 0 {
-		return usageErr(fmt.Errorf("--days must be >= 0"))
+		return usageErr(errors.New("--days must be >= 0"))
 	}
 	if *days > 0 && strings.TrimSpace(*since) != "" {
-		return usageErr(fmt.Errorf("use either --days or --since"))
+		return usageErr(errors.New("use either --days or --since"))
 	}
 	if *limit < 0 {
-		return usageErr(fmt.Errorf("--limit must be >= 0"))
+		return usageErr(errors.New("--limit must be >= 0"))
 	}
 	if targetTypeValue := strings.TrimSpace(*targetType); targetTypeValue != "" && targetTypeValue != "user" && targetTypeValue != "role" {
-		return usageErr(fmt.Errorf("--type must be user or role"))
+		return usageErr(errors.New("--type must be user or role"))
 	}
 
 	var sinceTime time.Time
@@ -73,7 +74,7 @@ func (r *runtime) runMentions(args []string) error {
 		sinceTime.IsZero() &&
 		beforeTime.IsZero() &&
 		len(guildIDs) == 0 {
-		return usageErr(fmt.Errorf("mentions needs at least one filter"))
+		return usageErr(errors.New("mentions needs at least one filter"))
 	}
 
 	rows, err := r.store.ListMentions(r.ctx, store.MentionListOptions{
