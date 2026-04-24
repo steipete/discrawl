@@ -6,6 +6,7 @@ Goal:
 
 - build a local-first Discord guild crawler
 - mirror all guild data the configured bot can access
+- import classifiable Discord Desktop cache messages without user tokens, including DMs
 - store it in SQLite
 - support fast text search, semantic search, and raw SQL
 - support one-shot backfill and long-running live sync
@@ -26,6 +27,7 @@ V1 scope:
 - all accessible private threads
 - archived thread coverage
 - full message history
+- desktop-local import from cached Discord Desktop artifacts, with proven DMs stored under `@me`
 - current member snapshot
 - FTS5 search
 - optional OpenAI embeddings with local vector search
@@ -33,7 +35,8 @@ V1 scope:
 
 Out of scope for V1:
 
-- personal-account DMs
+- remote/API personal-account DM crawling
+- Discord user-token automation/selfbot flows
 - reactions as primary indexed entities
 - attachment blob downloads by default
 - cross-guild unified sync UX
@@ -118,6 +121,8 @@ Important Discord facts that drive the schema:
 - forum posts are threads under a forum parent
 - message history is paginated and must be backfilled incrementally
 - live updates come from Gateway events, not from polling alone
+- personal DMs are only supported through desktop-local cache import
+- desktop cache messages without a provable channel/guild route are skipped rather than stored as unknown data
 - archived public and private threads must be enumerated explicitly
 - private archived thread access may require elevated bot perms like `Manage Threads`
 
@@ -410,6 +415,7 @@ discrawl [global flags] <command> [args]
 - `init`
 - `sync`
 - `tail`
+- `wiretap`
 - `search`
 - `sql`
 - `members`
@@ -467,6 +473,27 @@ Requirements:
 - reconnect automatically
 - write checkpoints
 - periodic repair sync
+
+### `wiretap`
+
+Purpose:
+
+- import Discord Desktop cache artifacts into the local archive
+- make cached personal DMs searchable under synthetic guild id `@me`
+
+Expected flags:
+
+- `--path <dir>`
+- `--dry-run`
+- `--watch-every <duration>`
+- `--max-file-bytes <bytes>`
+
+Requirements:
+
+- never use Discord user tokens
+- never extract or persist auth tokens from desktop cache
+- scan bounded local files only
+- store sanitized raw metadata, not full arbitrary cache blobs
 
 ### `search`
 

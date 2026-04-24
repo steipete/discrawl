@@ -1,21 +1,36 @@
 package cli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/steipete/discrawl/internal/config"
 	"github.com/steipete/discrawl/internal/discord"
+	"github.com/steipete/discrawl/internal/discorddesktop"
 	"github.com/steipete/discrawl/internal/embed"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/syncer"
 )
+
+type syncSources struct {
+	name    string
+	discord bool
+	wiretap bool
+}
+
+type syncRunStats struct {
+	Source  string                `json:"source"`
+	Discord *syncer.SyncStats     `json:"discord,omitempty"`
+	Wiretap *discorddesktop.Stats `json:"wiretap,omitempty"`
+}
 
 func (r *runtime) runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
@@ -103,12 +118,17 @@ func (r *runtime) runSync(args []string) error {
 	since := fs.String("since", "", "")
 	channels := fs.String("channels", "", "")
 	concurrency := fs.Int("concurrency", r.cfg.Sync.Concurrency, "")
+	source := fs.String("source", r.cfg.Sync.Source, "")
 	withEmbeddings := fs.Bool("with-embeddings", false, "")
 	skipMembers := fs.Bool("skip-members", false, "")
 	latestOnly := fs.Bool("latest-only", false, "")
 	guildsFlag := fs.String("guilds", "", "")
 	guildFlag := fs.String("guild", "", "")
 	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	sources, err := parseSyncSources(*source)
+	if err != nil {
 		return usageErr(err)
 	}
 	var sinceTime time.Time
@@ -135,11 +155,74 @@ func (r *runtime) runSync(args []string) error {
 		SkipMembers: *skipMembers || defaultLatest,
 		LatestOnly:  latestMode,
 	}
-	stats, err := r.syncer.Sync(r.ctx, opts)
-	if err != nil {
-		return err
+	var apiStats *syncer.SyncStats
+	if sources.discord {
+		shouldClose := r.client == nil
+		if err := r.ensureDiscordServices(); err != nil {
+			return err
+		}
+		if shouldClose && r.client != nil {
+			defer func() { _ = r.client.Close() }()
+		}
+		stats, err := r.syncer.Sync(r.ctx, opts)
+		if err != nil {
+			return err
+		}
+		apiStats = &stats
 	}
-	return r.print(stats)
+	var wiretapStats *discorddesktop.Stats
+	if sources.wiretap {
+		stats, err := discorddesktop.Import(r.ctx, r.store, discorddesktop.Options{
+			Path:         r.cfg.Desktop.Path,
+			MaxFileBytes: r.cfg.Desktop.MaxFileBytes,
+			Now:          r.now,
+		})
+		if err != nil {
+			return err
+		}
+		wiretapStats = &stats
+	}
+	if sources.discord && !sources.wiretap {
+		return r.print(*apiStats)
+	}
+	if sources.wiretap && !sources.discord {
+		return r.print(*wiretapStats)
+	}
+	return r.print(syncRunStats{Source: sources.name, Discord: apiStats, Wiretap: wiretapStats})
+}
+
+func parseSyncSources(raw string) (syncSources, error) {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	if normalized == "" {
+		normalized = "both"
+	}
+	normalized = strings.ReplaceAll(normalized, "+", ",")
+	parts := strings.Split(normalized, ",")
+	out := syncSources{name: normalized}
+	for _, part := range parts {
+		switch strings.TrimSpace(part) {
+		case "", "both", "all":
+			out.discord = true
+			out.wiretap = true
+		case "discord", "api", "bot", "key":
+			out.discord = true
+		case "wiretap", "desktop", "cache":
+			out.wiretap = true
+		default:
+			return syncSources{}, fmt.Errorf("invalid --source %q; use both, discord, or wiretap", raw)
+		}
+	}
+	switch {
+	case out.discord && out.wiretap:
+		out.name = "both"
+	case out.discord:
+		out.name = "discord"
+	case out.wiretap:
+		out.name = "wiretap"
+	default:
+		return syncSources{}, fmt.Errorf("invalid --source %q; use both, discord, or wiretap", raw)
+	}
+	return out, nil
 }
 
 func (r *runtime) runTail(args []string) error {
@@ -154,6 +237,59 @@ func (r *runtime) runTail(args []string) error {
 	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return r.syncer.RunTail(ctx, r.resolveSyncGuilds(*guildFlag, *guildsFlag), *repairEvery)
+}
+
+func (r *runtime) runWiretap(args []string) error {
+	fs := flag.NewFlagSet("wiretap", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", r.cfg.Desktop.Path, "")
+	maxFileBytes := fs.Int64("max-file-bytes", r.cfg.Desktop.MaxFileBytes, "")
+	dryRun := fs.Bool("dry-run", false, "")
+	watchEvery := fs.Duration("watch-every", 0, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	if fs.NArg() != 0 {
+		return usageErr(fmt.Errorf("wiretap takes flags only"))
+	}
+	if *maxFileBytes <= 0 {
+		return usageErr(fmt.Errorf("--max-file-bytes must be positive"))
+	}
+	runOnce := func(ctx context.Context) error {
+		stats, err := discorddesktop.Import(ctx, r.store, discorddesktop.Options{
+			Path:         *path,
+			MaxFileBytes: *maxFileBytes,
+			DryRun:       *dryRun,
+			Now:          r.now,
+		})
+		if err != nil {
+			return err
+		}
+		return r.print(stats)
+	}
+	if *watchEvery <= 0 {
+		return runOnce(r.ctx)
+	}
+	if *watchEvery < time.Second {
+		return usageErr(fmt.Errorf("--watch-every must be at least 1s"))
+	}
+	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := runOnce(ctx); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(*watchEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := runOnce(ctx); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func (r *runtime) runStatus(args []string) error {

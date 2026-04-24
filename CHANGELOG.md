@@ -6,6 +6,8 @@ All notable changes to `discrawl` will be documented in this file.
 
 ### Changes
 
+- `sync --source both|discord|wiretap` controls bot-token sync versus local Discord Desktop cache import; the default is `both`.
+- `wiretap` imports classifiable cached Discord Desktop message payloads into the local archive, including proven DMs under synthetic guild id `@me`, without using user tokens.
 - `sync` now defaults to the fast latest-message refresh path for untargeted runs; use `--all-channels` for the broad stored-channel repair sweep or `--full` for historical backfill.
 
 ## 0.4.1 - 2026-04-22

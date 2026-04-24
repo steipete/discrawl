@@ -1,8 +1,8 @@
 # discrawl 🛰️ — Mirror Discord into SQLite; search server history locally
 
-`discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search. Teams can also publish that archive as a private Git snapshot repo, so readers get fresh org memory without Discord bot credentials.
+`discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search. It can also import classifiable Discord Desktop cache messages for DM recovery/search without using a user token. Teams can publish that archive as a private Git snapshot repo, so readers get fresh org memory without Discord bot credentials.
 
-Live sync uses real bot tokens. No user-token hacks. Data stays local unless you explicitly publish a Git-backed snapshot.
+Live guild sync uses real bot tokens. Desktop wiretap mode reads local cache artifacts only; it does not extract credentials or run a selfbot. Data stays local unless you explicitly publish a Git-backed snapshot.
 
 ## What It Does
 
@@ -13,6 +13,7 @@ Live sync uses real bot tokens. No user-token hacks. Data stays local unless you
 - extracts small text-like attachments into the local search index
 - records structured user and role mentions for direct querying
 - tails Gateway events for live updates, with periodic repair syncs
+- imports classifiable Discord Desktop cache messages with `wiretap`, including proven DMs under `@me`
 - publishes and imports private Git-backed archive snapshots for org-wide read access
 - supports Git-only read mode with no Discord credentials on reader machines
 - generates backup README activity reports, with optional AI-written field notes
@@ -24,7 +25,8 @@ Search defaults to all guilds. `sync` and `tail` default to the configured defau
 ## Requirements
 
 - Go `1.26+`
-- for publishing/syncing: a Discord bot token the bot can use to read the target guilds
+- for publishing/syncing guilds: a Discord bot token the bot can use to read the target guilds
+- for DM wiretap import: local Discord Desktop cache files on the same machine
 - for read-only Git-backed access: access to a private snapshot repo, no Discord credentials required
 - bot permissions for the channels you want archived when running `sync` or `tail`
 
@@ -111,6 +113,7 @@ discrawl sync --full
 discrawl sync
 discrawl search "panic: nil pointer"
 discrawl tail
+discrawl wiretap
 ```
 
 Multi-account OpenClaw setup:
@@ -174,6 +177,9 @@ discrawl sync --full
 discrawl sync --full --all
 discrawl sync --guild 123456789012345678
 discrawl sync --guilds 123,456 --concurrency 8
+discrawl sync --source both
+discrawl sync --source discord
+discrawl sync --source wiretap
 discrawl sync --guild 123456789012345678 --all-channels
 discrawl sync --channels 111,222 --since 2026-03-01T00:00:00Z
 ```
@@ -187,6 +193,7 @@ Sync modes:
 | `discrawl sync --full` | historical backfill | crawls older history until channels are complete; can take a long time on large servers |
 
 `sync` already uses parallel channel workers. `--concurrency` overrides the default, and the default is auto-sized from `GOMAXPROCS` with a floor of `8` and a cap of `32`.
+`--source` selects what gets refreshed: `both` (default), `discord`/`key` for bot-token API sync only, or `wiretap` for local Discord Desktop cache import only.
 `--all` ignores `default_guild_id` and fans out across every discovered guild the bot can access.
 `--skip-members` refreshes guild/channel/message data without crawling the full member list, which is useful for frequent Git snapshot publishers that only need latest messages.
 `--latest-only` is still accepted for explicit latest-only runs; it is now the default for untargeted `sync`. Use `--all-channels` to opt out of the fast default without doing a full historical crawl.
@@ -208,6 +215,26 @@ discrawl tail
 discrawl tail --guild 123456789012345678
 discrawl tail --repair-every 30m
 ```
+
+### `wiretap`
+
+Imports classifiable Discord Desktop message payloads into the same local SQLite archive. This is the path for searchable DMs because bot tokens cannot read personal direct messages.
+
+```bash
+discrawl wiretap
+discrawl wiretap --path "$HOME/Library/Application Support/discord"
+discrawl wiretap --dry-run
+discrawl wiretap --watch-every 2m
+```
+
+Notes:
+
+- stores only classifiable cache messages in the normal `guilds` / `channels` / `messages` tables
+- stores proven DMs under the synthetic guild id `@me`
+- drops message payloads whose channel cannot be classified from cached channel metadata or Discord route URLs
+- scans local `.ldb`, `.log`, `.json`, and `.txt` artifacts for Discord message JSON
+- does not extract, store, or print Discord auth tokens
+- `--max-file-bytes` skips unusually large files; default is 64 MiB
 
 ### `search`
 
