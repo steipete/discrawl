@@ -122,7 +122,7 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 	}
 	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return ignoreCacheFileError(err)
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -136,7 +136,7 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 		info, err := entry.Info()
 		if err != nil {
 			stats.FilesSkipped++
-			return nil
+			return ignoreCacheFileError(err)
 		}
 		if !isCandidateFile(path) || info.Size() <= 0 || info.Size() > maxBytes {
 			stats.FilesSkipped++
@@ -145,7 +145,7 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			stats.FilesSkipped++
-			return nil
+			return ignoreCacheFileError(err)
 		}
 		stats.FilesScanned++
 		stats.BytesScanned += int64(len(data))
@@ -213,6 +213,10 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 	stats.Messages = len(snap.messages)
 	stats.FinishedAt = now().UTC()
 	return stats, snap, nil
+}
+
+func ignoreCacheFileError(error) error {
+	return nil
 }
 
 func writeSnapshot(ctx context.Context, st *store.Store, snap snapshot) error {
