@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,6 +99,42 @@ func TestSnapshotExcludesLocalEmbeddingState(t *testing.T) {
 	require.Equal(t, "pending", state)
 }
 
+func TestSnapshotExcludesAndPreservesDirectMessages(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+	seedDirectMessageData(t, ctx, src)
+
+	repo := filepath.Join(t.TempDir(), "share")
+	manifest, err := Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.Equal(t, 1, tableEntry(t, manifest, "guilds").Rows)
+	require.Equal(t, 1, tableEntry(t, manifest, "channels").Rows)
+	require.Equal(t, 1, tableEntry(t, manifest, "messages").Rows)
+	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "guilds")), directMessageGuildID)
+	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "channels")), directMessageGuildID)
+	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "messages")), "private dm content")
+	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "sync_state")), "wiretap:last_import")
+
+	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
+	require.NoError(t, err)
+	defer func() { _ = dst.Close() }()
+	seedDirectMessageData(t, ctx, dst)
+
+	_, err = Import(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	dmResults, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "private dm content", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, dmResults, 1)
+	require.Equal(t, directMessageGuildID, dmResults[0].GuildID)
+	guildResults, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "launch checklist", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, guildResults, 1)
+	wiretapState, err := dst.GetSyncState(ctx, "wiretap:last_import")
+	require.NoError(t, err)
+	require.Equal(t, "2026-04-24T15:33:17Z", wiretapState)
+}
+
 func TestExportImportEmbeddingsOptIn(t *testing.T) {
 	ctx := context.Background()
 	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
@@ -152,7 +189,41 @@ func TestExportImportEmbeddingsOptIn(t *testing.T) {
 	require.Equal(t, vector, gotVector)
 }
 
-func TestArchiveExportPreservesExistingEmbeddingBundle(t *testing.T) {
+func TestExportEmbeddingsExcludesDirectMessages(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+	seedDirectMessageData(t, ctx, src)
+
+	blob, err := store.EncodeEmbeddingVector([]float32{1, 0})
+	require.NoError(t, err)
+	_, err = src.DB().ExecContext(ctx, `
+		insert into message_embeddings(
+			message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
+		) values
+			('m1', 'openai', 'text-embedding-3-small', ?, 2, ?, ?),
+			('dm1', 'openai', 'text-embedding-3-small', ?, 2, ?, ?)
+	`, store.EmbeddingInputVersion, blob, time.Now().UTC().Format(time.RFC3339Nano), store.EmbeddingInputVersion, blob, time.Now().UTC().Format(time.RFC3339Nano))
+	require.NoError(t, err)
+
+	repo := filepath.Join(t.TempDir(), "share")
+	manifest, err := Export(ctx, src, Options{
+		RepoPath:              repo,
+		Branch:                "main",
+		IncludeEmbeddings:     true,
+		EmbeddingProvider:     "openai",
+		EmbeddingModel:        "text-embedding-3-small",
+		EmbeddingInputVersion: store.EmbeddingInputVersion,
+	})
+	require.NoError(t, err)
+	require.Len(t, manifest.Embeddings, 1)
+	require.Equal(t, 1, manifest.Embeddings[0].Rows)
+	text := snapshotFilesText(t, repo, manifest.Embeddings[0].Files)
+	require.Contains(t, text, `"message_id":"m1"`)
+	require.NotContains(t, text, "dm1")
+}
+
+func TestArchiveExportDropsEmbeddingBundleUnlessOptedIn(t *testing.T) {
 	ctx := context.Background()
 	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
 	defer func() { _ = src.Close() }()
@@ -183,8 +254,7 @@ func TestArchiveExportPreservesExistingEmbeddingBundle(t *testing.T) {
 
 	archiveManifest, err := Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
 	require.NoError(t, err)
-	require.Equal(t, manifest.Embeddings, archiveManifest.Embeddings)
-	require.FileExists(t, embeddingFile)
+	require.Empty(t, archiveManifest.Embeddings)
 }
 
 func TestImportEmbeddingsFiltersByConfiguredIdentity(t *testing.T) {
@@ -613,6 +683,27 @@ func writeGzipJSONLines(t *testing.T, path string, lines []string) {
 	require.NoError(t, file.Close())
 }
 
+func snapshotTableText(t *testing.T, repo string, table TableManifest) string {
+	t.Helper()
+	return snapshotFilesText(t, repo, table.Files)
+}
+
+func snapshotFilesText(t *testing.T, repo string, files []string) string {
+	t.Helper()
+	var out strings.Builder
+	for _, rel := range files {
+		file, err := os.Open(filepath.Join(repo, filepath.FromSlash(rel)))
+		require.NoError(t, err)
+		gz, err := gzip.NewReader(file)
+		require.NoError(t, err)
+		_, err = io.Copy(&out, gz)
+		require.NoError(t, err)
+		require.NoError(t, gz.Close())
+		require.NoError(t, file.Close())
+	}
+	return out.String()
+}
+
 func seedStore(t *testing.T, path string) *store.Store {
 	t.Helper()
 	ctx := context.Background()
@@ -658,6 +749,50 @@ func seedStore(t *testing.T, path string) *store.Store {
 		}},
 	}}))
 	return s
+}
+
+func seedDirectMessageData(t *testing.T, ctx context.Context, s *store.Store) {
+	t.Helper()
+	now := time.Date(2026, 4, 24, 15, 33, 17, 0, time.UTC)
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: directMessageGuildID, Name: "Discord Direct Messages", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "dm-c1", GuildID: directMessageGuildID, Kind: "dm", Name: "Alice", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMessages(ctx, []store.MessageMutation{{
+		Record: store.MessageRecord{
+			ID:                "dm1",
+			GuildID:           directMessageGuildID,
+			ChannelID:         "dm-c1",
+			ChannelName:       "Alice",
+			AuthorID:          "u2",
+			AuthorName:        "Alice",
+			MessageType:       0,
+			CreatedAt:         now.Format(time.RFC3339Nano),
+			Content:           "private dm content",
+			NormalizedContent: "private dm content",
+			RawJSON:           `{}`,
+		},
+		EventType:   "wiretap",
+		PayloadJSON: `{"id":"dm1"}`,
+		Options:     store.WriteOptions{AppendEvent: true},
+		Attachments: []store.AttachmentRecord{{
+			AttachmentID: "att-dm1",
+			MessageID:    "dm1",
+			GuildID:      directMessageGuildID,
+			ChannelID:    "dm-c1",
+			AuthorID:     "u2",
+			Filename:     "private.txt",
+		}},
+		Mentions: []store.MentionEventRecord{{
+			MessageID:  "dm1",
+			GuildID:    directMessageGuildID,
+			ChannelID:  "dm-c1",
+			AuthorID:   "u2",
+			TargetType: "user",
+			TargetID:   "u3",
+			TargetName: "Bob",
+			EventAt:    now.Format(time.RFC3339Nano),
+		}},
+	}}))
+	require.NoError(t, s.SetSyncState(ctx, "wiretap:last_import", now.Format(time.RFC3339)))
 }
 
 func configureGitUser(t *testing.T, repo string) {

@@ -397,7 +397,7 @@ func TestShareCommandsRoundTripEmbeddings(t *testing.T) {
 	require.NoError(t, config.Write(cfgPath, cfg))
 
 	publisher := seedCLIStore(t, cfg.DBPath)
-	require.NoError(t, insertCLIEmbedding(ctx, publisher, "m1", "openai_compatible", "local-model", []float32{1, 0}))
+	require.NoError(t, insertCLIEmbedding(ctx, publisher, "m100", "openai_compatible", "local-model", []float32{1, 0}))
 	require.NoError(t, publisher.Close())
 	require.NoError(t, os.MkdirAll(cfg.Share.RepoPath, 0o755))
 	runGit(t, cfg.Share.RepoPath, "init")

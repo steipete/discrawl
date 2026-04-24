@@ -1,17 +1,15 @@
 # discrawl 🛰️ — Mirror Discord into SQLite; search server history locally
 
-`discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search. It can also import classifiable Discord Desktop cache messages for DM recovery/search without using a user token.
-
-Teams can publish the archive as a private Git snapshot repo, so readers get fresh org memory without Discord bot credentials.
+`discrawl` mirrors Discord guild data into local SQLite so you can search, inspect, and query server history without depending on Discord search. It can also import classifiable Discord Desktop cache messages for local DM recovery/search without using a user token. Teams can publish the guild archive as a private Git snapshot repo, so readers get fresh org memory without Discord bot credentials.
 
 There are two local archive sources:
 
 - Discord bot API sync for guilds, channels, members, threads, and message history the configured bot can access
-- Discord Desktop cache import for local, classifiable cached messages, including proven DMs under `@me`
+- Discord Desktop cache import for local, classifiable cached messages, including proven local-only DMs under `@me`
 
 Desktop wiretap mode reads local cache artifacts only. It does not extract credentials, use user tokens, call the Discord API as your user, or run a selfbot.
 
-Data stays local unless you explicitly publish a Git-backed snapshot.
+Wiretap DMs stay local and are never exported to the Git-backed snapshot mirror.
 
 ## What It Does
 
@@ -262,6 +260,8 @@ Notes:
 
 - stores classifiable cache messages in the same `guilds`, `channels`, and `messages` tables used by bot sync
 - stores proven DMs under the synthetic guild id `@me`
+- keeps `@me` rows local-only: `publish`, Git snapshot import/export, and optional embedding snapshot export exclude DM guilds, channels, messages, events, attachments, mentions, wiretap sync state, and vectors for DM messages
+- preserves existing local `@me` guilds, channels, messages, and attachments when importing a Git snapshot, so a shared guild mirror refresh does not wipe local wiretap DM search
 - drops message payloads whose channel cannot be classified from cached channel metadata or Discord route URLs; dropped rows are counted as `skipped_messages`
 - imports what Discord Desktop has cached locally, not complete live DM history
 - scans local `.ldb`, `.log`, `.json`, and `.txt` artifacts for Discord message JSON
@@ -445,7 +445,7 @@ Once `share.remote` is configured, read commands auto-fetch and import when the 
 
 Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync` and `discrawl messages --sync` import the Git snapshot first, then use live Discord for latest-message deltas. Use `sync --all-channels` or `sync --full` when you intentionally want a broader live repair/backfill pass.
 
-Git snapshots publish archive tables by default. Embedding queue state stays local to each machine, and Git-only readers can use FTS immediately without an embedding provider.
+Git snapshots publish non-DM archive tables by default. Embedding queue state stays local to each machine, and Git-only readers can use FTS immediately without an embedding provider.
 
 Generated vectors can be backed up explicitly:
 
@@ -455,7 +455,7 @@ discrawl subscribe --with-embeddings https://github.com/openclaw/discord-backup.
 discrawl update --with-embeddings
 ```
 
-`--with-embeddings` exports stored `message_embeddings` rows for the configured `[search.embeddings]` provider/model plus the current input version. The snapshot stores those vectors under `embeddings/<provider>/<model>/<input_version>/...` and records that identity in `manifest.json`. Import only restores matching embedding manifests, so an Ollama/nomic subscriber does not accidentally import OpenAI/text-embedding vectors into semantic search. `embedding_jobs` is never exported; subscribers that want fresh local vectors can run `discrawl embed --rebuild` to create their own queue and vectors.
+`--with-embeddings` exports stored `message_embeddings` rows for the configured `[search.embeddings]` provider/model plus the current input version. The snapshot stores those vectors under `embeddings/<provider>/<model>/<input_version>/...` and records that identity in `manifest.json`. Only vectors for non-DM messages are exported. Import only restores matching embedding manifests, so an Ollama/nomic subscriber does not accidentally import OpenAI/text-embedding vectors into semantic search. `embedding_jobs` is never exported; subscribers that want fresh local vectors can run `discrawl embed --rebuild` to create their own queue and vectors. Publishing without `--with-embeddings` omits embedding manifests instead of carrying forward an older bundle.
 
 The Docker smoke test installs `discrawl` in a clean Go container, subscribes to a Git snapshot repo, then checks `search`, `messages`, `sql`, and `report`:
 
@@ -514,10 +514,15 @@ account = "default"
 token_env = "DISCORD_BOT_TOKEN"
 
 [sync]
+source = "both" # use "discord" for bot-only sync or "wiretap" for desktop-cache-only import
 concurrency = 16
 repair_every = "6h"
 full_history = true
 attachment_text = true
+
+[desktop]
+path = "~/.config/discord" # macOS default: "~/Library/Application Support/discord"
+max_file_bytes = 67108864
 
 [search]
 default_mode = "fts"

@@ -23,6 +23,7 @@ const (
 	ManifestName                = "manifest.json"
 	LastImportSyncScope         = "share:last_import_at"
 	LastImportManifestSyncScope = "share:last_import_manifest_generated_at"
+	directMessageGuildID        = "@me"
 )
 
 var ErrNoManifest = errors.New("share manifest not found")
@@ -189,11 +190,6 @@ func Export(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		GeneratedAt: time.Now().UTC(),
 		Files:       map[string]string{"manifest": ManifestName},
 	}
-	if !opts.IncludeEmbeddings {
-		if previous, err := ReadManifest(opts.RepoPath); err == nil {
-			manifest.Embeddings = previous.Embeddings
-		}
-	}
 	for _, table := range SnapshotTables {
 		entry, err := exportTable(ctx, s.DB(), opts.RepoPath, table)
 		if err != nil {
@@ -251,7 +247,8 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 	}
 	for i := len(SnapshotTables) - 1; i >= 0; i-- {
 		table := SnapshotTables[i]
-		if _, err := tx.ExecContext(ctx, "delete from "+table); err != nil {
+		query, args := snapshotDeleteQuery(table)
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return Manifest{}, fmt.Errorf("clear %s: %w", table, err)
 		}
 	}
@@ -411,8 +408,8 @@ func NeedsImport(ctx context.Context, s *store.Store, staleAfter time.Duration) 
 }
 
 func exportTable(ctx context.Context, db *sql.DB, repoPath, table string) (TableManifest, error) {
-	query := "select * from " + table
-	rows, err := db.QueryContext(ctx, query)
+	query, args := snapshotExportQuery(table)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return TableManifest{}, fmt.Errorf("query %s: %w", table, err)
 	}
@@ -490,11 +487,12 @@ func exportEmbeddings(ctx context.Context, db *sql.DB, opts Options) (EmbeddingM
 		return EmbeddingManifest{}, fmt.Errorf("mkdir %s: %w", relDir, err)
 	}
 	rows, err := db.QueryContext(ctx, `
-		select message_id, provider, model, input_version, dimensions, embedding_blob, embedded_at
-		from message_embeddings
-		where provider = ? and model = ? and input_version = ?
-		order by message_id
-	`, provider, model, inputVersion)
+		select e.message_id, e.provider, e.model, e.input_version, e.dimensions, e.embedding_blob, e.embedded_at
+		from message_embeddings e
+		join messages m on m.id = e.message_id
+		where e.provider = ? and e.model = ? and e.input_version = ? and m.guild_id <> ?
+		order by e.message_id
+	`, provider, model, inputVersion, directMessageGuildID)
 	if err != nil {
 		return EmbeddingManifest{}, fmt.Errorf("query message_embeddings: %w", err)
 	}
@@ -605,6 +603,9 @@ func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table
 		if err != nil {
 			return fmt.Errorf("decode %s: %w", rel, err)
 		}
+		if isDirectMessageSnapshotRow(table.Name, row) {
+			continue
+		}
 		values := make([]any, len(table.Columns))
 		for i, column := range table.Columns {
 			values[i] = importValue(row[column])
@@ -614,6 +615,47 @@ func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table
 		}
 	}
 	return nil
+}
+
+func snapshotExportQuery(table string) (string, []any) {
+	switch table {
+	case "guilds":
+		return "select * from guilds where id <> ?", []any{directMessageGuildID}
+	case "channels", "members", "messages", "message_events", "message_attachments", "mention_events":
+		return "select * from " + table + " where guild_id <> ?", []any{directMessageGuildID}
+	case "sync_state":
+		return "select * from sync_state where scope not like 'wiretap:%'", nil
+	default:
+		return "select * from " + table, nil
+	}
+}
+
+func snapshotDeleteQuery(table string) (string, []any) {
+	switch table {
+	case "guilds":
+		return "delete from guilds where id <> ?", []any{directMessageGuildID}
+	case "message_events", "mention_events":
+		return "delete from " + table, nil
+	case "channels", "members", "messages", "message_attachments":
+		return "delete from " + table + " where guild_id <> ?", []any{directMessageGuildID}
+	case "sync_state":
+		return "delete from sync_state where scope not like 'wiretap:%'", nil
+	default:
+		return "delete from " + table, nil
+	}
+}
+
+func isDirectMessageSnapshotRow(table string, row map[string]any) bool {
+	switch table {
+	case "guilds":
+		return stringValue(row["id"]) == directMessageGuildID
+	case "channels", "members", "messages", "message_events", "message_attachments", "mention_events":
+		return stringValue(row["guild_id"]) == directMessageGuildID
+	case "sync_state":
+		return strings.HasPrefix(stringValue(row["scope"]), "wiretap:")
+	default:
+		return false
+	}
 }
 
 func importEmbeddings(ctx context.Context, tx *sql.Tx, opts Options, manifests []EmbeddingManifest) error {
@@ -815,6 +857,17 @@ func importValue(value any) any {
 		return v.String()
 	default:
 		return v
+	}
+}
+
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case json.Number:
+		return v.String()
+	default:
+		return ""
 	}
 }
 
