@@ -74,6 +74,7 @@ jobs:
           if [ -n "${OPENAI_API_KEY:-}" ]; then
             npm install -g openclaw@latest
             openclaw onboard \
+              --skip-bootstrap \
               --non-interactive \
               --mode local \
               --auth-choice openai-api-key \
