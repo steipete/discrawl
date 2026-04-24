@@ -177,18 +177,18 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 			delete(snap.messages, id)
 			continue
 		}
-		if guildID == DirectMessageGuildID {
-			if _, ok := snap.guilds[guildID]; !ok {
-				snap.guilds[guildID] = syntheticGuild(guildID, guildName(guildID))
-			}
+		if _, ok := snap.guilds[guildID]; !ok {
+			snap.guilds[guildID] = syntheticGuild(guildID, guildName(guildID))
 		}
-		if _, ok := snap.channels[msg.Record.ChannelID]; !ok && guildID == DirectMessageGuildID {
+		if _, ok := snap.channels[msg.Record.ChannelID]; !ok {
 			snap.channels[msg.Record.ChannelID] = syntheticChannel(msg.Record.ChannelID, guildID, msg.Record.ChannelName)
 		}
 		snap.messages[id] = msg
 	}
+	messageChannels := map[string]struct{}{}
 	dmChannels := map[string]struct{}{}
 	for _, msg := range snap.messages {
+		messageChannels[msg.Record.ChannelID] = struct{}{}
 		switch msg.Record.GuildID {
 		case DirectMessageGuildID:
 			stats.DMMessages++
@@ -197,12 +197,8 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 			stats.GuildMessages++
 		}
 	}
-	for id, channel := range snap.channels {
-		if channel.GuildID != DirectMessageGuildID {
-			delete(snap.channels, id)
-			continue
-		}
-		if _, ok := dmChannels[id]; !ok {
+	for id := range snap.channels {
+		if _, ok := messageChannels[id]; !ok {
 			delete(snap.channels, id)
 		}
 	}

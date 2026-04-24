@@ -183,6 +183,16 @@ func TestImportClassifiesMessagesFromCachedChannelRoutes(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, guildResults, 1)
 	require.Equal(t, "999999999999999998", guildResults[0].GuildID)
+
+	guildChannels, err := st.Channels(ctx, "999999999999999998")
+	require.NoError(t, err)
+	require.Len(t, guildChannels, 1)
+	require.Equal(t, "111111111111111115", guildChannels[0].ID)
+	require.Equal(t, "channel-111115", guildChannels[0].Name)
+
+	_, guildRows, err := st.ReadOnlyQuery(ctx, "select name from guilds where id = '999999999999999998'")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"Discord Desktop Guild 999999999999999998"}}, guildRows)
 }
 
 func TestImportDropsPreviousUnknownWiretapRows(t *testing.T) {
@@ -213,6 +223,31 @@ func TestImportDropsPreviousUnknownWiretapRows(t *testing.T) {
 	require.Equal(t, 0, stats.Messages)
 
 	results, err := st.SearchMessages(ctx, store.SearchOptions{Query: "stale unknown", Limit: 10})
+	require.NoError(t, err)
+	require.Empty(t, results)
+}
+
+func TestImportSkipsAmbiguousCachedChannelRoutes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "Cache", "Cache_Data")
+	require.NoError(t, os.MkdirAll(cachePath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_0"), []byte(`https://discord.com/channels/999999999999999998/111111111111111118
+https://discord.com/channels/999999999999999997/111111111111111118
+{"id":"333333333333333340","channel_id":"111111111111111118","content":"ambiguous route message","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222229","username":"alice"}}`), 0o600))
+
+	dbPath := filepath.Join(dir, "discrawl.db")
+	st, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = st.Close() }()
+
+	stats, err := Import(ctx, st, Options{Path: dir})
+	require.NoError(t, err)
+	require.Equal(t, 0, stats.Messages)
+	require.Equal(t, 1, stats.SkippedMessages)
+	require.Equal(t, 1, stats.SkippedChannels)
+
+	results, err := st.SearchMessages(ctx, store.SearchOptions{Query: "ambiguous", Limit: 10})
 	require.NoError(t, err)
 	require.Empty(t, results)
 }
