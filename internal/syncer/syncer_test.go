@@ -34,6 +34,7 @@ type fakeClient struct {
 	beforeErrors     map[string]map[string]error
 	memberDelay      time.Duration
 	tailCalls        int
+	tailHandled      chan struct{}
 	messageDelay     time.Duration
 	guildChanCalls   int
 	threadCalls      int
@@ -196,6 +197,12 @@ func (f *fakeClient) Tail(ctx context.Context, handler discordclient.EventHandle
 	}
 	if err := handler.OnMessageCreate(ctx, msg); err != nil {
 		return err
+	}
+	if f.tailHandled != nil {
+		select {
+		case f.tailHandled <- struct{}{}:
+		default:
+		}
 	}
 	<-ctx.Done()
 	return nil

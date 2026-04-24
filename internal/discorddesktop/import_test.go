@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -49,6 +50,23 @@ func TestDesktopPathAndImportHelpers(t *testing.T) {
 	require.True(t, parseDiscordTime("bad").IsZero())
 	require.Empty(t, formatOptionalTime(time.Time{}))
 	require.NotEmpty(t, formatOptionalTime(time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)))
+
+	i, ok := intField(map[string]any{"value": float64(3)}, "value")
+	require.True(t, ok)
+	require.Equal(t, 3, i)
+	i, ok = intField(map[string]any{"value": json.Number("4")}, "value")
+	require.True(t, ok)
+	require.Equal(t, 4, i)
+	_, ok = intField(map[string]any{"value": json.Number("nope")}, "value")
+	require.False(t, ok)
+	_, ok = intField(map[string]any{}, "value")
+	require.False(t, ok)
+
+	require.Equal(t, int64(3), int64Field(map[string]any{"value": float64(3)}, "value"))
+	require.Equal(t, int64(4), int64Field(map[string]any{"value": int64(4)}, "value"))
+	require.Equal(t, int64(5), int64Field(map[string]any{"value": 5}, "value"))
+	require.Equal(t, int64(6), int64Field(map[string]any{"value": json.Number("6")}, "value"))
+	require.Zero(t, int64Field(map[string]any{"value": "6"}, "value"))
 }
 
 func TestImportExtractsDirectMessageFromDesktopCache(t *testing.T) {

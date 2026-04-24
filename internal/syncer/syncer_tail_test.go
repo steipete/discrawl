@@ -212,10 +212,14 @@ func TestRunTail(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = s.Close() }()
 
-	client := &fakeClient{}
+	handled := make(chan struct{}, 1)
+	client := &fakeClient{tailHandled: handled}
 	svc := New(client, s, nil)
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-handled:
+		case <-time.After(time.Second):
+		}
 		cancel()
 	}()
 	err = svc.RunTail(ctx, nil, 0)

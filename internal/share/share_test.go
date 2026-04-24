@@ -35,8 +35,9 @@ func TestExportImportRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = dst.Close() }()
 
-	imported, err := Import(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	imported, changed, err := ImportIfChanged(ctx, dst, Options{RepoPath: repo, Branch: "main"})
 	require.NoError(t, err)
+	require.True(t, changed)
 	require.Equal(t, manifest.GeneratedAt, imported.GeneratedAt)
 
 	results, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "launch", Limit: 10})
@@ -55,6 +56,11 @@ func TestExportImportRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, manifest.GeneratedAt.Format(time.RFC3339Nano), lastManifest)
 	require.False(t, NeedsImport(ctx, dst, 15*time.Minute))
+
+	imported, changed, err = ImportIfChanged(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, manifest.GeneratedAt, imported.GeneratedAt)
 }
 
 func TestSnapshotExcludesLocalEmbeddingState(t *testing.T) {
@@ -560,9 +566,38 @@ func TestShareSmallHelpersAndValidation(t *testing.T) {
 	require.Equal(t, `insert into "messages"("id","weird""column") values(?,?)`, insertSQL("messages", []string{"id", `weird"column`}))
 	require.Equal(t, "blob", exportValue([]byte("blob")))
 	require.Equal(t, "plain", exportValue("plain"))
+	require.Equal(t, "plain", stringValue("plain"))
+	require.Equal(t, "42", stringValue(json.Number("42")))
+	require.Empty(t, stringValue(42))
 	require.True(t, isNonFastForwardPush("failed to push some refs; fetch first"))
 	require.True(t, isNonFastForwardPush("non-fast-forward"))
 	require.False(t, isNonFastForwardPush("everything up-to-date"))
+
+	query, args := snapshotExportQuery("messages")
+	require.Equal(t, "select * from messages where guild_id <> ?", query)
+	require.Equal(t, []any{directMessageGuildID}, args)
+	query, args = snapshotExportQuery("sync_state")
+	require.Equal(t, "select * from sync_state where scope not like 'wiretap:%'", query)
+	require.Nil(t, args)
+	query, args = snapshotExportQuery("custom")
+	require.Equal(t, "select * from custom", query)
+	require.Nil(t, args)
+
+	query, args = snapshotDeleteQuery("channels")
+	require.Equal(t, "delete from channels where guild_id <> ?", query)
+	require.Equal(t, []any{directMessageGuildID}, args)
+	query, args = snapshotDeleteQuery("message_events")
+	require.Equal(t, "delete from message_events", query)
+	require.Nil(t, args)
+	query, args = snapshotDeleteQuery("custom")
+	require.Equal(t, "delete from custom", query)
+	require.Nil(t, args)
+
+	require.True(t, isDirectMessageSnapshotRow("guilds", map[string]any{"id": directMessageGuildID}))
+	require.True(t, isDirectMessageSnapshotRow("channels", map[string]any{"guild_id": directMessageGuildID}))
+	require.True(t, isDirectMessageSnapshotRow("sync_state", map[string]any{"scope": "wiretap:last_import"}))
+	require.False(t, isDirectMessageSnapshotRow("sync_state", map[string]any{"scope": "share:last_import"}))
+	require.False(t, isDirectMessageSnapshotRow("custom", map[string]any{"guild_id": directMessageGuildID}))
 
 	var buf bytes.Buffer
 	cw := &countingWriter{w: &buf}
@@ -602,6 +637,28 @@ func TestShareSmallHelpersAndValidation(t *testing.T) {
 		Model:        "model",
 		InputVersion: store.EmbeddingInputVersion,
 	}}}), "has no files")
+}
+
+func TestTableShardWriterRotates(t *testing.T) {
+	oldMax := maxShardBytes
+	maxShardBytes = 1
+	t.Cleanup(func() { maxShardBytes = oldMax })
+
+	writer := tableShardWriter{rootDir: t.TempDir(), relDir: "tables/messages", label: "messages"}
+	require.NoError(t, os.MkdirAll(filepath.Join(writer.rootDir, filepath.FromSlash(writer.relDir)), 0o755))
+	require.NoError(t, writer.open())
+	_, err := writer.Write([]byte(`{"id":"m1"}` + "\n"))
+	require.NoError(t, err)
+	require.NoError(t, writer.finishRow())
+	require.NoError(t, writer.rotateIfNeeded())
+	_, err = writer.Write([]byte(`{"id":"m2"}` + "\n"))
+	require.NoError(t, err)
+	require.NoError(t, writer.finishRow())
+	require.NoError(t, writer.close())
+	require.Len(t, writer.files, 2)
+	for _, rel := range writer.files {
+		require.FileExists(t, filepath.Join(writer.rootDir, filepath.FromSlash(rel)))
+	}
 }
 
 func TestLegacyManifestFileImportAndEmbeddingDecodeErrors(t *testing.T) {

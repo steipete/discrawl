@@ -182,6 +182,32 @@ func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
 	require.Contains(t, out.String(), "secret DM launch plan")
 }
 
+func TestParseMessageWindow(t *testing.T) {
+	rt := &runtime{now: func() time.Time {
+		return time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	}}
+
+	since, before, err := rt.parseMessageWindow(6, 0, "", "")
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2026, 4, 24, 6, 0, 0, 0, time.UTC), since)
+	require.True(t, before.IsZero())
+
+	since, before, err = rt.parseMessageWindow(0, 2, "", "")
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC), since)
+	require.True(t, before.IsZero())
+
+	since, before, err = rt.parseMessageWindow(0, 0, "2026-04-20T10:00:00Z", "2026-04-21T10:00:00Z")
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC), since)
+	require.Equal(t, time.Date(2026, 4, 21, 10, 0, 0, 0, time.UTC), before)
+
+	_, _, err = rt.parseMessageWindow(0, 0, "bad", "")
+	require.Equal(t, 2, ExitCode(err))
+	_, _, err = rt.parseMessageWindow(0, 0, "", "bad")
+	require.Equal(t, 2, ExitCode(err))
+}
+
 func TestWiretapAndSearchWorkWithoutConfig(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -1189,6 +1215,9 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	require.Equal(t, "g2", cfg.DefaultGuildID)
 	require.Equal(t, "atlas", cfg.Discord.Account)
 	require.True(t, cfg.Search.Embeddings.Enabled)
+	cfg.Desktop.Path = filepath.Join(dir, "empty-discord")
+	require.NoError(t, os.MkdirAll(cfg.Desktop.Path, 0o755))
+	require.NoError(t, config.Write(cfgPath, cfg))
 
 	rt = newRuntime()
 	require.NoError(t, rt.withServices(true, func() error { return rt.runSync([]string{"--guilds", "g2"}) }))
@@ -1413,6 +1442,9 @@ func TestCommandUsageBranches(t *testing.T) {
 		{[]string{"--config", cfgPath, "messages", "--dm", "--guild", "g1"}, "use either --dm or --guild/--guilds"},
 		{[]string{"--config", cfgPath, "messages", "--dm", "--sync"}, "messages --sync is not supported with --dm"},
 		{[]string{"--config", cfgPath, "dms", "extra"}, "dms takes flags only"},
+		{[]string{"--config", cfgPath, "wiretap", "extra"}, "wiretap takes flags only"},
+		{[]string{"--config", cfgPath, "wiretap", "--max-file-bytes", "0"}, "--max-file-bytes must be positive"},
+		{[]string{"--config", cfgPath, "wiretap", "--watch-every", "1ms"}, "--watch-every must be at least 1s"},
 		{[]string{"--config", cfgPath, "members"}, "members requires a subcommand"},
 		{[]string{"--config", cfgPath, "members", "search"}, "members search requires a query"},
 		{[]string{"--config", cfgPath, "members", "bogus"}, `unknown members subcommand "bogus"`},
@@ -1444,6 +1476,13 @@ func TestHelpers(t *testing.T) {
 	require.Equal(t, 5, ExitCode(dbErr(assertErr("x"))))
 	require.Equal(t, 3, ExitCode(configErr(assertErr("x"))))
 	require.Equal(t, 1, ExitCode(assertErr("x")))
+	require.True(t, hybridSemanticUnavailable(store.ErrNoCompatibleEmbeddings))
+	require.True(t, hybridSemanticUnavailable(assertErr("semantic query embedding missing")))
+	require.False(t, hybridSemanticUnavailable(assertErr("other")))
+	opts, err := shareOptionsFromFlags("~/share", "", "")
+	require.NoError(t, err)
+	require.Equal(t, defaultShareRemote, opts.Remote)
+	require.Equal(t, "main", opts.Branch)
 	var out bytes.Buffer
 	require.NoError(t, printHuman(&out, syncer.SyncStats{Guilds: 1}))
 	require.Contains(t, out.String(), "guilds=1")
@@ -1504,6 +1543,36 @@ func TestRuntimeHelpersAndSubcommands(t *testing.T) {
 		require.NoError(t, rt.runStatus(nil))
 		return nil
 	}))
+}
+
+func TestRunInitWritesDiscoveredGuildConfig(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	dbPath := filepath.Join(dir, "discrawl.db")
+	t.Setenv(config.DefaultTokenEnv, "env-token")
+
+	fakeSync := &fakeSyncService{discovered: []*discordgo.UserGuild{{ID: "g1"}, {ID: "g2"}}}
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		stdout:     &bytes.Buffer{},
+		stderr:     &bytes.Buffer{},
+		logger:     discardLogger(),
+		newDiscord: func(config.Config) (discordClient, error) { return &fakeDiscordClient{}, nil },
+		newSyncer: func(syncer.Client, *store.Store, *slog.Logger) syncService {
+			return fakeSync
+		},
+	}
+
+	require.NoError(t, rt.runInit([]string{"--db", dbPath, "--guild", "g2", "--with-embeddings"}))
+	cfg, err := config.Load(cfgPath)
+	require.NoError(t, err)
+	require.Equal(t, dbPath, cfg.DBPath)
+	require.Equal(t, []string{"g1", "g2"}, cfg.GuildIDs)
+	require.Equal(t, "g2", cfg.DefaultGuildID)
+	require.True(t, cfg.Search.Embeddings.Enabled)
+	require.Contains(t, rt.stdout.(*bytes.Buffer).String(), "g2")
 }
 
 func TestRunMembersShowUsesDefaultGuildForAmbiguousQuery(t *testing.T) {

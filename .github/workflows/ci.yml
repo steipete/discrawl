@@ -83,8 +83,8 @@ jobs:
               print "missing coverage total"
               exit 1
             }
-            if (total + 0 < 80.0) {
-              printf("coverage %.1f%% is below 80%%\n", total + 0)
+            if (total + 0 < 85.0) {
+              printf("coverage %.1f%% is below 85%%\n", total + 0)
               exit 1
             }
             printf("coverage %.1f%%\n", total + 0)

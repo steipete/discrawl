@@ -647,7 +647,7 @@ go tool cover -func=/tmp/discrawl.cover | tail -n 1
 go build ./cmd/discrawl
 ```
 
-Target coverage is `>= 80%`.
+Target coverage is `>= 85%`.
 
 CI runs:
 
