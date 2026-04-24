@@ -58,6 +58,11 @@ func printPlain(w io.Writer, value any) error {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", formatTime(row.CreatedAt), row.GuildID, row.ChannelID, row.AuthorID, row.MessageID, row.Content)
 		}
 		return nil
+	case []store.DirectMessageConversationRow:
+		for _, row := range v {
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%s\t%s\n", row.ChannelID, row.Name, row.MessageCount, row.AuthorCount, formatTime(row.FirstMessageAt), formatTime(row.LastMessageAt))
+		}
+		return nil
 	case []store.MentionRow:
 		for _, row := range v {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", formatTime(row.CreatedAt), row.GuildID, row.ChannelID, row.AuthorID, row.TargetType, row.TargetID, row.Content)
@@ -81,6 +86,7 @@ Commands:
   wiretap
   search
   messages
+  dms
   mentions
   embed
   sql
@@ -161,6 +167,20 @@ func printHuman(w io.Writer, value any) error {
 			}
 		}
 		return nil
+	case []store.DirectMessageConversationRow:
+		tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "CHANNEL\tNAME\tMESSAGES\tAUTHORS\tFIRST\tLAST")
+		for _, row := range v {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%s\n",
+				row.ChannelID,
+				row.Name,
+				row.MessageCount,
+				row.AuthorCount,
+				formatTime(row.FirstMessageAt),
+				formatTime(row.LastMessageAt),
+			)
+		}
+		return tw.Flush()
 	case []store.MentionRow:
 		for _, row := range v {
 			if _, err := fmt.Fprintf(w, "[%s/%s] %s -> %s:%s %s\n%s\n\n", row.GuildID, row.ChannelName, row.AuthorName, row.TargetType, firstNonEmpty(row.TargetName, row.TargetID), formatTime(row.CreatedAt), row.Content); err != nil {

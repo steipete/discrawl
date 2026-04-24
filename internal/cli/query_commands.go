@@ -22,6 +22,7 @@ func (r *runtime) runSearch(args []string) error {
 	author := fs.String("author", "", "")
 	limit := fs.Int("limit", 20, "")
 	includeEmpty := fs.Bool("include-empty", false, "")
+	dm := fs.Bool("dm", false, "")
 	guildsFlag := fs.String("guilds", "", "")
 	guildFlag := fs.String("guild", "", "")
 	if err := fs.Parse(args); err != nil {
@@ -30,9 +31,13 @@ func (r *runtime) runSearch(args []string) error {
 	if fs.NArg() != 1 {
 		return usageErr(fmt.Errorf("search requires a query"))
 	}
+	guildIDs, err := directMessageGuildScope(*dm, *guildFlag, *guildsFlag)
+	if err != nil {
+		return usageErr(err)
+	}
 	opts := store.SearchOptions{
 		Query:        fs.Arg(0),
-		GuildIDs:     r.resolveSearchGuilds(*guildFlag, *guildsFlag),
+		GuildIDs:     guildIDs,
 		Channel:      *channel,
 		Author:       *author,
 		Limit:        *limit,

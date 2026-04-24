@@ -278,6 +278,7 @@ discrawl search --mode fts "panic: nil pointer"
 discrawl search --mode semantic "missing launch checklist"
 discrawl search --mode hybrid "database timeout"
 discrawl search --guild 123456789012345678 "payment failed"
+discrawl search --dm "launch checklist"
 discrawl search --channel billing --author steipete --limit 50 "invoice"
 discrawl search --include-empty "GitHub"
 discrawl --json search "websocket closed"
@@ -303,6 +304,7 @@ discrawl messages --channel maintainers --hours 6 --all
 discrawl messages --channel "#maintainers" --since 2026-03-01T00:00:00Z
 discrawl messages --channel 1456744319972282449 --author steipete --limit 50
 discrawl messages --channel maintainers --last 100 --sync
+discrawl messages --dm --channel Molty --last 20
 discrawl messages --channel maintainers --days 7 --all --include-empty
 discrawl --json messages --channel maintainers --days 3
 ```
@@ -317,6 +319,21 @@ Notes:
 - `--sync` runs a blocking pre-query sync for the matching channel or guild scope before reading the local DB
 - rows with no displayable/searchable content are skipped by default; `--include-empty` opts back in
 - at least one filter is required
+- `--dm` is shorthand for `--guild @me`, so DM searches and message slices do not need raw SQL
+
+### `dms`
+
+Lists local wiretap DM conversations or reads one DM thread.
+
+```bash
+discrawl dms
+discrawl dms --with Molty --last 20
+discrawl dms --with 1456464433768300635 --all
+discrawl dms --search "launch checklist"
+discrawl dms --with Molty --search "invoice"
+```
+
+`discrawl dms` shows one row per local DM channel with message count, author count, and first/last cached message times. Passing `--with` switches to message output for that DM conversation unless `--list` is also set. `--search` searches only local DM messages. This is a convenience layer over the local-only synthetic guild id `@me`; it skips Git snapshot auto-update because DMs are never imported from the shared mirror, and it still only sees Discord Desktop cache data imported by `wiretap`.
 
 ### `mentions`
 

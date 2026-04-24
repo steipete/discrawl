@@ -129,12 +129,16 @@ func (r *runtime) dispatch(rest []string) error {
 	case "wiretap":
 		return r.withLocalStoreDefault(false, func() error { return r.runWiretap(rest[1:]) })
 	case "search":
-		return r.withLocalStoreDefault(true, func() error { return r.runSearch(rest[1:]) })
+		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
+		return r.withLocalStoreDefault(autoShareUpdate, func() error { return r.runSearch(rest[1:]) })
 	case "messages":
-		if hasBoolFlag(rest[1:], "--sync") {
+		if hasBoolFlag(rest[1:], "--sync") && !hasBoolFlag(rest[1:], "--dm") {
 			return r.withServicesAuto(true, true, func() error { return r.runMessages(rest[1:]) })
 		}
-		return r.withLocalStoreDefault(true, func() error { return r.runMessages(rest[1:]) })
+		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
+		return r.withLocalStoreDefault(autoShareUpdate, func() error { return r.runMessages(rest[1:]) })
+	case "dms":
+		return r.withLocalStoreDefault(false, func() error { return r.runDirectMessages(rest[1:]) })
 	case "mentions":
 		return r.withLocalStoreDefault(true, func() error { return r.runMentions(rest[1:]) })
 	case "embed":

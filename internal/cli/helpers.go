@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/steipete/discrawl/internal/store"
 )
 
 func (r *runtime) resolveSyncGuilds(guild, guilds string) []string {
@@ -32,6 +34,17 @@ func (r *runtime) resolveSyncGuildsAll(guild, guilds string, all bool) ([]string
 func (r *runtime) resolveSearchGuilds(guild, guilds string) []string {
 	requested := append(csvList(guilds), strings.TrimSpace(guild))
 	return csvList(strings.Join(requested, ","))
+}
+
+func directMessageGuildScope(dm bool, guild, guilds string) ([]string, error) {
+	if !dm {
+		requested := append(csvList(guilds), strings.TrimSpace(guild))
+		return csvList(strings.Join(requested, ",")), nil
+	}
+	if len(csvList(guilds)) > 0 || strings.TrimSpace(guild) != "" {
+		return nil, fmt.Errorf("use either --dm or --guild/--guilds")
+	}
+	return []string{store.DirectMessageGuildID}, nil
 }
 
 func csvList(raw string) []string {

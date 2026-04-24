@@ -162,6 +162,24 @@ func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
 	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "launch"}, &out, &bytes.Buffer{}))
 	require.Contains(t, out.String(), "secret DM launch plan")
 	require.Contains(t, out.String(), "@me")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "dms"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "Alice")
+	require.Contains(t, out.String(), "111111111111111111")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "dms", "--with", "Alice", "--last", "1"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "secret DM launch plan")
+	require.Contains(t, out.String(), "@me")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "--dm", "launch"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "secret DM launch plan")
+
+	out.Reset()
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "messages", "--dm", "--channel", "Alice", "--last", "1"}, &out, &bytes.Buffer{}))
+	require.Contains(t, out.String(), "secret DM launch plan")
 }
 
 func TestWiretapAndSearchWorkWithoutConfig(t *testing.T) {
@@ -1391,6 +1409,10 @@ func TestCommandUsageBranches(t *testing.T) {
 		{[]string{"--config", cfgPath, "sql", "--confirm", "select 1"}, "--confirm requires --unsafe"},
 		{[]string{"--config", cfgPath, "sql", "--unsafe", "delete from messages"}, "--unsafe requires --confirm"},
 		{[]string{"--config", cfgPath, "search"}, "search requires a query"},
+		{[]string{"--config", cfgPath, "search", "--dm", "--guild", "g1", "panic"}, "use either --dm or --guild/--guilds"},
+		{[]string{"--config", cfgPath, "messages", "--dm", "--guild", "g1"}, "use either --dm or --guild/--guilds"},
+		{[]string{"--config", cfgPath, "messages", "--dm", "--sync"}, "messages --sync is not supported with --dm"},
+		{[]string{"--config", cfgPath, "dms", "extra"}, "dms takes flags only"},
 		{[]string{"--config", cfgPath, "members"}, "members requires a subcommand"},
 		{[]string{"--config", cfgPath, "members", "search"}, "members search requires a query"},
 		{[]string{"--config", cfgPath, "members", "bogus"}, `unknown members subcommand "bogus"`},

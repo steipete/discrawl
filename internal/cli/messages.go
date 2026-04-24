@@ -26,6 +26,7 @@ func (r *runtime) runMessages(args []string) error {
 	all := fs.Bool("all", false, "")
 	syncNow := fs.Bool("sync", false, "")
 	includeEmpty := fs.Bool("include-empty", false, "")
+	dm := fs.Bool("dm", false, "")
 	guildsFlag := fs.String("guilds", "", "")
 	guildFlag := fs.String("guild", "", "")
 	if err := fs.Parse(args); err != nil {
@@ -90,7 +91,13 @@ func (r *runtime) runMessages(args []string) error {
 		}
 	}
 
-	guildIDs := r.resolveSearchGuilds(*guildFlag, *guildsFlag)
+	guildIDs, err := directMessageGuildScope(*dm, *guildFlag, *guildsFlag)
+	if err != nil {
+		return usageErr(err)
+	}
+	if *dm && *syncNow {
+		return usageErr(fmt.Errorf("messages --sync is not supported with --dm; run wiretap or sync --source wiretap first"))
+	}
 	if strings.TrimSpace(*channel) == "" && strings.TrimSpace(*author) == "" && sinceTime.IsZero() && beforeTime.IsZero() && len(guildIDs) == 0 {
 		return usageErr(fmt.Errorf("messages needs at least one filter"))
 	}
