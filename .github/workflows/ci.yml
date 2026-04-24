@@ -70,10 +70,10 @@ jobs:
           cache: true
 
       - name: Test with coverage
-        run: go test ./... -coverprofile=coverage.out
+        run: go test -count=1 ./... -coverprofile=coverage.out
 
       - name: Test with race detector
-        run: go test -race ./...
+        run: go test -count=1 -race ./...
 
       - name: Enforce coverage floor
         run: |
@@ -109,11 +109,38 @@ jobs:
       - name: Verify module cache
         run: go mod verify
 
+      - name: Check go.mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
       - name: Run govulncheck
         run: '"$(go env GOPATH)/bin/govulncheck" ./...'
+
+  release-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Snapshot release build
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
 
   secrets:
     runs-on: ubuntu-latest

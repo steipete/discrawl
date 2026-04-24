@@ -19,6 +19,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 - Added regression coverage for DM channel-name inference from cached profile data when Discord Desktop cache lacks explicit channel recipient metadata.
 - Added coverage for local DM conversation listing/filtering, DM cleanup paths, share import/export helpers, CLI DM windows, and Discord Desktop import helper edge cases.
+- CI now runs uncached test and race suites, checks `go mod tidy`, and performs a snapshot GoReleaser build before release tags.
 
 ## 0.5.1 - 2026-04-24
 
