@@ -834,3 +834,28 @@ Behavior:
 - top mentions are ranked from `mention_events` and include all target types (`user` and `role`)
 - channels are sorted by message count descending, then channel name ascending
 - JSON output returns a `Digest` object with channel rows and totals; plain output emits one tab-separated row per channel
+
+## Analytics
+
+`discrawl analytics` is a subcommand group for activity-style queries.
+
+Example usage:
+
+```bash
+discrawl analytics
+discrawl analytics digest --since 7d
+discrawl analytics quiet --since 30d
+discrawl analytics quiet --guild 123456789012345678
+discrawl analytics trends --weeks 8
+discrawl analytics trends --weeks 12 --channel general
+discrawl --json analytics trends --weeks 4
+```
+
+Behavior:
+
+- `analytics digest` delegates to `discrawl digest` so both paths share one implementation
+- `analytics quiet` defaults to `30d` lookback and supports `--guild`
+- `analytics quiet` includes channels with no messages at all
+- `analytics trends` defaults to `8` weeks and supports `--guild` plus `--channel` (id or exact name)
+- `analytics trends` buckets messages into 7-day windows aligned by Unix week boundary and zero-fills missing weeks for every returned channel
+- trends rows are sorted by total messages descending, then channel name ascending

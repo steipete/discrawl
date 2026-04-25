@@ -75,6 +75,18 @@ func printPlain(w io.Writer, value any) error {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%d\n", row.ChannelID, row.ChannelName, row.Kind, row.GuildID, row.Messages, row.Threads, row.ActiveAuthors)
 		}
 		return nil
+	case report.Quiet:
+		for _, row := range v.Channels {
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\n", row.ChannelID, row.ChannelName, row.Kind, row.GuildID, row.LastMessage, row.DaysSilent)
+		}
+		return nil
+	case report.Trends:
+		for _, row := range v.Rows {
+			for _, week := range row.Weekly {
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\n", row.GuildID, row.ChannelID, row.ChannelName, row.Kind, formatTime(week.WeekStart), week.Messages)
+			}
+		}
+		return nil
 	default:
 		return errors.New("no plain printer")
 	}
@@ -94,6 +106,7 @@ Commands:
   search
   messages
   digest
+  analytics
   dms
   mentions
   embed
@@ -301,6 +314,54 @@ func printHuman(w io.Writer, value any) error {
 		}
 		_, err := fmt.Fprintf(w, "Totals: messages=%d threads=%d channels=%d authors=%d\n", v.Totals.Messages, v.Totals.Threads, v.Totals.Channels, v.Totals.ActiveAuthors)
 		return err
+	case report.Quiet:
+		tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "CHANNEL\tKIND\tLAST MESSAGE\tDAYS SILENT")
+		for _, row := range v.Channels {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+				row.ChannelName,
+				firstNonEmpty(row.Kind, "unknown"),
+				firstNonEmpty(row.LastMessage, "never"),
+				formatDaysSilent(row.DaysSilent),
+			)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "\nWindow: %s to %s (%s)\n", formatTime(v.Since), formatTime(v.Until), formatWindowDuration(v.Until.Sub(v.Since))); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(w, "Totals: channels=%d\n", v.Totals.Channels)
+		return err
+	case report.Trends:
+		tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
+		header := []string{"CHANNEL", "KIND", "TOTAL"}
+		weekStarts := make([]time.Time, 0, v.Weeks)
+		if len(v.Rows) > 0 {
+			for _, week := range v.Rows[0].Weekly {
+				weekStarts = append(weekStarts, week.WeekStart)
+			}
+		} else {
+			for i := 0; i < v.Weeks; i++ {
+				weekStarts = append(weekStarts, v.Since.Add(time.Duration(i)*7*24*time.Hour))
+			}
+		}
+		for _, start := range weekStarts {
+			header = append(header, start.Format("2006-01-02"))
+		}
+		_, _ = fmt.Fprintln(tw, strings.Join(header, "\t"))
+		for _, row := range v.Rows {
+			cols := []string{row.ChannelName, firstNonEmpty(row.Kind, "unknown"), fmt.Sprintf("%d", trendsRowTotal(row.Weekly))}
+			for _, week := range row.Weekly {
+				cols = append(cols, fmt.Sprintf("%d", week.Messages))
+			}
+			_, _ = fmt.Fprintln(tw, strings.Join(cols, "\t"))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(w, "\nWindow: %s to %s (%d weeks)\n", formatTime(v.Since), formatTime(v.Until), v.Weeks)
+		return err
 	case map[string]any:
 		keys := make([]string, 0, len(v))
 		for key := range v {
@@ -359,4 +420,32 @@ func formatRankedCounts(rows []report.RankedCount) string {
 		parts = append(parts, fmt.Sprintf("%s (%d)", firstNonEmpty(row.Name, "unknown"), row.Count))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func formatDaysSilent(days int) string {
+	if days < 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", days)
+}
+
+func formatWindowDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0"
+	}
+	if d%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
+	}
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", int(d/time.Hour))
+	}
+	return d.String()
+}
+
+func trendsRowTotal(weekly []report.WeeklyCount) int {
+	total := 0
+	for _, row := range weekly {
+		total += row.Messages
+	}
+	return total
 }
