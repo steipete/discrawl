@@ -124,7 +124,8 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 	}
 	rootFS, err := os.OpenRoot(root)
 	if err != nil {
-		return stats, snap, err
+		stats.FinishedAt = now().UTC()
+		return stats, snap, ignoreCacheFileError(err)
 	}
 	defer func() { _ = rootFS.Close() }()
 	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {

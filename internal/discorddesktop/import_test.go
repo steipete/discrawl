@@ -136,6 +136,22 @@ func TestImportDryRunDoesNotWrite(t *testing.T) {
 	require.Empty(t, results)
 }
 
+func TestImportMissingDesktopPathIsEmpty(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "missing")
+	st, err := store.Open(ctx, filepath.Join(dir, "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = st.Close() }()
+
+	stats, err := Import(ctx, st, Options{Path: path})
+	require.NoError(t, err)
+	require.Equal(t, path, stats.Path)
+	require.Zero(t, stats.FilesScanned)
+	require.Zero(t, stats.Messages)
+	require.False(t, stats.FinishedAt.IsZero())
+}
+
 func TestImportExtractsCompressedUnknownMessageArrayFromChromiumCache(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
