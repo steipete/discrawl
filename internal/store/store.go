@@ -391,6 +391,7 @@ func (s *Store) applyBaselineSchema(ctx context.Context) error {
 			embedded_at text not null,
 			primary key (message_id, provider, model, input_version)
 		);`,
+		// Uses FTS5 default unicode61 tokenizer; query input is normalized by normalizeFTSQuery for operator literalization.
 		`create virtual table if not exists message_fts using fts5(
 			message_id unindexed,
 			guild_id unindexed,
@@ -571,6 +572,7 @@ func (s *Store) rebuildFTS(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, `drop table if exists message_fts`); err != nil {
 		return fmt.Errorf("drop message_fts: %w", err)
 	}
+	// Uses FTS5 default unicode61 tokenizer; query input is normalized by normalizeFTSQuery for operator literalization.
 	if _, err := tx.ExecContext(ctx, `
 		create virtual table message_fts using fts5(
 			message_id unindexed,
