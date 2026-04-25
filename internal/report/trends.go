@@ -148,6 +148,7 @@ select
 	coalesce(c.kind, '') as kind
 from channels c
 where 1 = 1
+  and c.kind in ('text', 'announcement', 'thread_public', 'thread_private', 'thread_announcement')
 `)
 	args := make([]any, 0, 3)
 	if guildID != "" {

@@ -93,7 +93,9 @@ func seedQuietStore(t *testing.T, ctx context.Context) (*store.Store, time.Time)
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c0", GuildID: "g1", Kind: "text", Name: "never", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "recent", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c2", GuildID: "g1", Kind: "text", Name: "stale-45", RawJSON: `{}`}))
-	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c3", GuildID: "g1", Kind: "forum", Name: "stale-35", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c3", GuildID: "g1", Kind: "thread_public", Name: "stale-35", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c5", GuildID: "g1", Kind: "category", Name: "structural", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c6", GuildID: "g1", Kind: "voice", Name: "lobby", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c9", GuildID: "g2", Kind: "text", Name: "other-guild-stale", RawJSON: `{}`}))
 
 	require.NoError(t, s.UpsertMessages(ctx, []store.MessageMutation{

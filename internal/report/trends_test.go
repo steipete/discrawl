@@ -112,8 +112,10 @@ func seedTrendsStore(t *testing.T, ctx context.Context) (*store.Store, time.Time
 
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "alpha", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c2", GuildID: "g1", Kind: "text", Name: "beta", RawJSON: `{}`}))
-	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c3", GuildID: "g1", Kind: "forum", Name: "gamma", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c3", GuildID: "g1", Kind: "thread_public", Name: "gamma", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c4", GuildID: "g1", Kind: "text", Name: "zeta", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c5", GuildID: "g1", Kind: "category", Name: "structural", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c6", GuildID: "g1", Kind: "voice", Name: "lobby", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c9", GuildID: "g2", Kind: "text", Name: "omega", RawJSON: `{}`}))
 
 	seed := func(guildID, channelID, channelName string, bucket int64, count int) {

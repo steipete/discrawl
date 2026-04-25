@@ -96,6 +96,7 @@ select
 from channels c
 left join latest_messages lm on lm.guild_id = c.guild_id and lm.channel_id = c.id
 where 1 = 1
+  and c.kind in ('text', 'announcement', 'thread_public', 'thread_private', 'thread_announcement')
 `)
 	args := make([]any, 0, 2)
 	if guildID != "" {
