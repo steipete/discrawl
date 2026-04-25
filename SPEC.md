@@ -808,3 +808,29 @@ For an AI agent to finish the product without external memory, this repo should 
 - milestone order
 
 This file is the authoritative engineering spec for now.
+
+## Digest
+
+`discrawl digest` provides a per-channel activity summary over a lookback window.
+
+Example usage:
+
+```bash
+discrawl digest
+discrawl digest --since 7d
+discrawl digest --since 30d --guild 123456789012345678
+discrawl digest --channel general --top-n 5
+discrawl --json digest --since 72h
+```
+
+Behavior:
+
+- window defaults to `7d` when `--since` is omitted
+- `--since` accepts Go durations (`72h`, `30m`) and `Nd` shorthand (`7d`, `30d`)
+- `--guild` filters by `guild_id`; empty means no guild filter
+- `--channel` accepts channel id or exact channel name
+- per-channel metrics include `messages`, `threads` (distinct `reply_to_message_id`), and `active_authors`
+- top posters are ranked by message count using member display fallback order: `display_name -> nick -> global_name -> username -> author_id -> unknown`
+- top mentions are ranked from `mention_events` and include all target types (`user` and `role`)
+- channels are sorted by message count descending, then channel name ascending
+- JSON output returns a `Digest` object with channel rows and totals; plain output emits one tab-separated row per channel
