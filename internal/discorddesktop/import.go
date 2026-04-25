@@ -122,6 +122,11 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 		routes:     map[string]string{},
 		userLabels: map[string]userLabel{},
 	}
+	rootFS, err := os.OpenRoot(root)
+	if err != nil {
+		return stats, snap, err
+	}
+	defer func() { _ = rootFS.Close() }()
 	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return ignoreCacheFileError(err)
@@ -144,7 +149,12 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 			stats.FilesSkipped++
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			stats.FilesSkipped++
+			return ignoreCacheFileError(err)
+		}
+		data, err := rootFS.ReadFile(relPath)
 		if err != nil {
 			stats.FilesSkipped++
 			return ignoreCacheFileError(err)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
@@ -218,12 +219,25 @@ func UpdateReadme(readme []byte, section string) []byte {
 }
 
 func WriteReadme(path string, section string) error {
-	current, err := os.ReadFile(path)
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	dir, name := filepath.Split(absPath)
+	if name == "" {
+		return fmt.Errorf("readme path %q does not name a file", path)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	current, err := root.ReadFile(name)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	updated := UpdateReadme(current, section)
-	return os.WriteFile(path, updated, 0o600)
+	return root.WriteFile(name, updated, 0o600)
 }
 
 func MarkdownTable(rows []RankedCount, nameTitle string) string {
