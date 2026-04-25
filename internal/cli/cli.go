@@ -138,6 +138,8 @@ func (r *runtime) dispatch(rest []string) error {
 		}
 		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
 		return r.withLocalStoreDefaultLocked(autoShareUpdate, autoShareUpdate, func() error { return r.runMessages(rest[1:]) })
+	case "digest":
+		return r.withLocalStoreDefaultLocked(true, true, func() error { return r.runDigest(rest[1:]) })
 	case "dms":
 		return r.withLocalStoreDefault(false, func() error { return r.runDirectMessages(rest[1:]) })
 	case "mentions":
