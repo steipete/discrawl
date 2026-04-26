@@ -24,6 +24,7 @@ const (
 	LastImportSyncScope         = "share:last_import_at"
 	LastImportManifestSyncScope = "share:last_import_manifest_generated_at"
 	directMessageGuildID        = "@me"
+	twitterArchiveGuildID       = "x"
 )
 
 var ErrNoManifest = errors.New("share manifest not found")
@@ -567,20 +568,21 @@ func importTable(ctx context.Context, tx *sql.Tx, repoPath string, table TableMa
 	if len(files) == 0 {
 		return fmt.Errorf("manifest table %s has no files", table.Name)
 	}
-	stmt, err := tx.PrepareContext(ctx, insertSQL(table.Name, table.Columns))
+	columns := importColumns(table)
+	stmt, err := tx.PrepareContext(ctx, insertSQL(table.Name, columns))
 	if err != nil {
 		return fmt.Errorf("prepare import %s: %w", table.Name, err)
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, rel := range files {
-		if err := importTableFile(ctx, stmt, repoPath, table, rel); err != nil {
+		if err := importTableFile(ctx, stmt, repoPath, table, columns, rel); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table TableManifest, rel string) error {
+func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table TableManifest, columns []string, rel string) error {
 	path := filepath.Join(repoPath, filepath.FromSlash(rel))
 	file, err := os.Open(path)
 	if err != nil {
@@ -606,8 +608,8 @@ func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table
 		if isDirectMessageSnapshotRow(table.Name, row) {
 			continue
 		}
-		values := make([]any, len(table.Columns))
-		for i, column := range table.Columns {
+		values := make([]any, len(columns))
+		for i, column := range columns {
 			values[i] = importValue(row[column])
 		}
 		if _, err := stmt.ExecContext(ctx, values...); err != nil {
@@ -617,14 +619,27 @@ func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table
 	return nil
 }
 
+func importColumns(table TableManifest) []string {
+	if table.Name != "message_events" && table.Name != "mention_events" {
+		return table.Columns
+	}
+	columns := make([]string, 0, len(table.Columns))
+	for _, column := range table.Columns {
+		if column != "event_id" {
+			columns = append(columns, column)
+		}
+	}
+	return columns
+}
+
 func snapshotExportQuery(table string) (string, []any) {
 	switch table {
 	case "guilds":
-		return "select * from guilds where id <> ?", []any{directMessageGuildID}
+		return "select * from guilds where id not in (?, ?)", []any{directMessageGuildID, twitterArchiveGuildID}
 	case "channels", "members", "messages", "message_events", "message_attachments", "mention_events":
-		return "select * from " + table + " where guild_id <> ?", []any{directMessageGuildID}
+		return "select * from " + table + " where guild_id not in (?, ?)", []any{directMessageGuildID, twitterArchiveGuildID}
 	case "sync_state":
-		return "select * from sync_state where scope not like 'wiretap:%'", nil
+		return "select * from sync_state where scope not like 'wiretap:%' and scope not like 'twitter:%'", nil
 	default:
 		return "select * from " + table, nil
 	}
@@ -633,13 +648,13 @@ func snapshotExportQuery(table string) (string, []any) {
 func snapshotDeleteQuery(table string) (string, []any) {
 	switch table {
 	case "guilds":
-		return "delete from guilds where id <> ?", []any{directMessageGuildID}
+		return "delete from guilds where id not in (?, ?)", []any{directMessageGuildID, twitterArchiveGuildID}
 	case "message_events", "mention_events":
-		return "delete from " + table, nil
+		return "delete from " + table + " where guild_id not in (?, ?)", []any{directMessageGuildID, twitterArchiveGuildID}
 	case "channels", "members", "messages", "message_attachments":
-		return "delete from " + table + " where guild_id <> ?", []any{directMessageGuildID}
+		return "delete from " + table + " where guild_id not in (?, ?)", []any{directMessageGuildID, twitterArchiveGuildID}
 	case "sync_state":
-		return "delete from sync_state where scope not like 'wiretap:%'", nil
+		return "delete from sync_state where scope not like 'wiretap:%' and scope not like 'twitter:%'", nil
 	default:
 		return "delete from " + table, nil
 	}
@@ -648,14 +663,19 @@ func snapshotDeleteQuery(table string) (string, []any) {
 func isDirectMessageSnapshotRow(table string, row map[string]any) bool {
 	switch table {
 	case "guilds":
-		return stringValue(row["id"]) == directMessageGuildID
+		return isLocalOnlyGuildID(stringValue(row["id"]))
 	case "channels", "members", "messages", "message_events", "message_attachments", "mention_events":
-		return stringValue(row["guild_id"]) == directMessageGuildID
+		return isLocalOnlyGuildID(stringValue(row["guild_id"]))
 	case "sync_state":
-		return strings.HasPrefix(stringValue(row["scope"]), "wiretap:")
+		scope := stringValue(row["scope"])
+		return strings.HasPrefix(scope, "wiretap:") || strings.HasPrefix(scope, "twitter:")
 	default:
 		return false
 	}
+}
+
+func isLocalOnlyGuildID(guildID string) bool {
+	return guildID == directMessageGuildID || guildID == twitterArchiveGuildID
 }
 
 func importEmbeddings(ctx context.Context, tx *sql.Tx, opts Options, manifests []EmbeddingManifest) error {
