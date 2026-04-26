@@ -13,6 +13,7 @@ import (
 	"github.com/steipete/discrawl/internal/discorddesktop"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/syncer"
+	"github.com/steipete/discrawl/internal/twitterarchive"
 )
 
 func (r *runtime) print(value any) error {
@@ -85,6 +86,8 @@ Commands:
   sync
   tail
   wiretap
+  twitter
+  x
   search
   messages
   dms
@@ -133,6 +136,10 @@ func printHuman(w io.Writer, value any) error {
 	case discorddesktop.Stats:
 		_, err := fmt.Fprintf(w, "path=%s\nfiles=%d\nskipped=%d\nobjects=%d\nguilds=%d\nchannels=%d\nmessages=%d\ndm_messages=%d\ndm_channels=%d\nguild_messages=%d\nskipped_messages=%d\nskipped_channels=%d\ndry_run=%t\n",
 			v.Path, v.FilesScanned, v.FilesSkipped, v.JSONObjects, v.Guilds, v.Channels, v.Messages, v.DMMessages, v.DMChannels, v.GuildMessages, v.SkippedMessages, v.SkippedChannels, v.DryRun)
+		return err
+	case twitterarchive.Stats:
+		_, err := fmt.Fprintf(w, "path=%s\nfiles=%d\naccounts=%d\ntweets=%d\nlikes=%d\ndm_conversations=%d\ndm_messages=%d\nskipped=%d\ndry_run=%t\n",
+			v.Path, v.FilesScanned, v.Accounts, v.Tweets, v.Likes, v.DMConversations, v.DMMessages, v.Skipped, v.DryRun)
 		return err
 	case store.Status:
 		_, err := fmt.Fprintf(w, "db=%s\nguilds=%d\nchannels=%d\nthreads=%d\nmessages=%d\nmembers=%d\nembedding_backlog=%d\nlast_sync=%s\nlast_tail_event=%s\n",

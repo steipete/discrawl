@@ -2,6 +2,12 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
+## Unreleased
+
+### Changes
+
+- Added `twitter import` / `x import` for local X/Twitter archive `.zip` files, storing tweets, likes, and direct messages under synthetic guild id `x` so existing Discrawl search and SQL commands can query them.
+
 ## 0.6.1 - 2026-04-25
 
 ### Maintenance

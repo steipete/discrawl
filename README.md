@@ -268,6 +268,24 @@ Notes:
 - does not extract, store, or print Discord auth tokens
 - `--max-file-bytes` skips unusually large files; default is 64 MiB
 
+### `twitter import`
+
+Imports a local X/Twitter archive `.zip` into the same SQLite message/search tables.
+
+```bash
+discrawl twitter import --archive ~/Downloads/twitter-2025-08-05.zip
+discrawl x import --archive ~/Downloads/twitter-2025-08-05.zip --dry-run
+discrawl search --guild x "launch checklist"
+```
+
+Notes:
+
+- stores imported tweets, likes, and direct messages under synthetic guild id `x`
+- maps tweets to `x:tweets`, liked tweet text to `x:likes`, and each DM conversation to an `x:dm:*` channel
+- uses the archive's JS assignment files such as `data/account.js`, `data/tweets*.js`, `data/like.js`, `data/direct-messages.js`, and `data/direct-messages-group.js`
+- prefixes imported message ids with `x:tweet:`, `x:like:`, or `x:dm:` so they cannot collide with Discord snowflakes
+- stamps `twitter:last_import` and `twitter:last_archive` in `sync_state`
+
 ### `search`
 
 Searches archived messages. FTS is the default mode and works without embeddings.
