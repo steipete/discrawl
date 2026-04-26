@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -181,49 +180,6 @@ func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
 	out.Reset()
 	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "messages", "--dm", "--channel", "Alice", "--last", "1"}, &out, &bytes.Buffer{}))
 	require.Contains(t, out.String(), "secret DM launch plan")
-}
-
-func TestTwitterImportCommand(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "config.toml")
-	dbPath := filepath.Join(dir, "discrawl.db")
-	archivePath := filepath.Join(dir, "twitter.zip")
-	writeTwitterArchiveFixture(t, archivePath)
-
-	cfg := config.Default()
-	cfg.DBPath = dbPath
-	cfg.Discord.TokenSource = "none"
-	require.NoError(t, config.Write(cfgPath, cfg))
-
-	var out bytes.Buffer
-	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "twitter", "import", "--archive", archivePath}, &out, &bytes.Buffer{}))
-	require.Contains(t, out.String(), "tweets=1")
-	require.Contains(t, out.String(), "dm_messages=1")
-
-	out.Reset()
-	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "search", "--guild", "x", "secret roadmap"}, &out, &bytes.Buffer{}))
-	require.Contains(t, out.String(), "secret roadmap")
-}
-
-func writeTwitterArchiveFixture(t *testing.T, path string) {
-	t.Helper()
-	file, err := os.Create(path)
-	require.NoError(t, err)
-	defer func() { _ = file.Close() }()
-	zw := zip.NewWriter(file)
-	defer func() { require.NoError(t, zw.Close()) }()
-	writeTwitterZipEntry(t, zw, "data/account.js", `window.YTD.account.part0 = [{"account":{"username":"steipete","accountId":"25401953","accountDisplayName":"Peter Steinberger"}}]`)
-	writeTwitterZipEntry(t, zw, "data/tweets.js", `window.YTD.tweets.part0 = [{"tweet":{"id_str":"1952542067017584782","created_at":"Tue Aug 05 01:27:59 +0000 2025","full_text":"archive tweet search text","entities":{"user_mentions":[]}}}]`)
-	writeTwitterZipEntry(t, zw, "data/direct-messages.js", `window.YTD.direct_messages.part0 = [{"dmConversation":{"conversationId":"929-25401953","messages":[{"messageCreate":{"recipientId":"929","senderId":"25401953","id":"1052590933307461636","createdAt":"2018-10-17T16:03:29.391Z","text":"secret roadmap","mediaUrls":[]}}]}}]`)
-}
-
-func writeTwitterZipEntry(t *testing.T, zw *zip.Writer, name, body string) {
-	t.Helper()
-	w, err := zw.Create(name)
-	require.NoError(t, err)
-	_, err = w.Write([]byte(body))
-	require.NoError(t, err)
 }
 
 func TestParseMessageWindow(t *testing.T) {

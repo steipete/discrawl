@@ -110,7 +110,6 @@ func TestSnapshotExcludesAndPreservesDirectMessages(t *testing.T) {
 	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
 	defer func() { _ = src.Close() }()
 	seedDirectMessageData(t, ctx, src)
-	seedTwitterArchiveData(t, ctx, src)
 
 	repo := filepath.Join(t.TempDir(), "share")
 	manifest, err := Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
@@ -119,19 +118,14 @@ func TestSnapshotExcludesAndPreservesDirectMessages(t *testing.T) {
 	require.Equal(t, 1, tableEntry(t, manifest, "channels").Rows)
 	require.Equal(t, 1, tableEntry(t, manifest, "messages").Rows)
 	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "guilds")), directMessageGuildID)
-	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "guilds")), twitterArchiveGuildID)
 	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "channels")), directMessageGuildID)
-	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "channels")), "x:tweets")
 	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "messages")), "private dm content")
-	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "messages")), "local tweet content")
 	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "sync_state")), "wiretap:last_import")
-	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "sync_state")), "twitter:last_import")
 
 	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
 	require.NoError(t, err)
 	defer func() { _ = dst.Close() }()
 	seedDirectMessageData(t, ctx, dst)
-	seedTwitterArchiveData(t, ctx, dst)
 
 	_, err = Import(ctx, dst, Options{RepoPath: repo, Branch: "main"})
 	require.NoError(t, err)
@@ -142,16 +136,9 @@ func TestSnapshotExcludesAndPreservesDirectMessages(t *testing.T) {
 	guildResults, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "launch checklist", Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, guildResults, 1)
-	twitterResults, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "local tweet content", Limit: 10})
-	require.NoError(t, err)
-	require.Len(t, twitterResults, 1)
-	require.Equal(t, twitterArchiveGuildID, twitterResults[0].GuildID)
 	wiretapState, err := dst.GetSyncState(ctx, "wiretap:last_import")
 	require.NoError(t, err)
 	require.Equal(t, "2026-04-24T15:33:17Z", wiretapState)
-	twitterState, err := dst.GetSyncState(ctx, "twitter:last_import")
-	require.NoError(t, err)
-	require.Equal(t, "2026-04-24T16:00:00Z", twitterState)
 }
 
 func TestExportImportEmbeddingsOptIn(t *testing.T) {
@@ -587,31 +574,28 @@ func TestShareSmallHelpersAndValidation(t *testing.T) {
 	require.False(t, isNonFastForwardPush("everything up-to-date"))
 
 	query, args := snapshotExportQuery("messages")
-	require.Equal(t, "select * from messages where guild_id not in (?, ?)", query)
-	require.Equal(t, []any{directMessageGuildID, twitterArchiveGuildID}, args)
+	require.Equal(t, "select * from messages where guild_id != ?", query)
+	require.Equal(t, []any{directMessageGuildID}, args)
 	query, args = snapshotExportQuery("sync_state")
-	require.Equal(t, "select * from sync_state where scope not like 'wiretap:%' and scope not like 'twitter:%'", query)
+	require.Equal(t, "select * from sync_state where scope not like 'wiretap:%'", query)
 	require.Nil(t, args)
 	query, args = snapshotExportQuery("custom")
 	require.Equal(t, "select * from custom", query)
 	require.Nil(t, args)
 
 	query, args = snapshotDeleteQuery("channels")
-	require.Equal(t, "delete from channels where guild_id not in (?, ?)", query)
-	require.Equal(t, []any{directMessageGuildID, twitterArchiveGuildID}, args)
+	require.Equal(t, "delete from channels where guild_id != ?", query)
+	require.Equal(t, []any{directMessageGuildID}, args)
 	query, args = snapshotDeleteQuery("message_events")
-	require.Equal(t, "delete from message_events where guild_id not in (?, ?)", query)
-	require.Equal(t, []any{directMessageGuildID, twitterArchiveGuildID}, args)
+	require.Equal(t, "delete from message_events where guild_id != ?", query)
+	require.Equal(t, []any{directMessageGuildID}, args)
 	query, args = snapshotDeleteQuery("custom")
 	require.Equal(t, "delete from custom", query)
 	require.Nil(t, args)
 
 	require.True(t, isDirectMessageSnapshotRow("guilds", map[string]any{"id": directMessageGuildID}))
-	require.True(t, isDirectMessageSnapshotRow("guilds", map[string]any{"id": twitterArchiveGuildID}))
 	require.True(t, isDirectMessageSnapshotRow("channels", map[string]any{"guild_id": directMessageGuildID}))
-	require.True(t, isDirectMessageSnapshotRow("channels", map[string]any{"guild_id": twitterArchiveGuildID}))
 	require.True(t, isDirectMessageSnapshotRow("sync_state", map[string]any{"scope": "wiretap:last_import"}))
-	require.True(t, isDirectMessageSnapshotRow("sync_state", map[string]any{"scope": "twitter:last_import"}))
 	require.False(t, isDirectMessageSnapshotRow("sync_state", map[string]any{"scope": "share:last_import"}))
 	require.False(t, isDirectMessageSnapshotRow("custom", map[string]any{"guild_id": directMessageGuildID}))
 
@@ -866,50 +850,6 @@ func seedDirectMessageData(t *testing.T, ctx context.Context, s *store.Store) {
 		}},
 	}}))
 	require.NoError(t, s.SetSyncState(ctx, "wiretap:last_import", now.Format(time.RFC3339)))
-}
-
-func seedTwitterArchiveData(t *testing.T, ctx context.Context, s *store.Store) {
-	t.Helper()
-	now := time.Date(2026, 4, 24, 16, 0, 0, 0, time.UTC)
-	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: twitterArchiveGuildID, Name: "X / Twitter Archive", RawJSON: `{}`}))
-	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "x:tweets", GuildID: twitterArchiveGuildID, Kind: "tweet", Name: "tweets", RawJSON: `{}`}))
-	require.NoError(t, s.UpsertMember(ctx, store.MemberRecord{
-		GuildID:     twitterArchiveGuildID,
-		UserID:      "25401953",
-		Username:    "steipete",
-		DisplayName: "Peter",
-		RoleIDsJSON: `[]`,
-		RawJSON:     `{}`,
-	}))
-	require.NoError(t, s.UpsertMessages(ctx, []store.MessageMutation{{
-		Record: store.MessageRecord{
-			ID:                "x:tweet:1",
-			GuildID:           twitterArchiveGuildID,
-			ChannelID:         "x:tweets",
-			ChannelName:       "tweets",
-			AuthorID:          "25401953",
-			AuthorName:        "steipete",
-			MessageType:       0,
-			CreatedAt:         now.Format(time.RFC3339Nano),
-			Content:           "local tweet content",
-			NormalizedContent: "local tweet content",
-			RawJSON:           `{}`,
-		},
-		EventType:   "twitter",
-		PayloadJSON: `{"id":"x:tweet:1"}`,
-		Options:     store.WriteOptions{AppendEvent: true},
-		Mentions: []store.MentionEventRecord{{
-			MessageID:  "x:tweet:1",
-			GuildID:    twitterArchiveGuildID,
-			ChannelID:  "x:tweets",
-			AuthorID:   "25401953",
-			TargetType: "user",
-			TargetID:   "42",
-			TargetName: "alice",
-			EventAt:    now.Format(time.RFC3339Nano),
-		}},
-	}}))
-	require.NoError(t, s.SetSyncState(ctx, "twitter:last_import", now.Format(time.RFC3339)))
 }
 
 func configureGitUser(t *testing.T, repo string) {

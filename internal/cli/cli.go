@@ -128,8 +128,6 @@ func (r *runtime) dispatch(rest []string) error {
 		return r.withServices(true, func() error { return r.runTail(rest[1:]) })
 	case "wiretap":
 		return r.withLocalStoreDefault(false, func() error { return r.runWiretap(rest[1:]) })
-	case "twitter", "x":
-		return r.withLocalStoreDefault(false, func() error { return r.runTwitter(rest[1:]) })
 	case "search":
 		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
 		return r.withLocalStoreDefault(autoShareUpdate, func() error { return r.runSearch(rest[1:]) })
