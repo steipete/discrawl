@@ -94,17 +94,94 @@ type openClawConfig struct {
 	Channels struct {
 		Discord openClawDiscord `json:"discord"`
 	} `json:"channels"`
+	Secrets openClawSecrets `json:"secrets"`
 }
 
 type openClawDiscord struct {
-	Token    string                         `json:"token"`
+	Token    openClawSecretValue            `json:"token"`
 	Accounts map[string]openClawDiscordAcct `json:"accounts"`
 	Guilds   map[string]json.RawMessage     `json:"guilds"`
 }
 
 type openClawDiscordAcct struct {
-	Token  string                     `json:"token"`
+	Token  openClawSecretValue        `json:"token"`
 	Guilds map[string]json.RawMessage `json:"guilds"`
+}
+
+type openClawSecretValue struct {
+	Plain string
+	Ref   *openClawSecretRef
+}
+
+type openClawSecretRef struct {
+	Source   string `json:"source"`
+	Provider string `json:"provider"`
+	ID       string `json:"id"`
+}
+
+type openClawSecrets struct {
+	Providers map[string]openClawSecretProvider
+	Aliases   map[string]openClawSecretProvider
+}
+
+type openClawSecretProvider struct {
+	Source string `json:"source"`
+	Path   string `json:"path"`
+	Mode   string `json:"mode"`
+}
+
+func (v *openClawSecretValue) UnmarshalJSON(data []byte) error {
+	var plain string
+	if err := json.Unmarshal(data, &plain); err == nil {
+		v.Plain = plain
+		v.Ref = nil
+		return nil
+	}
+	var ref openClawSecretRef
+	if err := json.Unmarshal(data, &ref); err != nil {
+		return err
+	}
+	v.Plain = ""
+	v.Ref = &ref
+	return nil
+}
+
+func (s *openClawSecrets) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		Providers map[string]openClawSecretProvider `json:"providers"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	aliases := map[string]openClawSecretProvider{}
+	for name, value := range raw {
+		if name == "providers" || name == "defaults" {
+			continue
+		}
+		var provider openClawSecretProvider
+		if err := json.Unmarshal(value, &provider); err == nil && (provider.Source != "" || provider.Path != "") {
+			aliases[name] = provider
+		}
+	}
+	s.Providers = aux.Providers
+	s.Aliases = aliases
+	return nil
+}
+
+func (s openClawSecrets) provider(name string) (openClawSecretProvider, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "default"
+	}
+	if provider, ok := s.Providers[name]; ok {
+		return provider, true
+	}
+	provider, ok := s.Aliases[name]
+	return provider, ok
 }
 
 func Default() Config {
@@ -445,14 +522,20 @@ func loadOpenClawDiscordFile(path, account string) (OpenClawDiscord, error) {
 		return OpenClawDiscord{}, fmt.Errorf("parse openclaw config: %w", err)
 	}
 	discord := payload.Channels.Discord
-	token := expandOpenClawToken(discord.Token)
+	token, err := resolveOpenClawSecretValue(discord.Token, payload.Secrets, expanded)
+	if err != nil {
+		return OpenClawDiscord{}, fmt.Errorf("resolve openclaw discord token: %w", err)
+	}
 	guildIDs := mapKeys(discord.Guilds)
 	if token == "" {
 		acct := discord.Accounts[normalizeAccount(account)]
-		if acct.Token == "" && account != normalizeAccount(account) {
+		if acct.Token.empty() && account != normalizeAccount(account) {
 			acct = discord.Accounts[account]
 		}
-		token = expandOpenClawToken(acct.Token)
+		token, err = resolveOpenClawSecretValue(acct.Token, payload.Secrets, expanded)
+		if err != nil {
+			return OpenClawDiscord{}, fmt.Errorf("resolve openclaw discord account token: %w", err)
+		}
 		if len(guildIDs) == 0 {
 			guildIDs = mapKeys(acct.Guilds)
 		}
@@ -485,8 +568,111 @@ func NormalizeBotToken(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
-func expandOpenClawToken(raw string) string {
-	return NormalizeBotToken(os.ExpandEnv(raw))
+func (v openClawSecretValue) empty() bool {
+	return strings.TrimSpace(v.Plain) == "" && v.Ref == nil
+}
+
+func resolveOpenClawSecretValue(value openClawSecretValue, secrets openClawSecrets, configPath string) (string, error) {
+	if value.Ref == nil {
+		return NormalizeBotToken(os.ExpandEnv(value.Plain)), nil
+	}
+	ref := *value.Ref
+	source := strings.ToLower(strings.TrimSpace(ref.Source))
+	switch source {
+	case "env":
+		return NormalizeBotToken(os.Getenv(strings.TrimSpace(ref.ID))), nil
+	case "file":
+		return resolveOpenClawFileSecret(ref, secrets, configPath)
+	case "":
+		return "", errors.New("secret ref missing source")
+	default:
+		return "", fmt.Errorf("unsupported secret ref source %q", ref.Source)
+	}
+}
+
+func resolveOpenClawFileSecret(ref openClawSecretRef, secrets openClawSecrets, configPath string) (string, error) {
+	providerName := strings.TrimSpace(ref.Provider)
+	if providerName == "" {
+		providerName = "filemain"
+	}
+	provider, ok := secrets.provider(providerName)
+	if !ok {
+		return "", fmt.Errorf("secret provider %q not found", providerName)
+	}
+	source := strings.ToLower(strings.TrimSpace(provider.Source))
+	if source != "" && source != "file" {
+		return "", fmt.Errorf("secret provider %q has source %q, want file", providerName, provider.Source)
+	}
+	path := strings.TrimSpace(provider.Path)
+	if path == "" {
+		return "", fmt.Errorf("secret provider %q missing path", providerName)
+	}
+	expanded, err := expandOpenClawSecretPath(path, configPath)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(expanded)
+	if err != nil {
+		return "", err
+	}
+	mode := strings.ToLower(strings.TrimSpace(provider.Mode))
+	if mode == "" {
+		mode = "json"
+	}
+	switch mode {
+	case "json":
+		token, err := readJSONPointerString(data, ref.ID)
+		if err != nil {
+			return "", fmt.Errorf("read secret provider %q id %q: %w", providerName, ref.ID, err)
+		}
+		return NormalizeBotToken(os.ExpandEnv(token)), nil
+	case "singlevalue":
+		if strings.TrimSpace(ref.ID) != "value" {
+			return "", fmt.Errorf("secret provider %q singleValue mode requires id %q", providerName, "value")
+		}
+		return NormalizeBotToken(os.ExpandEnv(string(data))), nil
+	default:
+		return "", fmt.Errorf("unsupported secret provider %q mode %q", providerName, provider.Mode)
+	}
+}
+
+func expandOpenClawSecretPath(path, configPath string) (string, error) {
+	path = os.ExpandEnv(strings.TrimSpace(path))
+	if path == "" {
+		return "", errors.New("empty secret provider path")
+	}
+	if strings.HasPrefix(path, "~") || filepath.IsAbs(path) {
+		return ExpandPath(path)
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(configPath), path)), nil
+}
+
+func readJSONPointerString(data []byte, pointer string) (string, error) {
+	pointer = strings.TrimSpace(pointer)
+	if pointer == "" || pointer[0] != '/' {
+		return "", errors.New("id must be an absolute JSON pointer")
+	}
+	var current any
+	if err := json.Unmarshal(data, &current); err != nil {
+		return "", fmt.Errorf("parse secret file: %w", err)
+	}
+	for _, rawSegment := range strings.Split(pointer[1:], "/") {
+		segment := strings.ReplaceAll(strings.ReplaceAll(rawSegment, "~1", "/"), "~0", "~")
+		object, ok := current.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("segment %q is not an object", segment)
+		}
+		next, ok := object[segment]
+		if !ok {
+			return "", fmt.Errorf("segment %q not found", segment)
+		}
+		current = next
+	}
+	secret, ok := current.(string)
+	if !ok {
+		return "", errors.New("secret value is not a string")
+	}
+	return secret, nil
 }
 
 func normalizeAccount(account string) string {

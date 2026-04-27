@@ -9,6 +9,10 @@ All notable changes to `discrawl` will be documented in this file.
 - Refreshed Go module dependencies and CI tool/action pins, including staticcheck, gofumpt, gosec, govulncheck, gitleaks, setup-node, and GoReleaser.
 - Hardened report README writes and Discord Desktop cache reads with root-scoped filesystem access to satisfy the latest gosec checks.
 
+### Fixes
+
+- OpenClaw Discord token loading now accepts SecretRef objects backed by file or env providers in addition to plaintext token strings.
+
 ## 0.6.0 - 2026-04-24
 
 ### Changes

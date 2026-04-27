@@ -75,6 +75,116 @@ func TestResolveDiscordTokenPrefersOpenClaw(t *testing.T) {
 	require.Equal(t, "openclaw", token.Source)
 }
 
+func TestResolveDiscordTokenFromOpenClawFileSecretRef(t *testing.T) {
+	dir := t.TempDir()
+	openClawPath := filepath.Join(dir, "openclaw.json")
+	secretsPath := filepath.Join(dir, "credentials", "secrets.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(secretsPath), 0o755))
+	require.NoError(t, os.WriteFile(secretsPath, []byte(`{
+		"channels": {
+			"discord": {
+				"token": "Bot file-secret-token"
+			}
+		}
+	}`), 0o600))
+	require.NoError(t, os.WriteFile(openClawPath, []byte(`{
+		"secrets": {
+			"providers": {
+				"filemain": {
+					"source": "file",
+					"path": "credentials/secrets.json",
+					"mode": "json"
+				}
+			}
+		},
+		"channels": {
+			"discord": {
+				"token": {
+					"source": "file",
+					"provider": "filemain",
+					"id": "/channels/discord/token"
+				},
+				"guilds": { "g1": {} }
+			}
+		}
+	}`), 0o600))
+	t.Setenv(DefaultTokenEnv, "env-token")
+
+	cfg := Default()
+	cfg.Discord.OpenClawConfig = openClawPath
+
+	token, err := ResolveDiscordToken(cfg)
+	require.NoError(t, err)
+	require.Equal(t, "file-secret-token", token.Token)
+	require.Equal(t, "openclaw", token.Source)
+
+	info, err := LoadOpenClawDiscord(openClawPath, "default")
+	require.NoError(t, err)
+	require.Equal(t, []string{"g1"}, info.GuildIDs)
+}
+
+func TestResolveDiscordAccountTokenFromOpenClawDirectFileSecretRef(t *testing.T) {
+	dir := t.TempDir()
+	openClawPath := filepath.Join(dir, "openclaw.json")
+	secretsPath := filepath.Join(dir, "secrets.json")
+	require.NoError(t, os.WriteFile(secretsPath, []byte(`{
+		"accounts": {
+			"atlas": {
+				"discordToken": "account-file-token"
+			}
+		}
+	}`), 0o600))
+	require.NoError(t, os.WriteFile(openClawPath, []byte(`{
+		"secrets": {
+			"filemain": {
+				"source": "file",
+				"path": "secrets.json",
+				"mode": "json"
+			}
+		},
+		"channels": {
+			"discord": {
+				"accounts": {
+					"atlas": {
+						"token": {
+							"source": "file",
+							"provider": "filemain",
+							"id": "/accounts/atlas/discordToken"
+						},
+						"guilds": { "g9": {} }
+					}
+				}
+			}
+		}
+	}`), 0o600))
+
+	info, err := LoadOpenClawDiscord(openClawPath, "atlas")
+	require.NoError(t, err)
+	require.Equal(t, "account-file-token", info.Token)
+	require.Equal(t, []string{"g9"}, info.GuildIDs)
+}
+
+func TestResolveDiscordTokenFromOpenClawEnvSecretRef(t *testing.T) {
+	dir := t.TempDir()
+	openClawPath := filepath.Join(dir, "openclaw.json")
+	require.NoError(t, os.WriteFile(openClawPath, []byte(`{
+		"channels": {
+			"discord": {
+				"token": {
+					"source": "env",
+					"provider": "default",
+					"id": "DISCRAWL_TEST_OPENCLAW_TOKEN"
+				}
+			}
+		}
+	}`), 0o600))
+	t.Setenv("DISCRAWL_TEST_OPENCLAW_TOKEN", "Bot env-ref-token")
+
+	info, err := LoadOpenClawDiscord(openClawPath, "default")
+	require.NoError(t, err)
+	require.Equal(t, "env-ref-token", info.Token)
+}
+
 func TestResolveDiscordTokenFallsBackToEnv(t *testing.T) {
 	cfg := Default()
 	cfg.Discord.TokenSource = "env"
