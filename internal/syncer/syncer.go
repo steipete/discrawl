@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 	"time"
 
@@ -119,36 +118,20 @@ func (s *Syncer) Sync(ctx context.Context, opts SyncOptions) (SyncStats, error) 
 }
 
 func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions) (SyncStats, error) {
-	guild, err := s.client.Guild(ctx, guildID)
-	if err != nil {
-		return SyncStats{}, fmt.Errorf("fetch guild %s: %w", guildID, err)
-	}
-	if err := s.store.UpsertGuild(ctx, store.GuildRecord{
-		ID:      guild.ID,
-		Name:    guild.Name,
-		Icon:    guild.Icon,
-		RawJSON: marshalJSONString(guild, "{}"),
-	}); err != nil {
+	if err := s.syncGuildRecord(ctx, guildID); err != nil {
 		return SyncStats{}, err
 	}
 
 	stats := SyncStats{}
-	catalogMode := channelCatalogFull
-	if opts.LatestOnly && !opts.Full && len(opts.ChannelIDs) == 0 {
-		catalogMode = channelCatalogIncremental
-	}
-	if opts.Full && len(opts.ChannelIDs) == 0 {
+	catalogMode := catalogModeForSync(opts)
+	if shouldResumeIncompleteFullSync(opts) {
 		batched, ok, err := s.syncGuildIncompleteBatches(ctx, guildID, opts)
 		if err != nil {
 			return stats, err
 		}
 		if ok {
-			if !opts.SkipMembers {
-				stats.Members = s.refreshGuildMembers(ctx, guildID)
-			}
-			stats.Channels += batched.Channels
-			stats.Threads += batched.Threads
-			stats.Messages += batched.Messages
+			stats.add(batched)
+			stats.Members = s.refreshGuildMembersForSync(ctx, guildID, false, opts)
 			return stats, nil
 		}
 		if s.shouldUseIncrementalFullCatalog(ctx, guildID) {
@@ -159,35 +142,59 @@ func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions
 	if err != nil {
 		return stats, err
 	}
-	for _, channel := range channelList {
-		record := toChannelRecord(channel, marshalJSONString(channel, "{}"))
-		if err := s.store.UpsertChannel(ctx, record); err != nil {
-			return stats, err
-		}
-		stats.Channels++
-		if strings.HasPrefix(record.Kind, "thread_") {
-			stats.Threads++
-		}
+	if err := s.storeChannelList(ctx, channelList, &stats); err != nil {
+		return stats, err
 	}
 
-	if !targeted && !opts.SkipMembers {
-		stats.Members = s.refreshGuildMembers(ctx, guildID)
-	}
-
-	for _, channel := range channelList {
-		if !isMessageChannel(channel) {
-			continue
-		}
-		if len(opts.ChannelIDs) > 0 && !slices.Contains(opts.ChannelIDs, channel.ID) {
-			continue
-		}
-	}
+	stats.Members = s.refreshGuildMembersForSync(ctx, guildID, targeted, opts)
 	messageCount, err := s.syncMessageChannels(ctx, guildID, channelList, opts)
 	if err != nil {
 		return stats, err
 	}
 	stats.Messages += messageCount
 	return stats, nil
+}
+
+func (s *Syncer) syncGuildRecord(ctx context.Context, guildID string) error {
+	guild, err := s.client.Guild(ctx, guildID)
+	if err != nil {
+		return fmt.Errorf("fetch guild %s: %w", guildID, err)
+	}
+	return s.store.UpsertGuild(ctx, store.GuildRecord{
+		ID:      guild.ID,
+		Name:    guild.Name,
+		Icon:    guild.Icon,
+		RawJSON: marshalJSONString(guild, "{}"),
+	})
+}
+
+func catalogModeForSync(opts SyncOptions) channelCatalogMode {
+	if opts.LatestOnly && !opts.Full && len(opts.ChannelIDs) == 0 {
+		return channelCatalogIncremental
+	}
+	return channelCatalogFull
+}
+
+func shouldResumeIncompleteFullSync(opts SyncOptions) bool {
+	return opts.Full && len(opts.ChannelIDs) == 0
+}
+
+func (s *Syncer) storeChannelList(ctx context.Context, channels []*discordgo.Channel, stats *SyncStats) error {
+	for _, channel := range channels {
+		record := toChannelRecord(channel, marshalJSONString(channel, "{}"))
+		if err := s.store.UpsertChannel(ctx, record); err != nil {
+			return err
+		}
+		stats.addChannel(record)
+	}
+	return nil
+}
+
+func (s *Syncer) refreshGuildMembersForSync(ctx context.Context, guildID string, targeted bool, opts SyncOptions) int {
+	if targeted || opts.SkipMembers {
+		return 0
+	}
+	return s.refreshGuildMembers(ctx, guildID)
 }
 
 func (s *Syncer) syncGuildIncompleteBatches(ctx context.Context, guildID string, opts SyncOptions) (SyncStats, bool, error) {
@@ -210,11 +217,24 @@ func (s *Syncer) syncGuildIncompleteBatches(ctx context.Context, guildID string,
 		if err != nil {
 			return stats, true, err
 		}
-		stats.Channels += one.Channels
-		stats.Threads += one.Threads
-		stats.Messages += one.Messages
+		stats.add(one)
 	}
 	return stats, true, nil
+}
+
+func (stats *SyncStats) add(other SyncStats) {
+	stats.Guilds += other.Guilds
+	stats.Channels += other.Channels
+	stats.Threads += other.Threads
+	stats.Members += other.Members
+	stats.Messages += other.Messages
+}
+
+func (stats *SyncStats) addChannel(record store.ChannelRecord) {
+	stats.Channels++
+	if strings.HasPrefix(record.Kind, "thread_") {
+		stats.Threads++
+	}
 }
 
 func (s *Syncer) refreshGuildMembers(ctx context.Context, guildID string) int {

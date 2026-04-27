@@ -4,8 +4,13 @@ All notable changes to `discrawl` will be documented in this file.
 
 ## Unreleased
 
+### Fixes
+
+- `sync --full --skip-members` now also skips member crawls when resuming incomplete stored channels, so backfills do not unexpectedly refresh the full guild member list.
+
 ### Maintenance
 
+- Refactored sync-mode handling so routine latest syncs, `--all-channels`, `--full`, and member-refresh decisions share clearer internal paths with regression coverage.
 - Refreshed Go module dependencies and CI tool/action pins, including staticcheck, gofumpt, gosec, govulncheck, gitleaks, setup-node, and GoReleaser.
 - Hardened report README writes and Discord Desktop cache reads with root-scoped filesystem access to satisfy the latest gosec checks.
 

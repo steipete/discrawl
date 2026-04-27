@@ -626,6 +626,11 @@ func TestSyncFullAutoBatchesIncompleteStoredChannels(t *testing.T) {
 		guildByID: map[string]*discordgo.Guild{
 			"g1": {ID: "g1", Name: "Guild"},
 		},
+		members: map[string][]*discordgo.Member{
+			"g1": {{
+				User: &discordgo.User{ID: "u1", Username: "user"},
+			}},
+		},
 		messages: map[string][]*discordgo.Message{
 			"t1": {{ID: "10", GuildID: "g1", ChannelID: "t1", Content: "first", Timestamp: now, Author: &discordgo.User{ID: "u1", Username: "user"}}},
 			"t2": {{ID: "20", GuildID: "g1", ChannelID: "t2", Content: "second", Timestamp: now, Author: &discordgo.User{ID: "u1", Username: "user"}}},
@@ -636,8 +641,10 @@ func TestSyncFullAutoBatchesIncompleteStoredChannels(t *testing.T) {
 	stats, err := svc.Sync(ctx, SyncOptions{Full: true, GuildIDs: []string{"g1"}})
 	require.NoError(t, err)
 	require.Equal(t, 2, stats.Messages)
+	require.Equal(t, 1, stats.Members)
 	require.Zero(t, client.guildChanCalls)
 	require.Zero(t, client.threadCalls)
+	require.Equal(t, 1, client.memberCalls)
 	require.Equal(t, 1, client.messageCalls["t1"])
 	require.Equal(t, 1, client.messageCalls["t2"])
 }

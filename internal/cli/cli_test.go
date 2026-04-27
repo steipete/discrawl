@@ -1249,6 +1249,42 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	require.Contains(t, out.String(), "discord_auth=ok")
 }
 
+func TestSyncModeDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		full           bool
+		allChannels    bool
+		since          string
+		channels       string
+		defaultLatest  bool
+		latestOnly     bool
+		skipMembers    bool
+		explicitLatest bool
+		explicitSkip   bool
+	}{
+		{name: "routine", defaultLatest: true, latestOnly: true, skipMembers: true},
+		{name: "all channels", allChannels: true},
+		{name: "full", full: true},
+		{name: "since", since: "2026-04-27T20:00:00Z"},
+		{name: "channels", channels: "c1"},
+		{name: "explicit latest", allChannels: true, explicitLatest: true, latestOnly: true},
+		{name: "explicit skip members", allChannels: true, explicitSkip: true, skipMembers: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			defaultLatest := defaultLatestSyncMode(tt.full, tt.allChannels, tt.since, tt.channels)
+			require.Equal(t, tt.defaultLatest, defaultLatest)
+			require.Equal(t, tt.latestOnly, syncLatestOnly(tt.explicitLatest, defaultLatest))
+			require.Equal(t, tt.skipMembers, syncSkipsMembers(tt.explicitSkip, defaultLatest))
+		})
+	}
+}
+
 func TestDoctorChecksEnabledLocalEmbeddingProvider(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

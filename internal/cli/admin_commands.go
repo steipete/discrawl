@@ -132,8 +132,7 @@ func (r *runtime) runSync(args []string) error {
 	if err != nil {
 		return usageErr(err)
 	}
-	defaultLatest := !*full && !*allChannels && *since == "" && *channels == ""
-	latestMode := *latestOnly || defaultLatest
+	defaultLatest := defaultLatestSyncMode(*full, *allChannels, *since, *channels)
 	opts := syncer.SyncOptions{
 		Full:        *full,
 		GuildIDs:    guildIDs,
@@ -141,8 +140,8 @@ func (r *runtime) runSync(args []string) error {
 		Concurrency: *concurrency,
 		Since:       sinceTime,
 		Embeddings:  *withEmbeddings,
-		SkipMembers: *skipMembers || defaultLatest,
-		LatestOnly:  latestMode,
+		SkipMembers: syncSkipsMembers(*skipMembers, defaultLatest),
+		LatestOnly:  syncLatestOnly(*latestOnly, defaultLatest),
 	}
 	var apiStats *syncer.SyncStats
 	if sources.discord {
@@ -178,6 +177,18 @@ func (r *runtime) runSync(args []string) error {
 		return r.print(*wiretapStats)
 	}
 	return r.print(syncRunStats{Source: sources.name, Discord: apiStats, Wiretap: wiretapStats})
+}
+
+func defaultLatestSyncMode(full bool, allChannels bool, since string, channels string) bool {
+	return !full && !allChannels && since == "" && channels == ""
+}
+
+func syncLatestOnly(explicit bool, defaultLatest bool) bool {
+	return explicit || defaultLatest
+}
+
+func syncSkipsMembers(explicit bool, defaultLatest bool) bool {
+	return explicit || defaultLatest
 }
 
 func parseSyncSources(raw string) (syncSources, error) {
