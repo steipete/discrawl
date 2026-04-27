@@ -642,6 +642,47 @@ func TestSyncFullAutoBatchesIncompleteStoredChannels(t *testing.T) {
 	require.Equal(t, 1, client.messageCalls["t2"])
 }
 
+func TestSyncFullAutoBatchHonorsSkipMembers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{
+		ID:      "c1",
+		GuildID: "g1",
+		Kind:    "text",
+		Name:    "general",
+		RawJSON: `{"id":"c1"}`,
+	}))
+
+	now := time.Now().UTC()
+	client := &fakeClient{
+		guilds: []*discordgo.UserGuild{{ID: "g1", Name: "Guild"}},
+		guildByID: map[string]*discordgo.Guild{
+			"g1": {ID: "g1", Name: "Guild"},
+		},
+		members: map[string][]*discordgo.Member{
+			"g1": {{
+				User: &discordgo.User{ID: "u1", Username: "user"},
+			}},
+		},
+		messages: map[string][]*discordgo.Message{
+			"c1": {{ID: "10", GuildID: "g1", ChannelID: "c1", Content: "first", Timestamp: now, Author: &discordgo.User{ID: "u1", Username: "user"}}},
+		},
+	}
+
+	svc := New(client, s, nil)
+	stats, err := svc.Sync(ctx, SyncOptions{Full: true, GuildIDs: []string{"g1"}, SkipMembers: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.Messages)
+	require.Zero(t, stats.Members)
+	require.Zero(t, client.memberCalls)
+}
+
 func TestSyncFullUsesIncrementalCatalogWhenArchiveAlreadyComplete(t *testing.T) {
 	t.Parallel()
 

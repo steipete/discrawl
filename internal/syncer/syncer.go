@@ -143,7 +143,9 @@ func (s *Syncer) syncGuild(ctx context.Context, guildID string, opts SyncOptions
 			return stats, err
 		}
 		if ok {
-			stats.Members = s.refreshGuildMembers(ctx, guildID)
+			if !opts.SkipMembers {
+				stats.Members = s.refreshGuildMembers(ctx, guildID)
+			}
 			stats.Channels += batched.Channels
 			stats.Threads += batched.Threads
 			stats.Messages += batched.Messages
