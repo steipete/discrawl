@@ -48,6 +48,7 @@ jobs:
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_BACKUP_TOKEN: ${{ secrets.DISCORD_BACKUP_TOKEN }}
+          DISCRAWL_BACKUP_REPOSITORY: ${{ secrets.DISCRAWL_BACKUP_REPOSITORY }}
           DISCRAWL_GUILD_ID: ${{ secrets.DISCRAWL_GUILD_ID }}
           CONFIG: ${{ runner.temp }}/discrawl/config.toml
           DB: ${{ github.workspace }}/.discrawl-ci/discrawl.db
@@ -58,14 +59,18 @@ jobs:
             exit 1
           fi
           if [ -z "${DISCORD_BACKUP_TOKEN:-}" ]; then
-            echo "::error title=Missing secret::Configure DISCORD_BACKUP_TOKEN with write access to openclaw/discord-backup."
+            echo "::error title=Missing secret::Configure DISCORD_BACKUP_TOKEN with write access to the backup repository."
+            exit 1
+          fi
+          if [ -z "${DISCRAWL_BACKUP_REPOSITORY:-}" ]; then
+            echo "::error title=Missing secret::Configure DISCRAWL_BACKUP_REPOSITORY as owner/repo for the backup repository."
             exit 1
           fi
           if [ -z "${DISCRAWL_GUILD_ID:-}" ]; then
             echo "::error title=Missing secret::Configure DISCRAWL_GUILD_ID with the Discord guild to publish."
             exit 1
           fi
-          BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/openclaw/discord-backup.git"
+          BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/${DISCRAWL_BACKUP_REPOSITORY}.git"
           mkdir -p "$(dirname "$CONFIG")"
           mkdir -p "$(dirname "$DB")"
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"

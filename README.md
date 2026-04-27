@@ -59,12 +59,11 @@ Without those intents/permissions, `sync`, `tail`, member snapshots, or message 
 
 Token resolution:
 
-1. OpenClaw config, if `discord.token_source` is not `env`
-2. `DISCORD_BOT_TOKEN` or the configured `discord.token_env`
+1. `DISCORD_BOT_TOKEN` or the configured `discord.token_env`
 
 `discrawl` accepts either raw token text or a value prefixed with `Bot `. It normalizes that automatically.
 
-Fastest env-only path:
+Fastest path:
 
 ```bash
 export DISCORD_BOT_TOKEN="your-bot-token"
@@ -79,8 +78,6 @@ export DISCORD_BOT_TOKEN="your-bot-token"
 ```
 
 Then reload your shell before running `discrawl`.
-
-If you already use OpenClaw, `discrawl` can reuse the Discord token from `~/.openclaw/openclaw.json` by default.
 
 Default runtime paths:
 
@@ -111,10 +108,11 @@ Examples below assume `discrawl` is on `PATH`. If you built from source without 
 
 ## Quick Start
 
-Reuse an existing OpenClaw Discord bot config and refresh both bot-visible guild data and local desktop cache data:
+Configure a Discord bot token and refresh both bot-visible guild data and local desktop cache data:
 
 ```bash
-discrawl init --from-openclaw ~/.openclaw/openclaw.json
+export DISCORD_BOT_TOKEN="..."
+discrawl init
 discrawl doctor
 discrawl sync --full
 discrawl sync
@@ -124,26 +122,10 @@ discrawl tail
 
 Use `discrawl sync --source wiretap` when you only want the local Discord Desktop cache import and do not want bot-token API sync.
 
-Multi-account OpenClaw setup:
-
-```bash
-discrawl init --from-openclaw ~/.openclaw/openclaw.json --account atlas
-```
-
-Env-only setup:
-
-```bash
-export DISCORD_BOT_TOKEN="..."
-discrawl doctor
-discrawl init
-discrawl sync --full
-discrawl sync
-```
-
 Git-only reader setup:
 
 ```bash
-discrawl subscribe https://github.com/openclaw/discord-backup.git
+discrawl subscribe https://github.com/example/discord-archive.git
 discrawl search "launch checklist"
 discrawl messages --channel general --hours 24
 ```
@@ -167,13 +149,9 @@ Creates the local config and discovers accessible guilds.
 
 ```bash
 discrawl init
-discrawl init --from-openclaw ~/.openclaw/openclaw.json
-discrawl init --from-openclaw ~/.openclaw/openclaw.json --account atlas
 discrawl init --guild 123456789012345678
 discrawl init --db ~/data/discrawl.db
 ```
-
-When OpenClaw config tokens use `${ENV_VAR}` placeholders, `init` and `doctor` resolve them before auth.
 
 ### `sync`
 
@@ -437,14 +415,14 @@ discrawl status
 Publisher:
 
 ```bash
-discrawl publish --remote https://github.com/openclaw/discord-backup.git --push
+discrawl publish --remote https://github.com/example/discord-archive.git --push
 discrawl publish --readme path/to/discord-backup/README.md --push
 ```
 
 Subscriber:
 
 ```bash
-discrawl subscribe https://github.com/openclaw/discord-backup.git
+discrawl subscribe https://github.com/example/discord-archive.git
 discrawl search "launch checklist"
 discrawl messages --channel general --hours 24
 ```
@@ -454,8 +432,8 @@ discrawl messages --channel general --hours 24
 Configure freshness:
 
 ```bash
-discrawl subscribe --stale-after 15m https://github.com/openclaw/discord-backup.git
-discrawl subscribe --no-auto-update https://github.com/openclaw/discord-backup.git
+discrawl subscribe --stale-after 15m https://github.com/example/discord-archive.git
+discrawl subscribe --no-auto-update https://github.com/example/discord-archive.git
 ```
 
 Once `share.remote` is configured, read commands auto-fetch and import when the local share import is older than `share.stale_after` (default `15m`). `discrawl update` forces the same pull/import step manually.
@@ -468,7 +446,7 @@ Generated vectors can be backed up explicitly:
 
 ```bash
 discrawl publish --with-embeddings --push
-discrawl subscribe --with-embeddings https://github.com/openclaw/discord-backup.git
+discrawl subscribe --with-embeddings https://github.com/example/discord-archive.git
 discrawl update --with-embeddings
 ```
 
@@ -490,15 +468,6 @@ discrawl report --readme path/to/discord-backup/README.md
 ```
 
 Every scheduled snapshot publish updates deterministic README stats: latest update time, latest archived message, archive totals, and day/week/month activity.
-
-The backup README field notes are intentionally a separate daily workflow, not part of `discrawl report`, so model latency or quota cannot block the 15-minute data publish path. `.github/workflows/discord-backup-report.yml` installs `openclaw@latest`, runs `openclaw agent --local` with OpenAI, and inserts a separate `discrawl-field-notes` block with:
-
-- what people seem to love
-- what people complain about
-- complaint topics correlated with recent GitHub issue and PR clusters
-- the likely best PR to watch
-
-Configure `OPENAI_API_KEY` in the discrawl repo secrets to enable agent-written field notes. `DISCORD_BACKUP_TOKEN` still needs write access to `openclaw/discord-backup`. If the GitHub repo used for issue/PR correlation is private, also set `DISCORD_FIELD_NOTES_GITHUB_TOKEN` with read access to that repo.
 
 The backup workflows restore and save `.discrawl-ci/discrawl.db` with `actions/cache`. On a warm runner cache, `discrawl update` compares the cached DB's last imported snapshot timestamp with `manifest.json` and skips the full sharded import when they match. Cache misses and newer backup manifests still take the normal pull/import path.
 
@@ -525,9 +494,7 @@ cache_dir = "~/.discrawl/cache"
 log_dir = "~/.discrawl/logs"
 
 [discord]
-token_source = "openclaw" # use "none" for Git-only read access
-openclaw_config = "~/.openclaw/openclaw.json"
-account = "default"
+token_source = "env" # use "none" for Git-only read access
 token_env = "DISCORD_BOT_TOKEN"
 
 [sync]
@@ -565,7 +532,7 @@ Config override rules:
 
 - `--config` beats everything
 - `DISCRAWL_CONFIG` overrides the default config path
-- `discord.token_source = "env"` forces env-only token lookup
+- `discord.token_source = "none"` disables live Discord access for Git-only readers
 - `DISCRAWL_NO_AUTO_UPDATE=1` disables Git snapshot auto-update for read commands in one process, useful for report jobs that already imported a fresh backup.
 
 ## Embeddings

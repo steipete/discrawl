@@ -410,8 +410,8 @@ func TestSearchMessagesPrefersRecentMessageIDs(t *testing.T) {
 		AuthorName:        "Peter",
 		MessageType:       0,
 		CreatedAt:         base.Format(time.RFC3339Nano),
-		Content:           "OpenClaw first hit",
-		NormalizedContent: "openclaw first hit",
+		Content:           "Discord first hit",
+		NormalizedContent: "discord first hit",
 		RawJSON:           `{}`,
 	}))
 	require.NoError(t, s.UpsertMessage(ctx, MessageRecord{
@@ -423,12 +423,12 @@ func TestSearchMessagesPrefersRecentMessageIDs(t *testing.T) {
 		AuthorName:        "Peter",
 		MessageType:       0,
 		CreatedAt:         base.Add(time.Minute).Format(time.RFC3339Nano),
-		Content:           "OpenClaw newest hit",
-		NormalizedContent: "openclaw newest hit",
+		Content:           "Discord newest hit",
+		NormalizedContent: "discord newest hit",
 		RawJSON:           `{}`,
 	}))
 
-	results, err := s.SearchMessages(ctx, SearchOptions{Query: "OpenClaw", Limit: 1})
+	results, err := s.SearchMessages(ctx, SearchOptions{Query: "Discord", Limit: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "1489845247147118682", results[0].MessageID)

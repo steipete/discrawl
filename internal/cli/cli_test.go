@@ -1207,13 +1207,12 @@ func TestRuntimeInitSyncTailAndDoctor(t *testing.T) {
 	}
 
 	rt := newRuntime()
-	require.NoError(t, rt.runInit([]string{"--db", dbPath, "--with-embeddings", "--guild", "g2", "--account", "atlas"}))
+	require.NoError(t, rt.runInit([]string{"--db", dbPath, "--with-embeddings", "--guild", "g2"}))
 
 	cfg, err := config.Load(cfgPath)
 	require.NoError(t, err)
 	require.Equal(t, []string{"g1", "g2"}, cfg.GuildIDs)
 	require.Equal(t, "g2", cfg.DefaultGuildID)
-	require.Equal(t, "atlas", cfg.Discord.Account)
 	require.True(t, cfg.Search.Embeddings.Enabled)
 	cfg.Desktop.Path = filepath.Join(dir, "empty-discord")
 	require.NoError(t, os.MkdirAll(cfg.Desktop.Path, 0o755))
@@ -1457,7 +1456,8 @@ func TestCommandUsageBranches(t *testing.T) {
 		{[]string{"--config", cfgPath, "embed", "--batch-size", "0"}, "--batch-size must be positive"},
 		{[]string{"--config", cfgPath, "publish", "extra"}, "publish takes no positional arguments"},
 		{[]string{"--config", cfgPath, "update", "extra"}, "update takes no positional arguments"},
-		{[]string{"--config", cfgPath, "subscribe", "one", "two"}, "subscribe takes at most one remote"},
+		{[]string{"--config", cfgPath, "subscribe"}, "subscribe requires one remote"},
+		{[]string{"--config", cfgPath, "subscribe", "one", "two"}, "subscribe requires one remote"},
 	}
 	for _, tc := range cases {
 		err := Run(ctx, tc.args, &bytes.Buffer{}, &bytes.Buffer{})
@@ -1479,9 +1479,9 @@ func TestHelpers(t *testing.T) {
 	require.True(t, hybridSemanticUnavailable(store.ErrNoCompatibleEmbeddings))
 	require.True(t, hybridSemanticUnavailable(assertErr("semantic query embedding missing")))
 	require.False(t, hybridSemanticUnavailable(assertErr("other")))
-	opts, err := shareOptionsFromFlags("~/share", "", "")
+	opts, err := shareOptionsFromFlags("~/share", "git@example.com:org/archive.git", "")
 	require.NoError(t, err)
-	require.Equal(t, defaultShareRemote, opts.Remote)
+	require.Equal(t, "git@example.com:org/archive.git", opts.Remote)
 	require.Equal(t, "main", opts.Branch)
 	var out bytes.Buffer
 	require.NoError(t, printHuman(&out, syncer.SyncStats{Guilds: 1}))

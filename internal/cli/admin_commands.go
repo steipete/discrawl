@@ -36,8 +36,6 @@ type syncRunStats struct {
 func (r *runtime) runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	fromOpenClaw := fs.String("from-openclaw", "", "")
-	account := fs.String("account", "", "")
 	guildID := fs.String("guild", "", "")
 	dbPath := fs.String("db", "", "")
 	withEmbeddings := fs.Bool("with-embeddings", false, "")
@@ -45,12 +43,6 @@ func (r *runtime) runInit(args []string) error {
 		return usageErr(err)
 	}
 	cfg := config.Default()
-	if *fromOpenClaw != "" {
-		cfg.Discord.OpenClawConfig = *fromOpenClaw
-	}
-	if *account != "" {
-		cfg.Discord.Account = *account
-	}
 	if *dbPath != "" {
 		cfg.DBPath = *dbPath
 	}
@@ -90,10 +82,6 @@ func (r *runtime) runInit(args []string) error {
 	}
 	if *guildID != "" {
 		cfg.DefaultGuildID = *guildID
-	} else if info, err := config.LoadOpenClawDiscord(cfg.Discord.OpenClawConfig, cfg.Discord.Account); err == nil {
-		if len(info.GuildIDs) == 1 {
-			cfg.DefaultGuildID = info.GuildIDs[0]
-		}
 	}
 	if cfg.DefaultGuildID == "" && len(cfg.GuildIDs) == 1 {
 		cfg.DefaultGuildID = cfg.GuildIDs[0]

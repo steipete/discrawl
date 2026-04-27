@@ -1,13 +1,11 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 
@@ -35,10 +33,8 @@ type Config struct {
 }
 
 type DiscordConfig struct {
-	TokenSource    string `toml:"token_source"`
-	OpenClawConfig string `toml:"openclaw_config"`
-	Account        string `toml:"account"`
-	TokenEnv       string `toml:"token_env"`
+	TokenSource string `toml:"token_source"`
+	TokenEnv    string `toml:"token_env"`
 }
 
 type DesktopConfig struct {
@@ -84,30 +80,6 @@ type TokenResolution struct {
 	Path   string
 }
 
-type OpenClawDiscord struct {
-	Token    string
-	GuildIDs []string
-	Path     string
-}
-
-type openClawConfig struct {
-	Channels struct {
-		Discord openClawDiscord `json:"discord"`
-	} `json:"channels"`
-	Secrets openClawSecrets `json:"secrets"`
-}
-
-type openClawDiscord struct {
-	Token    openClawSecretValue            `json:"token"`
-	Accounts map[string]openClawDiscordAcct `json:"accounts"`
-	Guilds   map[string]json.RawMessage     `json:"guilds"`
-}
-
-type openClawDiscordAcct struct {
-	Token  openClawSecretValue        `json:"token"`
-	Guilds map[string]json.RawMessage `json:"guilds"`
-}
-
 func Default() Config {
 	home, _ := os.UserHomeDir()
 	base := filepath.Join(home, ".discrawl")
@@ -118,10 +90,8 @@ func Default() Config {
 		LogDir:         filepath.Join(base, "logs"),
 		DefaultGuildID: "",
 		Discord: DiscordConfig{
-			TokenSource:    "openclaw",
-			OpenClawConfig: filepath.Join(home, ".openclaw", "openclaw.json"),
-			Account:        "default",
-			TokenEnv:       DefaultTokenEnv,
+			TokenSource: "env",
+			TokenEnv:    DefaultTokenEnv,
 		},
 		Desktop: DesktopConfig{
 			Path:         defaultDiscordDesktopPath(home),
@@ -235,13 +205,7 @@ func (c *Config) Normalize() error {
 		}
 	}
 	if c.Discord.TokenSource == "" {
-		c.Discord.TokenSource = "openclaw"
-	}
-	if c.Discord.OpenClawConfig == "" {
-		c.Discord.OpenClawConfig = Default().Discord.OpenClawConfig
-	}
-	if c.Discord.Account == "" {
-		c.Discord.Account = "default"
+		c.Discord.TokenSource = "env"
 	}
 	if c.Discord.TokenEnv == "" {
 		c.Discord.TokenEnv = DefaultTokenEnv
@@ -391,123 +355,6 @@ func ExpandPath(path string) (string, error) {
 		}
 	}
 	return filepath.Clean(os.ExpandEnv(path)), nil
-}
-
-func ResolveDiscordToken(cfg Config) (TokenResolution, error) {
-	if err := cfg.Normalize(); err != nil {
-		return TokenResolution{}, err
-	}
-	if cfg.Discord.TokenSource == "none" {
-		return TokenResolution{}, errors.New("discord token disabled by config")
-	}
-	if cfg.Discord.TokenSource != "env" {
-		openClaw, err := LoadOpenClawDiscord(cfg.Discord.OpenClawConfig, cfg.Discord.Account)
-		if err == nil && openClaw.Token != "" {
-			return TokenResolution{Token: openClaw.Token, Source: "openclaw", Path: openClaw.Path}, nil
-		}
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return TokenResolution{}, err
-		}
-	}
-	if envToken := NormalizeBotToken(os.Getenv(cfg.Discord.TokenEnv)); envToken != "" {
-		return TokenResolution{Token: envToken, Source: "env", Path: cfg.Discord.TokenEnv}, nil
-	}
-	return TokenResolution{}, errors.New("discord token not found in env or openclaw config")
-}
-
-func LoadOpenClawDiscord(path, account string) (OpenClawDiscord, error) {
-	paths, err := openClawCandidates(path)
-	if err != nil {
-		return OpenClawDiscord{}, err
-	}
-	for _, candidate := range paths {
-		info, err := loadOpenClawDiscordFile(candidate, account)
-		if err == nil && info.Token != "" {
-			return info, nil
-		}
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return OpenClawDiscord{}, err
-		}
-	}
-	return OpenClawDiscord{}, os.ErrNotExist
-}
-
-func loadOpenClawDiscordFile(path, account string) (OpenClawDiscord, error) {
-	expanded, err := ExpandPath(path)
-	if err != nil {
-		return OpenClawDiscord{}, err
-	}
-	data, err := os.ReadFile(expanded)
-	if err != nil {
-		return OpenClawDiscord{}, err
-	}
-	var payload openClawConfig
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return OpenClawDiscord{}, fmt.Errorf("parse openclaw config: %w", err)
-	}
-	discord := payload.Channels.Discord
-	resolver := newOpenClawSecretResolver(payload.Secrets, expanded)
-	token, err := resolver.resolve(discord.Token)
-	if err != nil {
-		return OpenClawDiscord{}, fmt.Errorf("resolve openclaw discord token: %w", err)
-	}
-	guildIDs := mapKeys(discord.Guilds)
-	if token == "" {
-		acct := discord.Accounts[normalizeAccount(account)]
-		if acct.Token.empty() && account != normalizeAccount(account) {
-			acct = discord.Accounts[account]
-		}
-		token, err = resolver.resolve(acct.Token)
-		if err != nil {
-			return OpenClawDiscord{}, fmt.Errorf("resolve openclaw discord account token: %w", err)
-		}
-		if len(guildIDs) == 0 {
-			guildIDs = mapKeys(acct.Guilds)
-		}
-	}
-	return OpenClawDiscord{
-		Token:    token,
-		GuildIDs: guildIDs,
-		Path:     expanded,
-	}, nil
-}
-
-func openClawCandidates(path string) ([]string, error) {
-	expanded, err := ExpandPath(path)
-	if err != nil {
-		return nil, err
-	}
-	candidates := []string{expanded}
-	matches, err := filepath.Glob(expanded + ".bak*")
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(matches)
-	candidates = append(candidates, matches...)
-	return uniqueStrings(candidates), nil
-}
-
-func NormalizeBotToken(raw string) string {
-	raw = strings.TrimSpace(raw)
-	raw = strings.TrimPrefix(raw, "Bot ")
-	return strings.TrimSpace(raw)
-}
-
-func normalizeAccount(account string) string {
-	account = strings.TrimSpace(strings.ToLower(account))
-	if account == "" {
-		return "default"
-	}
-	return account
-}
-
-func mapKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func uniqueStrings(in []string) []string {

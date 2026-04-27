@@ -26,11 +26,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Setup Node
-        uses: actions/setup-node@v6.4.0
-        with:
-          node-version: "24"
-
       - name: Restore Discord DB cache
         id: restore-discord-db
         uses: actions/cache/restore@v5.0.5
@@ -51,46 +46,27 @@ jobs:
 
       - name: Generate daily Discord report
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DISCORD_BACKUP_TOKEN: ${{ secrets.DISCORD_BACKUP_TOKEN }}
-          GH_TOKEN: ${{ secrets.DISCORD_FIELD_NOTES_GITHUB_TOKEN || github.token }}
+          DISCRAWL_BACKUP_REPOSITORY: ${{ secrets.DISCRAWL_BACKUP_REPOSITORY }}
           CONFIG: ${{ runner.temp }}/discrawl/config.toml
           DB: ${{ github.workspace }}/.discrawl-ci/discrawl.db
           BACKUP_REPO: ${{ runner.temp }}/discord-backup
-          OPENCLAW_STATE_DIR: ${{ runner.temp }}/openclaw
-          DISCORD_FIELD_NOTES_GITHUB_REPO: openclaw/openclaw
         run: |
           if [ -z "${DISCORD_BACKUP_TOKEN:-}" ]; then
-            echo "::error title=Missing secret::Configure DISCORD_BACKUP_TOKEN with write access to openclaw/discord-backup."
+            echo "::error title=Missing secret::Configure DISCORD_BACKUP_TOKEN with write access to the backup repository."
             exit 1
           fi
-          BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/openclaw/discord-backup.git"
+          if [ -z "${DISCRAWL_BACKUP_REPOSITORY:-}" ]; then
+            echo "::error title=Missing secret::Configure DISCRAWL_BACKUP_REPOSITORY as owner/repo for the backup repository."
+            exit 1
+          fi
+          BACKUP_REMOTE="https://x-access-token:${DISCORD_BACKUP_TOKEN}@github.com/${DISCRAWL_BACKUP_REPOSITORY}.git"
           mkdir -p "$(dirname "$CONFIG")"
           mkdir -p "$(dirname "$DB")"
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
           printf 'db_path = "%s"\n' "$DB" > "$CONFIG"
           go run ./cmd/discrawl --config "$CONFIG" subscribe --repo "$BACKUP_REPO" "$BACKUP_REMOTE"
           go run ./cmd/discrawl --config "$CONFIG" report --readme "$BACKUP_REPO/README.md"
-          if [ -n "${OPENAI_API_KEY:-}" ]; then
-            npm install -g openclaw@latest
-            openclaw onboard \
-              --non-interactive \
-              --mode local \
-              --auth-choice openai-api-key \
-              --secret-input-mode ref \
-              --accept-risk \
-              --skip-daemon \
-              --skip-skills \
-              --skip-search \
-              --skip-health
-            tmp_config="$(mktemp)"
-            jq '.agents.defaults.model = "openai/gpt-5.2" | .agents.defaults.timeoutSeconds = 300 | .agents.defaults.llm.idleTimeoutSeconds = 240' \
-              "$OPENCLAW_STATE_DIR/openclaw.json" > "$tmp_config"
-            mv "$tmp_config" "$OPENCLAW_STATE_DIR/openclaw.json"
-            scripts/discord-backup-field-notes.sh "$CONFIG" "$BACKUP_REPO"
-          else
-            echo "OPENAI_API_KEY not configured; skipping OpenClaw field notes"
-          fi
           if git -C "$BACKUP_REPO" diff --quiet README.md; then
             echo "README already up to date"
             exit 0

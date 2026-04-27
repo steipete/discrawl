@@ -12,8 +12,6 @@ import (
 	"github.com/steipete/discrawl/internal/store"
 )
 
-const defaultShareRemote = "https://github.com/openclaw/discord-backup.git"
-
 func (r *runtime) runPublish(args []string) error {
 	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -98,13 +96,10 @@ func (r *runtime) runSubscribe(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return usageErr(err)
 	}
-	remote := defaultShareRemote
-	if fs.NArg() > 1 {
-		return usageErr(errors.New("subscribe takes at most one remote"))
+	if fs.NArg() != 1 {
+		return usageErr(errors.New("subscribe requires one remote"))
 	}
-	if fs.NArg() == 1 {
-		remote = fs.Arg(0)
-	}
+	remote := fs.Arg(0)
 	cfg, err := loadConfigOrDefault(r.configPath)
 	if err != nil {
 		return err
@@ -204,7 +199,7 @@ func shareOptionsFromFlags(repoPath, remote, branch string) (share.Options, erro
 		return share.Options{}, configErr(err)
 	}
 	if remote == "" {
-		remote = defaultShareRemote
+		return share.Options{}, configErr(errors.New("share remote is required"))
 	}
 	if branch == "" {
 		branch = "main"

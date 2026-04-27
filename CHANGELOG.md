@@ -9,10 +9,6 @@ All notable changes to `discrawl` will be documented in this file.
 - Refreshed Go module dependencies and CI tool/action pins, including staticcheck, gofumpt, gosec, govulncheck, gitleaks, setup-node, and GoReleaser.
 - Hardened report README writes and Discord Desktop cache reads with root-scoped filesystem access to satisfy the latest gosec checks.
 
-### Fixes
-
-- OpenClaw Discord token loading now accepts SecretRef objects backed by file or env providers in addition to plaintext token strings, with shared resolver coverage for provider defaults, allowlists, empty values, and unsupported exec refs. (#49) Thanks @TeodoroRodrigo.
-
 ## 0.6.0 - 2026-04-24
 
 ### Changes
@@ -84,11 +80,10 @@ All notable changes to `discrawl` will be documented in this file.
 - `sync --all` now bypasses `default_guild_id` so one run can fan out across every discovered guild without clearing the single-guild default first
 - `sync --full` no longer aborts when forum thread discovery hits Discord `403 Missing Access`; inaccessible channels are skipped and marked unavailable while accessible channels continue syncing
 - startup now validates and stamps SQLite schema version via `PRAGMA user_version`, and fails fast if the local DB schema is newer than the running binary
-- `init --from-openclaw` now supports `--account`, and OpenClaw token fields can use `${ENV_VAR}` placeholders
 - git-backed archive sharing can now export/import compressed JSONL snapshots with manifests, subscribe to a Git repo as the data source, and run in git-only mode without Discord credentials
 - `messages`, `search`, and reports can automatically refresh stale git-backed data, preferring the Git snapshot before falling back to live Discord when both sources are configured
 - the Discord backup publisher workflow now syncs latest messages, publishes the archive to a private GitHub repo, serializes concurrent runs, validates required secrets, and skips the member crawl for faster updates
-- the backup report workflow now updates README activity stats, supports OpenClaw-generated field notes, runs the field-note logic from the backup action, and keeps those queries bounded with process timeouts
+- the backup report workflow now updates README activity stats from the backup action and keeps those queries bounded with process timeouts
 - `sync --latest-only` adds a lightweight refresh path for checking recent Discord messages without doing a full historical crawl
 - repository imports now skip expensive rebuilds when the snapshot manifest is already current, and GitHub Actions persist the warmed SQLite database across runs
 - the Docker git-source smoke test now verifies that a fresh install can subscribe to a repository-only archive and query messages, SQL, and reports
@@ -112,7 +107,7 @@ All notable changes to `discrawl` will be documented in this file.
 - multi-guild Discord crawler with single-guild default UX
 - local SQLite archive with FTS5 search
 - commands: `init`, `sync`, `tail`, `search`, `messages`, `mentions`, `sql`, `members`, `channels`, `status`, `doctor`
-- OpenClaw config reuse plus env-based bot token discovery
+- env-based bot token discovery
 - resumable full-history sync, live gateway tailing, repair sync loop, targeted channel sync
 - attachment-text indexing for small text-like uploads
 - structured user and role mention indexing/querying

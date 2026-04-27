@@ -51,7 +51,7 @@ These are settled unless the user explicitly changes them:
 - DB location: `~/.discrawl/discrawl.db`
 - cache dir: `~/.discrawl/cache/`
 - log dir: `~/.discrawl/logs/`
-- token source: reuse Molty / existing OpenClaw Discord bot config
+- token source: `DISCORD_BOT_TOKEN` or configured env var
 - guild model: one guild in CLI UX, multi-guild-ready schema
 - search: hybrid, with FTS first and embeddings optional
 - embedding provider: OpenAI
@@ -71,33 +71,12 @@ An agent should assume:
 - Go is installed and modern
 - user is Peter
 - user keeps many secrets in `~/.profile`
-- an existing OpenClaw install may already contain usable Discord bot config
 
 ### Key file paths
 
 - `~/.discrawl/config.toml`
 - `~/.discrawl/discrawl.db`
 - `~/.profile`
-- `~/.openclaw/openclaw.json`
-- `~/.openclaw/openclaw.json.bak*`
-
-### Existing bot config
-
-The current bot token source is expected in:
-
-- `~/.openclaw/openclaw.json`
-
-Expected path inside JSON:
-
-- `channels.discord.token`
-
-Expected guild selection path:
-
-- `channels.discord.guilds`
-
-The current intended default mode is:
-
-- `discrawl init --from-openclaw ~/.openclaw/openclaw.json`
 
 ### OpenAI embeddings key
 
@@ -428,12 +407,11 @@ discrawl [global flags] <command> [args]
 Purpose:
 
 - create `~/.discrawl/config.toml`
-- import defaults from OpenClaw
+- discover accessible Discord guilds
 - persist guild id and DB path
 
 Expected flags:
 
-- `--from-openclaw <path>`
 - `--guild <id>`
 - `--db <path>`
 - `--with-embeddings`
@@ -556,7 +534,7 @@ Must show:
 Must check:
 
 - config file readable
-- OpenClaw token source readable
+- Discord token env var readable unless live access is disabled
 - Discord auth valid
 - guild reachable
 - DB openable
@@ -583,9 +561,8 @@ cache_dir = "~/.discrawl/cache"
 log_dir = "~/.discrawl/logs"
 
 [discord]
-token_source = "openclaw"
-openclaw_config = "~/.openclaw/openclaw.json"
-channel_account = "discord"
+token_source = "env"
+token_env = "DISCORD_BOT_TOKEN"
 
 [sync]
 concurrency = 4
@@ -612,6 +589,7 @@ Config precedence:
 Environment variables:
 
 - `DISCRAWL_CONFIG`
+- `DISCORD_BOT_TOKEN`
 - `OPENAI_API_KEY`
 
 ## Token Handling Rules
@@ -624,7 +602,7 @@ Do not:
 
 Do:
 
-- load bot token from OpenClaw config path
+- load bot token from env
 - load OpenAI key from env
 - redact secrets in debug and doctor output
 
