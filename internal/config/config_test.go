@@ -185,6 +185,85 @@ func TestResolveDiscordTokenFromOpenClawEnvSecretRef(t *testing.T) {
 	require.Equal(t, "env-ref-token", info.Token)
 }
 
+func TestResolveDiscordTokenFromOpenClawEnvSecretRefRequiresEnvValue(t *testing.T) {
+	dir := t.TempDir()
+	openClawPath := filepath.Join(dir, "openclaw.json")
+	require.NoError(t, os.WriteFile(openClawPath, []byte(`{
+		"channels": {
+			"discord": {
+				"token": {
+					"source": "env",
+					"provider": "default",
+					"id": "DISCRAWL_TEST_MISSING_OPENCLAW_TOKEN"
+				}
+			}
+		}
+	}`), 0o600))
+	t.Setenv(DefaultTokenEnv, "fallback-token")
+
+	cfg := Default()
+	cfg.Discord.OpenClawConfig = openClawPath
+
+	_, err := ResolveDiscordToken(cfg)
+	require.ErrorContains(t, err, `environment variable "DISCRAWL_TEST_MISSING_OPENCLAW_TOKEN" is missing or empty`)
+}
+
+func TestResolveDiscordTokenFromOpenClawEnvSecretRefHonorsAllowlist(t *testing.T) {
+	dir := t.TempDir()
+	openClawPath := filepath.Join(dir, "openclaw.json")
+	require.NoError(t, os.WriteFile(openClawPath, []byte(`{
+		"secrets": {
+			"providers": {
+				"default": {
+					"source": "env",
+					"allowlist": ["OTHER_TOKEN"]
+				}
+			}
+		},
+		"channels": {
+			"discord": {
+				"token": {
+					"source": "env",
+					"provider": "default",
+					"id": "DISCRAWL_TEST_OPENCLAW_TOKEN"
+				}
+			}
+		}
+	}`), 0o600))
+	t.Setenv("DISCRAWL_TEST_OPENCLAW_TOKEN", "env-ref-token")
+
+	_, err := LoadOpenClawDiscord(openClawPath, "default")
+	require.ErrorContains(t, err, `environment variable "DISCRAWL_TEST_OPENCLAW_TOKEN" is not allowlisted`)
+}
+
+func TestResolveDiscordTokenFromOpenClawEnvSecretRefRejectsProviderSourceMismatch(t *testing.T) {
+	dir := t.TempDir()
+	openClawPath := filepath.Join(dir, "openclaw.json")
+	require.NoError(t, os.WriteFile(openClawPath, []byte(`{
+		"secrets": {
+			"providers": {
+				"default": {
+					"source": "file",
+					"path": "secrets.json"
+				}
+			}
+		},
+		"channels": {
+			"discord": {
+				"token": {
+					"source": "env",
+					"provider": "default",
+					"id": "DISCRAWL_TEST_OPENCLAW_TOKEN"
+				}
+			}
+		}
+	}`), 0o600))
+	t.Setenv("DISCRAWL_TEST_OPENCLAW_TOKEN", "env-ref-token")
+
+	_, err := LoadOpenClawDiscord(openClawPath, "default")
+	require.ErrorContains(t, err, `secret provider "default" has source "file", want env`)
+}
+
 func TestResolveDiscordTokenFallsBackToEnv(t *testing.T) {
 	cfg := Default()
 	cfg.Discord.TokenSource = "env"
