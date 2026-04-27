@@ -54,16 +54,16 @@ jobs:
           DB: ${{ github.workspace }}/.discrawl-ci/discrawl.db
           BACKUP_REPO: ${{ runner.temp }}/discord-backup
         run: |
+          if [ -z "${DISCRAWL_BACKUP_REPOSITORY:-}" ]; then
+            echo "::notice title=Backup publish skipped::Configure DISCRAWL_BACKUP_REPOSITORY as owner/repo to enable archive publishing."
+            exit 0
+          fi
           if [ -z "${DISCORD_BOT_TOKEN:-}" ]; then
             echo "::error title=Missing secret::Configure DISCORD_BOT_TOKEN in the discrawl repo secrets."
             exit 1
           fi
           if [ -z "${DISCORD_BACKUP_TOKEN:-}" ]; then
             echo "::error title=Missing secret::Configure DISCORD_BACKUP_TOKEN with write access to the backup repository."
-            exit 1
-          fi
-          if [ -z "${DISCRAWL_BACKUP_REPOSITORY:-}" ]; then
-            echo "::error title=Missing secret::Configure DISCRAWL_BACKUP_REPOSITORY as owner/repo for the backup repository."
             exit 1
           fi
           if [ -z "${DISCRAWL_GUILD_ID:-}" ]; then
