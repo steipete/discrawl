@@ -11,7 +11,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 ### Fixes
 
-- OpenClaw Discord token loading now accepts SecretRef objects backed by file or env providers in addition to plaintext token strings. Thanks @TeodoroRodrigo.
+- OpenClaw Discord token loading now accepts SecretRef objects backed by file or env providers in addition to plaintext token strings. (#49) Thanks @TeodoroRodrigo.
 
 ## 0.6.0 - 2026-04-24
 
