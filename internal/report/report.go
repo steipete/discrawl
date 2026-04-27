@@ -48,8 +48,8 @@ type WindowStats struct {
 }
 
 type RankedCount struct {
-	Name  string
-	Count int
+	Name  string `json:"name"`
+	Count int    `json:"count"`
 }
 
 func Build(ctx context.Context, s *store.Store, opts Options) (ActivityReport, error) {
