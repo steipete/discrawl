@@ -471,6 +471,46 @@ Every scheduled snapshot publish updates deterministic README stats: latest upda
 
 The backup workflows restore and save `.discrawl-ci/discrawl.db` with `actions/cache`. On a warm runner cache, `discrawl update` compares the cached DB's last imported snapshot timestamp with `manifest.json` and skips the full sharded import when they match. Cache misses and newer backup manifests still take the normal pull/import path.
 
+### `digest`
+
+Summarizes per-channel activity for a lookback window.
+
+```bash
+discrawl digest
+discrawl digest --since 30d
+discrawl digest --guild 123456789012345678
+discrawl digest --channel general
+discrawl --json digest --since 7d --top-n 5
+```
+
+Notes:
+
+- `--since` accepts Go durations (`72h`, `30m`) and `Nd` shorthand (`7d`, `30d`)
+- `--guild` scopes to one guild; when omitted, `default_guild_id` is used if configured
+- `--channel` accepts a channel id or exact channel name
+- `--top-n` controls how many top posters and mention targets are shown per channel
+
+### `analytics`
+
+Groups activity-style queries under one namespace.
+
+```bash
+discrawl analytics
+discrawl analytics digest --since 7d
+discrawl analytics quiet --since 30d
+discrawl analytics quiet --guild 123456789012345678
+discrawl analytics trends --weeks 8
+discrawl analytics trends --weeks 12 --channel general
+discrawl --json analytics trends --weeks 4
+```
+
+Notes:
+
+- `analytics digest` is a shim that delegates to `discrawl digest`
+- `analytics quiet` shows channels with no messages in the lookback window, including never-active channels
+- `analytics trends` shows week-over-week message counts with zero-filled weekly buckets
+- `analytics trends --channel` accepts a channel id or exact channel name
+
 ### `doctor`
 
 Checks config, auth, DB, and FTS wiring.
