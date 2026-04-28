@@ -6,6 +6,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 ### Fixes
 
+- Repeated `sync --source wiretap` runs now skip unchanged Discord Desktop cache files and report unchanged file counts, making steady-state local-cache refreshes much faster.
 - `sync --full --skip-members` now also skips member crawls when resuming incomplete stored channels, so backfills do not unexpectedly refresh the full guild member list.
 
 ### Maintenance

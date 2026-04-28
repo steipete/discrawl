@@ -42,6 +42,7 @@ type Stats struct {
 	Path            string    `json:"path"`
 	FilesScanned    int       `json:"files_scanned"`
 	FilesSkipped    int       `json:"files_skipped"`
+	FilesUnchanged  int       `json:"files_unchanged"`
 	BytesScanned    int64     `json:"bytes_scanned"`
 	JSONObjects     int       `json:"json_objects"`
 	Guilds          int       `json:"guilds"`
@@ -65,6 +66,19 @@ type snapshot struct {
 	userLabels map[string]userLabel
 }
 
+type fileFingerprint struct {
+	Size      int64 `json:"size"`
+	ModUnixNS int64 `json:"mod_unix_ns"`
+}
+
+type scanState struct {
+	previous map[string]fileFingerprint
+	current  map[string]fileFingerprint
+	channels map[string]store.ChannelRecord
+}
+
+const wiretapFileIndexScope = "wiretap:file_index:v1"
+
 func DefaultPath() string {
 	home, _ := os.UserHomeDir()
 	switch runtime.GOOS {
@@ -87,7 +101,11 @@ func Import(ctx context.Context, st *store.Store, opts Options) (Stats, error) {
 	if st == nil && !opts.DryRun {
 		return Stats{}, errors.New("store is required")
 	}
-	stats, snap, err := scan(ctx, opts)
+	state, err := loadScanState(ctx, st, opts)
+	if err != nil {
+		return Stats{}, err
+	}
+	stats, snap, err := scan(ctx, opts, state)
 	if err != nil {
 		return stats, err
 	}
@@ -95,13 +113,66 @@ func Import(ctx context.Context, st *store.Store, opts Options) (Stats, error) {
 	if opts.DryRun {
 		return stats, nil
 	}
-	if err := writeSnapshot(ctx, st, snap); err != nil {
+	fullScan := len(state.previous) == 0
+	if snapshotHasChanges(snap) || fullScan {
+		if err := writeSnapshot(ctx, st, snap, fullScan); err != nil {
+			return stats, err
+		}
+	} else if err := st.SetSyncState(ctx, "wiretap:last_import", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return stats, err
+	}
+	if err := saveFileIndex(ctx, st, state.current); err != nil {
 		return stats, err
 	}
 	return stats, nil
 }
 
-func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
+func loadScanState(ctx context.Context, st *store.Store, opts Options) (scanState, error) {
+	state := scanState{
+		previous: map[string]fileFingerprint{},
+		current:  map[string]fileFingerprint{},
+		channels: map[string]store.ChannelRecord{},
+	}
+	if st == nil || opts.DryRun {
+		return state, nil
+	}
+	raw, err := st.GetSyncState(ctx, wiretapFileIndexScope)
+	if err != nil {
+		return state, err
+	}
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &state.previous); err != nil {
+			state.previous = map[string]fileFingerprint{}
+		}
+	}
+	channels, err := st.Channels(ctx, "")
+	if err != nil {
+		return state, err
+	}
+	for _, channel := range channels {
+		state.channels[channel.ID] = store.ChannelRecord{
+			ID:      channel.ID,
+			GuildID: channel.GuildID,
+			Kind:    channel.Kind,
+			Name:    channel.Name,
+		}
+	}
+	return state, nil
+}
+
+func saveFileIndex(ctx context.Context, st *store.Store, index map[string]fileFingerprint) error {
+	body, err := json.Marshal(index)
+	if err != nil {
+		return err
+	}
+	return st.SetSyncState(ctx, wiretapFileIndexScope, string(body))
+}
+
+func snapshotHasChanges(snap snapshot) bool {
+	return len(snap.guilds) > 0 || len(snap.channels) > 0 || len(snap.messages) > 0
+}
+
+func scan(ctx context.Context, opts Options, state scanState) (Stats, snapshot, error) {
 	now := opts.Now
 	if now == nil {
 		now = time.Now
@@ -155,6 +226,16 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 			stats.FilesSkipped++
 			return ignoreCacheFileError(err)
 		}
+		relKey := filepath.ToSlash(relPath)
+		fingerprint := fileFingerprint{
+			Size:      info.Size(),
+			ModUnixNS: info.ModTime().UnixNano(),
+		}
+		state.current[relKey] = fingerprint
+		if previous, ok := state.previous[relKey]; ok && previous == fingerprint {
+			stats.FilesUnchanged++
+			return nil
+		}
 		data, err := rootFS.ReadFile(relPath)
 		if err != nil {
 			stats.FilesSkipped++
@@ -174,15 +255,15 @@ func scan(ctx context.Context, opts Options) (Stats, snapshot, error) {
 			if err := json.Unmarshal(raw, &value); err != nil {
 				continue
 			}
-			collectValue(snap, value, info.ModTime().UTC())
+			collectValue(snap, state.channels, value, info.ModTime().UTC())
 		}
 		return nil
 	}); err != nil {
 		return stats, snap, err
 	}
-	reconcileMessages(snap)
+	reconcileMessages(snap, state.channels)
 	inferDirectMessageNames(snap)
-	reconcileMessages(snap)
+	reconcileMessages(snap, state.channels)
 	skippedChannels := map[string]struct{}{}
 	for id, msg := range snap.messages {
 		guildID := msg.Record.GuildID
@@ -230,9 +311,11 @@ func ignoreCacheFileError(error) error {
 	return nil
 }
 
-func writeSnapshot(ctx context.Context, st *store.Store, snap snapshot) error {
-	if err := st.DeleteGuildData(ctx, "@unknown"); err != nil {
-		return err
+func writeSnapshot(ctx context.Context, st *store.Store, snap snapshot, prune bool) error {
+	if prune {
+		if err := st.DeleteGuildData(ctx, "@unknown"); err != nil {
+			return err
+		}
 	}
 	guilds := mapValues(snap.guilds)
 	sort.Slice(guilds, func(i, j int) bool { return guilds[i].ID < guilds[j].ID })
@@ -253,33 +336,36 @@ func writeSnapshot(ctx context.Context, st *store.Store, snap snapshot) error {
 	if err := st.UpsertMessages(ctx, messages); err != nil {
 		return err
 	}
-	if err := st.DeleteOrphanChannels(ctx, DirectMessageGuildID); err != nil {
-		return err
+	if prune {
+		if err := st.DeleteOrphanChannels(ctx, DirectMessageGuildID); err != nil {
+			return err
+		}
 	}
 	return st.SetSyncState(ctx, "wiretap:last_import", time.Now().UTC().Format(time.RFC3339Nano))
 }
 
-func collectValue(snap snapshot, value any, fallbackTime time.Time) {
+func collectValue(snap snapshot, channelLookup map[string]store.ChannelRecord, value any, fallbackTime time.Time) {
 	switch typed := value.(type) {
 	case map[string]any:
 		collectUserLabel(snap, typed)
 		if channel, ok := parseChannel(typed); ok {
 			snap.channels[channel.ID] = channel
+			channelLookup[channel.ID] = channel
 			if channel.GuildID == DirectMessageGuildID {
 				if _, ok := snap.guilds[channel.GuildID]; !ok {
 					snap.guilds[channel.GuildID] = syntheticGuild(channel.GuildID, guildName(channel.GuildID))
 				}
 			}
 		}
-		if message, ok := parseMessage(typed, fallbackTime, snap.channels); ok {
+		if message, ok := parseMessage(typed, fallbackTime, channelLookup); ok {
 			snap.messages[message.Record.ID] = message
 		}
 		for _, child := range typed {
-			collectValue(snap, child, fallbackTime)
+			collectValue(snap, channelLookup, child, fallbackTime)
 		}
 	case []any:
 		for _, child := range typed {
-			collectValue(snap, child, fallbackTime)
+			collectValue(snap, channelLookup, child, fallbackTime)
 		}
 	}
 }
@@ -415,15 +501,16 @@ func parseMessage(raw map[string]any, fallbackTime time.Time, channels map[strin
 	}, true
 }
 
-func reconcileMessages(snap snapshot) {
+func reconcileMessages(snap snapshot, channelLookup map[string]store.ChannelRecord) {
 	for id, msg := range snap.messages {
-		channel, ok := snap.channels[msg.Record.ChannelID]
+		channel, ok := channelLookup[msg.Record.ChannelID]
 		if !ok {
 			if guildID := snap.routes[msg.Record.ChannelID]; guildID != "" {
 				msg.Record.GuildID = guildID
 				if guildID == DirectMessageGuildID {
 					channel = syntheticChannel(msg.Record.ChannelID, guildID, "")
 					snap.channels[msg.Record.ChannelID] = channel
+					channelLookup[msg.Record.ChannelID] = channel
 					ok = true
 				}
 			}

@@ -115,6 +115,48 @@ binary-ish {"t":"MESSAGE_CREATE","token":"do-not-store","d":{"id":"3333333333333
 	require.NotContains(t, rows[0][0], "do-not-store")
 }
 
+func TestImportSkipsUnchangedDesktopCacheFiles(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "Local Storage", "leveldb")
+	require.NoError(t, os.MkdirAll(cachePath, 0o755))
+	channelPath := filepath.Join(cachePath, "000001.log")
+	messagePath := filepath.Join(cachePath, "000002.log")
+	require.NoError(t, os.WriteFile(channelPath, []byte(`{"id":"111111111111111121","guild_id":"999999999999999996","type":0,"name":"wiretap-fast"}`), 0o600))
+	require.NoError(t, os.WriteFile(messagePath, []byte(`{"id":"333333333333333346","channel_id":"111111111111111121","content":"first incremental message","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222232","username":"alice"}}`), 0o600))
+
+	dbPath := filepath.Join(dir, "discrawl.db")
+	st, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = st.Close() }()
+
+	stats, err := Import(ctx, st, Options{Path: dir})
+	require.NoError(t, err)
+	require.Equal(t, 2, stats.FilesScanned)
+	require.Equal(t, 1, stats.Messages)
+
+	stats, err = Import(ctx, st, Options{Path: dir})
+	require.NoError(t, err)
+	require.Equal(t, 0, stats.FilesScanned)
+	require.Equal(t, 2, stats.FilesUnchanged)
+	require.Equal(t, 0, stats.Messages)
+
+	require.NoError(t, os.WriteFile(messagePath, []byte(`{"id":"333333333333333347","channel_id":"111111111111111121","content":"second incremental message","timestamp":"2026-04-23T18:20:44Z","author":{"id":"222222222222222233","username":"bob"}}`), 0o600))
+	require.NoError(t, os.Chtimes(messagePath, time.Date(2026, 4, 23, 18, 21, 0, 0, time.UTC), time.Date(2026, 4, 23, 18, 21, 0, 0, time.UTC)))
+
+	stats, err = Import(ctx, st, Options{Path: dir})
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.FilesScanned)
+	require.Equal(t, 1, stats.FilesUnchanged)
+	require.Equal(t, 1, stats.Messages)
+
+	results, err := st.SearchMessages(ctx, store.SearchOptions{Query: "second incremental", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "999999999999999996", results[0].GuildID)
+	require.Equal(t, "wiretap-fast", results[0].ChannelName)
+}
+
 func TestImportDryRunDoesNotWrite(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
