@@ -143,6 +143,12 @@ func (r *runtime) runSync(args []string) error {
 		SkipMembers: syncSkipsMembers(*skipMembers, defaultLatest),
 		LatestOnly:  syncLatestOnly(*latestOnly, defaultLatest),
 	}
+	return r.withSyncLock(func() error {
+		return r.runSyncLocked(sources, opts)
+	})
+}
+
+func (r *runtime) runSyncLocked(sources syncSources, opts syncer.SyncOptions) error {
 	var apiStats *syncer.SyncStats
 	if sources.discord {
 		shouldClose := r.client == nil
