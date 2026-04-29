@@ -31,7 +31,14 @@ func toMemberRecord(guildID string, member *discordgo.Member) store.MemberRecord
 	}
 }
 
-func toMessageRecord(message *discordgo.Message, channelName, normalizedContent string) store.MessageRecord {
+func effectiveMessageGuildID(message *discordgo.Message, fallbackGuildID string) string {
+	if message != nil && strings.TrimSpace(message.GuildID) != "" {
+		return message.GuildID
+	}
+	return strings.TrimSpace(fallbackGuildID)
+}
+
+func toMessageRecord(message *discordgo.Message, channelName, guildID, normalizedContent string) store.MessageRecord {
 	raw := marshalJSONString(message, "{}")
 	authorID := ""
 	authorName := ""
@@ -52,7 +59,7 @@ func toMessageRecord(message *discordgo.Message, channelName, normalizedContent 
 	}
 	return store.MessageRecord{
 		ID:                message.ID,
-		GuildID:           message.GuildID,
+		GuildID:           guildID,
 		ChannelID:         message.ChannelID,
 		ChannelName:       channelName,
 		AuthorID:          authorID,

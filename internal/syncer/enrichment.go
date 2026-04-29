@@ -27,15 +27,17 @@ func buildMessageMutation(
 	ctx context.Context,
 	message *discordgo.Message,
 	channelName string,
+	fallbackGuildID string,
 	embeddings bool,
 	attachmentText bool,
 ) (store.MessageMutation, error) {
-	attachments, attachmentParts, err := extractAttachments(ctx, message, attachmentText)
+	guildID := effectiveMessageGuildID(message, fallbackGuildID)
+	attachments, attachmentParts, err := extractAttachments(ctx, message, guildID, attachmentText)
 	if err != nil {
 		return store.MessageMutation{}, err
 	}
 	normalized := normalizeMessageParts(message, attachmentParts)
-	record := toMessageRecord(message, channelName, normalized)
+	record := toMessageRecord(message, channelName, guildID, normalized)
 	return store.MessageMutation{
 		Record:      record,
 		EventType:   "upsert",
@@ -44,11 +46,11 @@ func buildMessageMutation(
 			EnqueueEmbedding: embeddings,
 		},
 		Attachments: attachments,
-		Mentions:    extractMentions(message),
+		Mentions:    extractMentions(message, guildID),
 	}, nil
 }
 
-func extractAttachments(ctx context.Context, message *discordgo.Message, attachmentText bool) ([]store.AttachmentRecord, []string, error) {
+func extractAttachments(ctx context.Context, message *discordgo.Message, guildID string, attachmentText bool) ([]store.AttachmentRecord, []string, error) {
 	if message == nil || len(message.Attachments) == 0 {
 		return nil, nil, nil
 	}
@@ -61,7 +63,7 @@ func extractAttachments(ctx context.Context, message *discordgo.Message, attachm
 		record := store.AttachmentRecord{
 			AttachmentID: attachment.ID,
 			MessageID:    message.ID,
-			GuildID:      message.GuildID,
+			GuildID:      guildID,
 			ChannelID:    message.ChannelID,
 			Filename:     attachment.Filename,
 			ContentType:  attachment.ContentType,
@@ -90,7 +92,7 @@ func extractAttachments(ctx context.Context, message *discordgo.Message, attachm
 	return records, parts, nil
 }
 
-func extractMentions(message *discordgo.Message) []store.MentionEventRecord {
+func extractMentions(message *discordgo.Message, guildID string) []store.MentionEventRecord {
 	if message == nil {
 		return nil
 	}
@@ -116,7 +118,7 @@ func extractMentions(message *discordgo.Message) []store.MentionEventRecord {
 		}
 		mentions = append(mentions, store.MentionEventRecord{
 			MessageID:  message.ID,
-			GuildID:    message.GuildID,
+			GuildID:    guildID,
 			ChannelID:  message.ChannelID,
 			AuthorID:   authorID,
 			TargetType: "user",
@@ -137,7 +139,7 @@ func extractMentions(message *discordgo.Message) []store.MentionEventRecord {
 		seen[key] = struct{}{}
 		mentions = append(mentions, store.MentionEventRecord{
 			MessageID:  message.ID,
-			GuildID:    message.GuildID,
+			GuildID:    guildID,
 			ChannelID:  message.ChannelID,
 			AuthorID:   authorID,
 			TargetType: "role",
