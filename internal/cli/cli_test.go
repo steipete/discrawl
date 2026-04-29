@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -681,8 +680,7 @@ func TestSyncLockSerializesConcurrentRuns(t *testing.T) {
 	defer cancel()
 	rt.ctx = waitCtx
 	err = rt.withSyncLock(func() error { return nil })
-	require.Error(t, err)
-	require.True(t, errors.Is(err, context.DeadlineExceeded), err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func seedCLIStore(t *testing.T, path string) *store.Store {
