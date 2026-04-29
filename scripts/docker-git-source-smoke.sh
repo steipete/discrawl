@@ -67,7 +67,7 @@ docker run --rm \
     cd /src
     go install ./cmd/discrawl
     discrawl=/work/bin/discrawl
-    "$discrawl" --version | grep -q "0.6.1"
+    "$discrawl" --version | grep -q "0.6.2"
     "$discrawl" --config /work/config.toml subscribe --repo /work/share --with-embeddings file:///backup > /work/subscribe.out
     grep -q "embeddings=\\[" /work/subscribe.out
     "$discrawl" --config /work/config.toml --plain sql "select provider, model, count(*) as total from message_embeddings group by provider, model" | tee /work/embeddings.out
