@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"testing"
 	"time"
 
@@ -653,6 +655,34 @@ func TestSyncImportsGitShareBeforeLiveDiscord(t *testing.T) {
 	}
 	require.Contains(t, contents, "automatic updates work")
 	require.Contains(t, contents, "live discord filled the delta")
+}
+
+func TestSyncLockSerializesConcurrentRuns(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("sync lock is currently a no-op on Windows")
+	}
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.DBPath = filepath.Join(dir, "discrawl.db")
+	cfgPath := filepath.Join(dir, "config.toml")
+	require.NoError(t, config.Write(cfgPath, cfg))
+
+	rt := &runtime{
+		ctx:        ctx,
+		configPath: cfgPath,
+		cfg:        cfg,
+	}
+	firstRelease, err := acquireSyncLock(ctx, filepath.Join(dir, ".discrawl-sync.lock"))
+	require.NoError(t, err)
+	defer func() { _ = firstRelease() }()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
+	defer cancel()
+	rt.ctx = waitCtx
+	err = rt.withSyncLock(func() error { return nil })
+	require.Error(t, err)
+	require.True(t, errors.Is(err, context.DeadlineExceeded), err)
 }
 
 func seedCLIStore(t *testing.T, path string) *store.Store {
