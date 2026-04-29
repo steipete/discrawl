@@ -63,6 +63,41 @@ func TestExportImportRoundTrip(t *testing.T) {
 	require.Equal(t, manifest.GeneratedAt, imported.GeneratedAt)
 }
 
+func TestImportRepairsBlankMessageGuildIDs(t *testing.T) {
+	ctx := context.Background()
+	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
+	defer func() { _ = src.Close() }()
+	_, err := src.DB().ExecContext(ctx, `update messages set guild_id = '' where id = 'm1'`)
+	require.NoError(t, err)
+	_, err = src.DB().ExecContext(ctx, `update message_events set guild_id = '' where message_id = 'm1'`)
+	require.NoError(t, err)
+	_, err = src.DB().ExecContext(ctx, `update mention_events set guild_id = '' where message_id = 'm1'`)
+	require.NoError(t, err)
+
+	repo := filepath.Join(t.TempDir(), "share")
+	_, err = Export(ctx, src, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+	require.Contains(t, snapshotTableText(t, repo, tableEntry(t, mustReadManifest(t, repo), "messages")), `"guild_id":""`)
+
+	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
+	require.NoError(t, err)
+	defer func() { _ = dst.Close() }()
+	_, err = Import(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	require.NoError(t, err)
+
+	var guildID string
+	require.NoError(t, dst.DB().QueryRowContext(ctx, `select guild_id from messages where id = 'm1'`).Scan(&guildID))
+	require.Equal(t, "g1", guildID)
+	require.NoError(t, dst.DB().QueryRowContext(ctx, `select guild_id from message_events where message_id = 'm1'`).Scan(&guildID))
+	require.Equal(t, "g1", guildID)
+	require.NoError(t, dst.DB().QueryRowContext(ctx, `select guild_id from mention_events where message_id = 'm1'`).Scan(&guildID))
+	require.Equal(t, "g1", guildID)
+	results, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "launch", GuildIDs: []string{"g1"}, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "g1", results[0].GuildID)
+}
+
 func TestSnapshotExcludesLocalEmbeddingState(t *testing.T) {
 	ctx := context.Background()
 	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))
@@ -858,6 +893,13 @@ func configureGitUser(t *testing.T, repo string) {
 	require.NoError(t, exec.Command("git", "-C", repo, "config", "user.name", "discrawl test").Run())
 	// #nosec G204 -- fixed git argv in test setup.
 	require.NoError(t, exec.Command("git", "-C", repo, "config", "user.email", "discrawl@example.com").Run())
+}
+
+func mustReadManifest(t *testing.T, repo string) Manifest {
+	t.Helper()
+	manifest, err := ReadManifest(repo)
+	require.NoError(t, err)
+	return manifest
 }
 
 func tableEntry(t *testing.T, manifest Manifest, name string) TableManifest {

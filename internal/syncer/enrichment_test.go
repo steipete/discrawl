@@ -44,7 +44,7 @@ func TestBuildMessageMutationIncludesAttachmentTextAndMentions(t *testing.T) {
 			GlobalName: "Shadow",
 		}},
 		MentionRoles: []string{"r1"},
-	}, "maintainers", false, true)
+	}, "maintainers", "", false, true)
 	require.NoError(t, err)
 	require.Len(t, mutation.Attachments, 1)
 	require.Equal(t, "trace.txt", mutation.Attachments[0].Filename)
@@ -57,6 +57,30 @@ func TestBuildMessageMutationIncludesAttachmentTextAndMentions(t *testing.T) {
 	require.Equal(t, "Shadow", mutation.Mentions[0].TargetName)
 	require.Equal(t, "role", mutation.Mentions[1].TargetType)
 	require.Equal(t, "r1", mutation.Mentions[1].TargetID)
+}
+
+func TestBuildMessageMutationFallsBackToChannelGuildID(t *testing.T) {
+	now := time.Now().UTC()
+	mutation, err := buildMessageMutation(context.Background(), &discordgo.Message{
+		ID:        "m1",
+		ChannelID: "c1",
+		Content:   "missing guild id from channel history",
+		Timestamp: now,
+		Author:    &discordgo.User{ID: "u1", Username: "peter"},
+		Attachments: []*discordgo.MessageAttachment{{
+			ID:       "a1",
+			Filename: "trace.txt",
+		}},
+		Mentions: []*discordgo.User{{ID: "u2", Username: "shadow"}},
+		MentionRoles: []string{
+			"r1",
+		},
+	}, "maintainers", "g1", false, false)
+	require.NoError(t, err)
+	require.Equal(t, "g1", mutation.Record.GuildID)
+	require.Equal(t, "g1", mutation.Attachments[0].GuildID)
+	require.Equal(t, "g1", mutation.Mentions[0].GuildID)
+	require.Equal(t, "g1", mutation.Mentions[1].GuildID)
 }
 
 func TestShouldFetchAttachmentText(t *testing.T) {
@@ -93,7 +117,7 @@ func TestBuildMessageMutationSkipsBinaryResponseEvenWhenAttachmentLooksTextual(t
 			Filename: "trace.txt",
 			URL:      server.URL,
 		}},
-	}, "maintainers", false, true)
+	}, "maintainers", "", false, true)
 	require.NoError(t, err)
 	require.Len(t, mutation.Attachments, 1)
 	require.Empty(t, mutation.Attachments[0].TextContent)
@@ -127,7 +151,7 @@ func TestBuildMessageMutationSkipsOversizedAttachmentResponses(t *testing.T) {
 			ContentType: "text/plain",
 			URL:         server.URL,
 		}},
-	}, "maintainers", false, true)
+	}, "maintainers", "", false, true)
 	require.NoError(t, err)
 	require.Len(t, mutation.Attachments, 1)
 	require.Empty(t, mutation.Attachments[0].TextContent)
@@ -159,7 +183,7 @@ func TestBuildMessageMutationRespectsAttachmentTextOptOut(t *testing.T) {
 			ContentType: "text/plain",
 			URL:         server.URL,
 		}},
-	}, "maintainers", false, false)
+	}, "maintainers", "", false, false)
 	require.NoError(t, err)
 	require.Len(t, mutation.Attachments, 1)
 	require.Empty(t, mutation.Attachments[0].TextContent)

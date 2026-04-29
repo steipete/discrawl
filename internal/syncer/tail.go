@@ -49,7 +49,7 @@ func (t *tailHandler) OnMessageCreate(ctx context.Context, msg *discordgo.Messag
 	if !t.allowGuild(msg.GuildID) {
 		return nil
 	}
-	mutation, err := buildMessageMutation(ctx, msg, "", false, t.attachmentTextEnabled)
+	mutation, err := buildMessageMutation(ctx, msg, "", "", false, t.attachmentTextEnabled)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (t *tailHandler) OnMessageUpdate(ctx context.Context, msg *discordgo.Messag
 	if !t.allowGuild(msg.GuildID) {
 		return nil
 	}
-	mutation, err := buildMessageMutation(ctx, msg, "", false, t.attachmentTextEnabled)
+	mutation, err := buildMessageMutation(ctx, msg, "", "", false, t.attachmentTextEnabled)
 	if err != nil {
 		return err
 	}

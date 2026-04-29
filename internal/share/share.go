@@ -241,8 +241,8 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		}
 	}()
 	for _, table := range []string{"message_fts", "member_fts"} {
-		if _, err := tx.ExecContext(ctx, "delete from "+table); err != nil {
-			return Manifest{}, fmt.Errorf("clear %s: %w", table, err)
+		if _, err := tx.ExecContext(ctx, "drop table if exists "+table); err != nil {
+			return Manifest{}, fmt.Errorf("drop %s: %w", table, err)
 		}
 	}
 	for i := len(SnapshotTables) - 1; i >= 0; i-- {
@@ -256,6 +256,9 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		if err := importTable(ctx, tx, opts.RepoPath, table); err != nil {
 			return Manifest{}, err
 		}
+	}
+	if err := repairImportedGuildIDs(ctx, tx); err != nil {
+		return Manifest{}, err
 	}
 	if opts.IncludeEmbeddings {
 		if err := importEmbeddings(ctx, tx, opts, manifest.Embeddings); err != nil {
@@ -613,6 +616,67 @@ func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table
 		}
 		if _, err := stmt.ExecContext(ctx, values...); err != nil {
 			return fmt.Errorf("insert %s: %w", table.Name, err)
+		}
+	}
+	return nil
+}
+
+func repairImportedGuildIDs(ctx context.Context, tx *sql.Tx) error {
+	repairs := []struct {
+		table string
+		query string
+	}{
+		{"messages", `
+			update messages
+			set guild_id = (
+				select c.guild_id
+				from channels c
+				where c.id = messages.channel_id
+			)
+			where coalesce(guild_id, '') = ''
+			  and exists (
+				select 1
+				from channels c
+				where c.id = messages.channel_id
+				  and coalesce(c.guild_id, '') != ''
+			  )`},
+		{"message_attachments", `
+			update message_attachments
+			set guild_id = coalesce(
+				nullif((select m.guild_id from messages m where m.id = message_attachments.message_id), ''),
+				(select c.guild_id from channels c where c.id = message_attachments.channel_id)
+			)
+			where coalesce(guild_id, '') = ''
+			  and coalesce(
+				nullif((select m.guild_id from messages m where m.id = message_attachments.message_id), ''),
+				(select c.guild_id from channels c where c.id = message_attachments.channel_id)
+			  ) is not null`},
+		{"message_events", `
+			update message_events
+			set guild_id = coalesce(
+				nullif((select m.guild_id from messages m where m.id = message_events.message_id), ''),
+				(select c.guild_id from channels c where c.id = message_events.channel_id)
+			)
+			where coalesce(guild_id, '') = ''
+			  and coalesce(
+				nullif((select m.guild_id from messages m where m.id = message_events.message_id), ''),
+				(select c.guild_id from channels c where c.id = message_events.channel_id)
+			  ) is not null`},
+		{"mention_events", `
+			update mention_events
+			set guild_id = coalesce(
+				nullif((select m.guild_id from messages m where m.id = mention_events.message_id), ''),
+				(select c.guild_id from channels c where c.id = mention_events.channel_id)
+			)
+			where coalesce(guild_id, '') = ''
+			  and coalesce(
+				nullif((select m.guild_id from messages m where m.id = mention_events.message_id), ''),
+				(select c.guild_id from channels c where c.id = mention_events.channel_id)
+			  ) is not null`},
+	}
+	for _, repair := range repairs {
+		if _, err := tx.ExecContext(ctx, repair.query); err != nil {
+			return fmt.Errorf("repair imported %s guild ids: %w", repair.table, err)
 		}
 	}
 	return nil

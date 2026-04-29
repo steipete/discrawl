@@ -298,7 +298,7 @@ func (s *Syncer) syncFullChannelHistory(ctx context.Context, channel *discordgo.
 	messageCount := 0
 	newest := state.Latest
 	if state.Latest != "" {
-		count, latest, err := s.syncForwardPages(ctx, channel, state.Latest, channel.Name, embeddings, progress)
+		count, latest, err := s.syncForwardPages(ctx, channel, state.Latest, embeddings, progress)
 		messageCount += count
 		if err != nil {
 			return messageCount, err
@@ -332,7 +332,7 @@ func (s *Syncer) syncIncrementalChannelHistory(ctx context.Context, channel *dis
 	if state.Latest == "" {
 		return s.bootstrapChannelHistory(ctx, channel, embeddings, since, progress)
 	}
-	count, newest, err := s.syncForwardPages(ctx, channel, state.Latest, channel.Name, embeddings, progress)
+	count, newest, err := s.syncForwardPages(ctx, channel, state.Latest, embeddings, progress)
 	if err != nil {
 		return count, err
 	}
@@ -358,7 +358,7 @@ func (s *Syncer) bootstrapChannelHistory(ctx context.Context, channel *discordgo
 			break
 		}
 		eligible, reachedSince := filterMessagesSince(page, since)
-		pageNewest, err := s.persistMessagePage(ctx, eligible, channel.Name, embeddings)
+		pageNewest, err := s.persistMessagePage(ctx, eligible, channel.Name, channel.GuildID, embeddings)
 		if err != nil {
 			return messageCount, err
 		}
@@ -392,7 +392,7 @@ func (s *Syncer) bootstrapChannelHistory(ctx context.Context, channel *discordgo
 	return messageCount, nil
 }
 
-func (s *Syncer) syncForwardPages(ctx context.Context, channel *discordgo.Channel, after, channelName string, embeddings bool, progress *messageSyncProgress) (int, string, error) {
+func (s *Syncer) syncForwardPages(ctx context.Context, channel *discordgo.Channel, after string, embeddings bool, progress *messageSyncProgress) (int, string, error) {
 	messageCount := 0
 	newest := after
 	for {
@@ -403,7 +403,7 @@ func (s *Syncer) syncForwardPages(ctx context.Context, channel *discordgo.Channe
 		if len(page) == 0 {
 			break
 		}
-		pageNewest, err := s.persistMessagePage(ctx, page, channelName, embeddings)
+		pageNewest, err := s.persistMessagePage(ctx, page, channel.Name, channel.GuildID, embeddings)
 		if err != nil {
 			return messageCount, newest, err
 		}
@@ -436,7 +436,7 @@ func (s *Syncer) syncBackfillPages(ctx context.Context, channel *discordgo.Chann
 			break
 		}
 		eligible, reachedSince := filterMessagesSince(page, since)
-		pageNewest, err := s.persistMessagePage(ctx, eligible, channelName, embeddings)
+		pageNewest, err := s.persistMessagePage(ctx, eligible, channelName, channel.GuildID, embeddings)
 		if err != nil {
 			return messageCount, newest, err
 		}
@@ -471,11 +471,11 @@ func (s *Syncer) syncBackfillPages(ctx context.Context, channel *discordgo.Chann
 	return messageCount, newest, nil
 }
 
-func (s *Syncer) persistMessagePage(ctx context.Context, messages []*discordgo.Message, channelName string, embeddings bool) (string, error) {
+func (s *Syncer) persistMessagePage(ctx context.Context, messages []*discordgo.Message, channelName string, fallbackGuildID string, embeddings bool) (string, error) {
 	if len(messages) == 0 {
 		return "", nil
 	}
-	mutations, newest, err := buildMessageMutations(ctx, messages, channelName, embeddings, s.attachmentTextEnabled)
+	mutations, newest, err := buildMessageMutations(ctx, messages, channelName, fallbackGuildID, embeddings, s.attachmentTextEnabled)
 	if err != nil {
 		return "", err
 	}
@@ -485,11 +485,11 @@ func (s *Syncer) persistMessagePage(ctx context.Context, messages []*discordgo.M
 	return newest, nil
 }
 
-func buildMessageMutations(ctx context.Context, messages []*discordgo.Message, channelName string, embeddings bool, attachmentText bool) ([]store.MessageMutation, string, error) {
+func buildMessageMutations(ctx context.Context, messages []*discordgo.Message, channelName string, fallbackGuildID string, embeddings bool, attachmentText bool) ([]store.MessageMutation, string, error) {
 	mutations := make([]store.MessageMutation, 0, len(messages))
 	newest := ""
 	for _, message := range messages {
-		mutation, err := buildMessageMutation(ctx, message, channelName, embeddings, attachmentText)
+		mutation, err := buildMessageMutation(ctx, message, channelName, fallbackGuildID, embeddings, attachmentText)
 		if err != nil {
 			return nil, "", err
 		}
