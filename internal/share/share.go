@@ -12,12 +12,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/steipete/discrawl/internal/store"
+	"github.com/vincentkoc/crawlkit/gitshare"
+	"github.com/vincentkoc/crawlkit/pack"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
 	directMessageGuildID        = "@me"
 )
 
-var ErrNoManifest = errors.New("share manifest not found")
+var ErrNoManifest = pack.ErrNoManifest
 
 const shardFlushRows = 1024
 
@@ -73,13 +74,7 @@ type Manifest struct {
 	Files       map[string]string   `json:"files,omitempty"`
 }
 
-type TableManifest struct {
-	Name    string   `json:"name"`
-	File    string   `json:"file,omitempty"`
-	Files   []string `json:"files,omitempty"`
-	Columns []string `json:"columns"`
-	Rows    int      `json:"rows"`
-}
+type TableManifest = pack.TableManifest
 
 type EmbeddingManifest struct {
 	Provider     string   `json:"provider"`
@@ -94,120 +89,52 @@ func EnsureRepo(ctx context.Context, opts Options) error {
 	if strings.TrimSpace(opts.RepoPath) == "" {
 		return errors.New("share repo path is empty")
 	}
-	if _, err := os.Stat(filepath.Join(opts.RepoPath, ".git")); err == nil {
-		return nil
-	}
-	if strings.TrimSpace(opts.Remote) != "" {
-		if err := os.MkdirAll(filepath.Dir(opts.RepoPath), 0o755); err != nil {
-			return fmt.Errorf("mkdir share parent: %w", err)
-		}
-		if err := run(ctx, "", "git", "clone", opts.Remote, opts.RepoPath); err != nil {
-			return err
-		}
-		if strings.TrimSpace(opts.Branch) != "" {
-			if err := run(ctx, opts.RepoPath, "git", "checkout", "-B", opts.Branch); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := os.MkdirAll(opts.RepoPath, 0o755); err != nil {
-		return fmt.Errorf("mkdir share repo: %w", err)
-	}
-	if err := run(ctx, opts.RepoPath, "git", "init"); err != nil {
-		return err
-	}
-	if strings.TrimSpace(opts.Branch) != "" {
-		if err := run(ctx, opts.RepoPath, "git", "checkout", "-B", opts.Branch); err != nil {
-			return err
-		}
-	}
-	return nil
+	return gitshare.EnsureRepo(ctx, gitshareOptions(opts))
 }
 
 func Pull(ctx context.Context, opts Options) error {
-	if strings.TrimSpace(opts.Remote) == "" {
+	if strings.TrimSpace(opts.Remote) == "" && strings.TrimSpace(opts.RepoPath) == "" {
 		return nil
 	}
-	if err := EnsureRepo(ctx, opts); err != nil {
-		return err
-	}
-	if err := run(ctx, opts.RepoPath, "git", "fetch", "--prune", "origin"); err != nil {
-		return err
-	}
-	branch := opts.Branch
-	if strings.TrimSpace(branch) == "" {
-		branch = "main"
-	}
-	remoteRef := "refs/remotes/origin/" + branch
-	if _, err := output(ctx, opts.RepoPath, "git", "rev-parse", "--verify", remoteRef); err != nil {
-		return run(ctx, opts.RepoPath, "git", "checkout", "-B", branch)
-	}
-	if err := run(ctx, opts.RepoPath, "git", "checkout", "-B", branch, "origin/"+branch); err != nil {
-		return err
-	}
-	return run(ctx, opts.RepoPath, "git", "pull", "--ff-only", "origin", branch)
+	return gitshare.Pull(ctx, gitshareOptions(opts))
 }
 
 func Commit(ctx context.Context, opts Options, message string) (bool, error) {
-	if err := run(ctx, opts.RepoPath, "git", "add", "."); err != nil {
-		return false, err
-	}
-	out, err := output(ctx, opts.RepoPath, "git", "status", "--porcelain")
-	if err != nil {
-		return false, err
-	}
-	if strings.TrimSpace(out) == "" {
-		return false, nil
-	}
-	if strings.TrimSpace(message) == "" {
-		message = "sync: discord archive"
-	}
-	if err := run(ctx, opts.RepoPath, "git", "commit", "-m", message); err != nil {
-		return false, err
-	}
-	return true, nil
+	return gitshare.Commit(ctx, gitshareOptions(opts), message)
 }
 
 func Push(ctx context.Context, opts Options) error {
-	branch := opts.Branch
-	if strings.TrimSpace(branch) == "" {
-		branch = "main"
+	if err := gitshare.Push(ctx, gitshareOptions(opts)); err != nil {
+		branch := opts.Branch
+		if strings.TrimSpace(branch) == "" {
+			branch = "main"
+		}
+		return fmt.Errorf("git push -u origin %s: %w", branch, err)
 	}
-	out, err := output(ctx, opts.RepoPath, "git", "push", "-u", "origin", branch)
-	if err == nil {
-		return nil
-	}
-	if !isNonFastForwardPush(out) {
-		return fmt.Errorf("git push -u origin %s: %w\n%s", branch, err, strings.TrimSpace(out))
-	}
-	if pullErr := run(ctx, opts.RepoPath, "git", "pull", "--rebase", "--autostash", "origin", branch); pullErr != nil {
-		return fmt.Errorf("rebase before push retry: %w", pullErr)
-	}
-	return run(ctx, opts.RepoPath, "git", "push", "-u", "origin", branch)
+	return nil
 }
 
 func Export(ctx context.Context, s *store.Store, opts Options) (Manifest, error) {
 	if err := EnsureRepo(ctx, opts); err != nil {
 		return Manifest{}, err
 	}
-	if err := os.RemoveAll(filepath.Join(opts.RepoPath, "tables")); err != nil {
-		return Manifest{}, fmt.Errorf("reset tables dir: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Join(opts.RepoPath, "tables"), 0o755); err != nil {
-		return Manifest{}, fmt.Errorf("mkdir tables dir: %w", err)
+	base, err := pack.Export(ctx, pack.ExportOptions{
+		DB:            s.DB(),
+		RootDir:       opts.RepoPath,
+		Tables:        SnapshotTables,
+		MaxShardBytes: maxShardBytes,
+		Filter: func(table string, row map[string]any) (bool, error) {
+			return !isDirectMessageSnapshotRow(table, row), nil
+		},
+	})
+	if err != nil {
+		return Manifest{}, err
 	}
 	manifest := Manifest{
-		Version:     1,
-		GeneratedAt: time.Now().UTC(),
-		Files:       map[string]string{"manifest": ManifestName},
-	}
-	for _, table := range SnapshotTables {
-		entry, err := exportTable(ctx, s.DB(), opts.RepoPath, table)
-		if err != nil {
-			return Manifest{}, err
-		}
-		manifest.Tables = append(manifest.Tables, entry)
+		Version:     base.Version,
+		GeneratedAt: base.GeneratedAt,
+		Tables:      base.Tables,
+		Files:       base.Files,
 	}
 	if opts.IncludeEmbeddings {
 		entry, err := exportEmbeddings(ctx, s.DB(), opts)
@@ -243,53 +170,37 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 			_ = restorePragmas(ctx)
 		}
 	}()
-	tx, err := s.DB().BeginTx(ctx, nil)
-	if err != nil {
+	if _, err := pack.Import(ctx, pack.ImportOptions{
+		DB:           s.DB(),
+		RootDir:      opts.RepoPath,
+		DeleteTables: SnapshotTables,
+		BeforeImport: func(ctx context.Context, tx *sql.Tx) error {
+			for _, table := range []string{"message_fts", "member_fts"} {
+				if _, err := tx.ExecContext(ctx, "drop table if exists "+table); err != nil {
+					return fmt.Errorf("drop %s: %w", table, err)
+				}
+			}
+			return nil
+		},
+		DeleteTable: func(ctx context.Context, tx *sql.Tx, table string) error {
+			query, args := snapshotDeleteQuery(table)
+			if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+				return fmt.Errorf("clear %s: %w", table, err)
+			}
+			return nil
+		},
+		AfterImport: func(ctx context.Context, tx *sql.Tx) error {
+			if err := repairImportedGuildIDs(ctx, tx); err != nil {
+				return err
+			}
+			if opts.IncludeEmbeddings {
+				return importEmbeddings(ctx, tx, opts, manifest.Embeddings)
+			}
+			return nil
+		},
+	}); err != nil {
 		return Manifest{}, err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-	for _, table := range []string{"message_fts", "member_fts"} {
-		opts.reportProgress(ImportProgress{Phase: "drop_fts", Table: table})
-		if _, err := tx.ExecContext(ctx, "drop table if exists "+table); err != nil {
-			return Manifest{}, fmt.Errorf("drop %s: %w", table, err)
-		}
-	}
-	for _, table := range slices.Backward(SnapshotTables) {
-		opts.reportProgress(ImportProgress{Phase: "clear", Table: table})
-		query, args := snapshotDeleteQuery(table)
-		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-			return Manifest{}, fmt.Errorf("clear %s: %w", table, err)
-		}
-	}
-	for _, table := range manifest.Tables {
-		if err := ctx.Err(); err != nil {
-			return Manifest{}, err
-		}
-		opts.reportProgress(ImportProgress{Phase: "table_start", Table: table.Name, TotalRows: table.Rows})
-		if err := importTable(ctx, tx, opts, table); err != nil {
-			return Manifest{}, err
-		}
-		opts.reportProgress(ImportProgress{Phase: "table_done", Table: table.Name, TotalRows: table.Rows})
-	}
-	opts.reportProgress(ImportProgress{Phase: "repair"})
-	if err := repairImportedGuildIDs(ctx, tx); err != nil {
-		return Manifest{}, err
-	}
-	if opts.IncludeEmbeddings {
-		if err := importEmbeddings(ctx, tx, opts, manifest.Embeddings); err != nil {
-			return Manifest{}, err
-		}
-	}
-	opts.reportProgress(ImportProgress{Phase: "commit"})
-	if err := tx.Commit(); err != nil {
-		return Manifest{}, err
-	}
-	committed = true
 	opts.reportProgress(ImportProgress{Phase: "rebuild_fts"})
 	if err := s.RebuildSearchIndexes(ctx); err != nil {
 		return Manifest{}, err
@@ -434,6 +345,10 @@ func ReadManifest(repoPath string) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("unsupported share manifest version %d", manifest.Version)
 	}
 	return manifest, nil
+}
+
+func gitshareOptions(opts Options) gitshare.Options {
+	return gitshare.Options{RepoPath: opts.RepoPath, Remote: opts.Remote, Branch: opts.Branch}
 }
 
 func NeedsImport(ctx context.Context, s *store.Store, staleAfter time.Duration) bool {
