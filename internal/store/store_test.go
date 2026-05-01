@@ -1662,3 +1662,126 @@ func TestListMessagesFiltersAndLimit(t *testing.T) {
 	require.Equal(t, "m2", rows[0].MessageID)
 	require.Equal(t, "m4", rows[1].MessageID)
 }
+
+func TestNormalizeFTSQueryEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "empty", raw: "", want: ""},
+		{name: "whitespace-only", raw: " \t \n ", want: ""},
+		{name: "single-word", raw: "needle", want: `"needle"`},
+		{name: "multi-word", raw: "needle haystack", want: `"needle" "haystack"`},
+		{name: "operators-as-terms", raw: "AND OR NOT NEAR", want: `"AND" "OR" "NOT" "NEAR"`},
+		{name: "embedded-double-quote", raw: `say"hi`, want: `"say hi"`},
+		{name: "asterisk-quoted", raw: "panic*", want: `"panic*"`},
+		{name: "mixed-punctuation", raw: "alpha,(beta):gamma", want: `"alpha,(beta):gamma"`},
+		{name: "unicode", raw: "café 東京", want: `"café" "東京"`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, normalizeFTSQuery(tc.raw))
+		})
+	}
+}
+
+func TestSearchMessagesTreatsFTSSyntaxAsTerms(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "general", RawJSON: `{}`}))
+
+	for _, record := range []MessageRecord{
+		{
+			ID:                "and-exact",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u1",
+			AuthorName:        "Peter",
+			CreatedAt:         "2026-04-25T12:00:00Z",
+			Content:           "AND",
+			NormalizedContent: "AND",
+			RawJSON:           `{"author":{"username":"Peter"}}`,
+		},
+		{
+			ID:                "and-lower",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u2",
+			AuthorName:        "Other",
+			CreatedAt:         "2026-04-25T12:01:00Z",
+			Content:           "alpha and beta",
+			NormalizedContent: "alpha and beta",
+			RawJSON:           `{"author":{"username":"Other"}}`,
+		},
+		{
+			ID:                "and-absent",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u3",
+			AuthorName:        "Another",
+			CreatedAt:         "2026-04-25T12:02:00Z",
+			Content:           "alpha beta",
+			NormalizedContent: "alpha beta",
+			RawJSON:           `{"author":{"username":"Another"}}`,
+		},
+		{
+			ID:                "panic-token",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u4",
+			AuthorName:        "Ops",
+			CreatedAt:         "2026-04-25T12:03:00Z",
+			Content:           "panic",
+			NormalizedContent: "panic",
+			RawJSON:           `{"author":{"username":"Ops"}}`,
+		},
+		{
+			ID:                "panic-prefix",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u5",
+			AuthorName:        "Ops",
+			CreatedAt:         "2026-04-25T12:04:00Z",
+			Content:           "panicked",
+			NormalizedContent: "panicked",
+			RawJSON:           `{"author":{"username":"Ops"}}`,
+		},
+		{
+			ID:                "panic-star",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			ChannelName:       "general",
+			AuthorID:          "u6",
+			AuthorName:        "Ops",
+			CreatedAt:         "2026-04-25T12:05:00Z",
+			Content:           "panic*",
+			NormalizedContent: "panic*",
+			RawJSON:           `{"author":{"username":"Ops"}}`,
+		},
+	} {
+		require.NoError(t, s.UpsertMessage(ctx, record))
+	}
+
+	results, err := s.SearchMessages(ctx, SearchOptions{Query: "AND", Limit: 10})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"and-exact", "and-lower"}, searchResultIDs(results))
+
+	results, err = s.SearchMessages(ctx, SearchOptions{Query: "panic*", Limit: 10})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"panic-token", "panic-star"}, searchResultIDs(results))
+}

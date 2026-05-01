@@ -2,6 +2,12 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
+## Unreleased
+
+### Fixes
+
+- Documented and covered FTS query normalization so operator-like search terms stay parameterized and quoted before SQLite `MATCH`. Thanks @mvanhorn.
+
 ## 0.6.2 - 2026-05-01
 
 ### Changes

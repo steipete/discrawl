@@ -56,6 +56,7 @@ func (s *Store) rebuildMemberFTS(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, `drop table if exists member_fts`); err != nil {
 		return fmt.Errorf("drop member_fts: %w", err)
 	}
+	// Uses SQLite FTS5's default unicode61 tokenizer; normalizeFTSQuery quotes user terms before MATCH.
 	if _, err := tx.ExecContext(ctx, `
 		create virtual table member_fts using fts5(
 			member_key unindexed,
