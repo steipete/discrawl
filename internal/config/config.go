@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
+	"github.com/vincentkoc/crawlkit/configkit"
 )
 
 const (
@@ -85,14 +85,25 @@ type TokenResolution struct {
 	Path   string
 }
 
+var appConfig = configkit.App{Name: "discrawl", ConfigEnv: DefaultConfigEnv, BaseDir: "~/.discrawl", LegacyBaseDir: "~/.discrawl"}
+
 func Default() Config {
 	home, _ := os.UserHomeDir()
-	base := filepath.Join(home, ".discrawl")
+	paths, err := appConfig.DefaultPaths()
+	if err != nil {
+		base := filepath.Join(home, ".discrawl")
+		paths = configkit.Paths{
+			DBPath:   filepath.Join(base, "discrawl.db"),
+			CacheDir: filepath.Join(base, "cache"),
+			LogDir:   filepath.Join(base, "logs"),
+			ShareDir: filepath.Join(base, "share"),
+		}
+	}
 	return Config{
 		Version:        1,
-		DBPath:         filepath.Join(base, "discrawl.db"),
-		CacheDir:       filepath.Join(base, "cache"),
-		LogDir:         filepath.Join(base, "logs"),
+		DBPath:         paths.DBPath,
+		CacheDir:       paths.CacheDir,
+		LogDir:         paths.LogDir,
 		DefaultGuildID: "",
 		Discord: DiscordConfig{
 			TokenSource:         "env",
@@ -124,7 +135,7 @@ func Default() Config {
 			},
 		},
 		Share: ShareConfig{
-			RepoPath:   filepath.Join(base, "share"),
+			RepoPath:   paths.ShareDir,
 			Branch:     "main",
 			AutoUpdate: true,
 			StaleAfter: "15m",
@@ -145,14 +156,12 @@ func defaultSyncConcurrency() int {
 }
 
 func ResolvePath(flagPath string) string {
-	if strings.TrimSpace(flagPath) != "" {
-		return flagPath
+	path, err := appConfig.ResolveConfigPath(flagPath)
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".discrawl", "config.toml")
 	}
-	if envPath := strings.TrimSpace(os.Getenv(DefaultConfigEnv)); envPath != "" {
-		return envPath
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".discrawl", "config.toml")
+	return path
 }
 
 func Load(path string) (Config, error) {
@@ -161,12 +170,8 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	data, err := os.ReadFile(expanded)
-	if err != nil {
+	if err := configkit.LoadTOML(expanded, &cfg); err != nil {
 		return Config{}, err
-	}
-	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
 	if err := cfg.Normalize(); err != nil {
 		return Config{}, err
@@ -182,14 +187,7 @@ func Write(path string, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(expanded), 0o755); err != nil {
-		return fmt.Errorf("mkdir config dir: %w", err)
-	}
-	data, err := toml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
-	}
-	return os.WriteFile(expanded, data, 0o600)
+	return configkit.WriteTOML(expanded, cfg, 0o600)
 }
 
 func (c *Config) Normalize() error {
@@ -343,35 +341,18 @@ func (c Config) ShareEnabled() bool {
 }
 
 func EnsureRuntimeDirs(cfg Config) error {
-	paths := []string{cfg.CacheDir, cfg.LogDir, filepath.Dir(cfg.DBPath)}
-	for _, path := range paths {
-		expanded, err := ExpandPath(path)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(expanded, 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", expanded, err)
-		}
-	}
-	return nil
+	return configkit.EnsureRuntimeDirs(configkit.RuntimeConfig{
+		DBPath:   cfg.DBPath,
+		CacheDir: cfg.CacheDir,
+		LogDir:   cfg.LogDir,
+	})
 }
 
 func ExpandPath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("empty path")
 	}
-	if strings.HasPrefix(path, "~/") || path == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("home dir: %w", err)
-		}
-		if path == "~" {
-			path = home
-		} else {
-			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
-		}
-	}
-	return filepath.Clean(os.ExpandEnv(path)), nil
+	return filepath.Clean(os.ExpandEnv(configkit.ExpandHome(path))), nil
 }
 
 func uniqueStrings(in []string) []string {
