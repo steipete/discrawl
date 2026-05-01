@@ -9,6 +9,9 @@ import (
 )
 
 func (r *runtime) withSyncLock(fn func() error) error {
+	if r.dbLockHeld {
+		return fn()
+	}
 	lockPath, err := r.syncLockPath()
 	if err != nil {
 		return err
@@ -17,7 +20,11 @@ func (r *runtime) withSyncLock(fn func() error) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = release() }()
+	r.dbLockHeld = true
+	defer func() {
+		r.dbLockHeld = false
+		_ = release()
+	}()
 	return fn()
 }
 

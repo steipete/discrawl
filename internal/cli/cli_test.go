@@ -681,6 +681,12 @@ func TestSyncLockSerializesConcurrentRuns(t *testing.T) {
 	rt.ctx = waitCtx
 	err = rt.withSyncLock(func() error { return nil })
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	waitCtx, cancel = context.WithTimeout(ctx, 25*time.Millisecond)
+	defer cancel()
+	rt.ctx = waitCtx
+	err = rt.dispatch([]string{"update"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func seedCLIStore(t *testing.T, path string) *store.Store {

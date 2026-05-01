@@ -63,6 +63,24 @@ func TestExportImportRoundTrip(t *testing.T) {
 	require.Equal(t, manifest.GeneratedAt, imported.GeneratedAt)
 }
 
+func TestApplyImportPragmasKeepCrashRecoveryEnabled(t *testing.T) {
+	ctx := context.Background()
+	s := seedStore(t, filepath.Join(t.TempDir(), "dst.db"))
+	defer func() { _ = s.Close() }()
+
+	restore, err := applyImportPragmas(ctx, s.DB())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, restore(ctx)) }()
+
+	var journalMode string
+	require.NoError(t, s.DB().QueryRowContext(ctx, `pragma journal_mode`).Scan(&journalMode))
+	require.NotEqual(t, "off", strings.ToLower(journalMode))
+
+	var synchronous int
+	require.NoError(t, s.DB().QueryRowContext(ctx, `pragma synchronous`).Scan(&synchronous))
+	require.NotZero(t, synchronous)
+}
+
 func TestImportRepairsBlankMessageGuildIDs(t *testing.T) {
 	ctx := context.Background()
 	src := seedStore(t, filepath.Join(t.TempDir(), "src.db"))

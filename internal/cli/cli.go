@@ -94,6 +94,7 @@ type runtime struct {
 	store      *store.Store
 	client     discordClient
 	syncer     syncService
+	dbLockHeld bool
 	openStore  func(context.Context, string) (*store.Store, error)
 	newDiscord func(config.Config) (discordClient, error)
 	newSyncer  func(syncer.Client, *store.Store, *slog.Logger) syncService
@@ -123,42 +124,42 @@ func (r *runtime) dispatch(rest []string) error {
 	case "init":
 		return r.runInit(rest[1:])
 	case "sync":
-		return r.withLocalStoreDefault(true, func() error { return r.runSync(rest[1:]) })
+		return r.withLocalStoreLocked(true, func() error { return r.runSync(rest[1:]) })
 	case "tail":
-		return r.withServices(true, func() error { return r.runTail(rest[1:]) })
+		return r.withServicesLocked(true, func() error { return r.runTail(rest[1:]) })
 	case "wiretap":
-		return r.withLocalStoreDefault(false, func() error { return r.runWiretap(rest[1:]) })
+		return r.withLocalStoreLocked(false, func() error { return r.runWiretap(rest[1:]) })
 	case "search":
 		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
-		return r.withLocalStoreDefault(autoShareUpdate, func() error { return r.runSearch(rest[1:]) })
+		return r.withLocalStoreDefaultLocked(autoShareUpdate, autoShareUpdate, func() error { return r.runSearch(rest[1:]) })
 	case "messages":
 		if hasBoolFlag(rest[1:], "--sync") && !hasBoolFlag(rest[1:], "--dm") {
-			return r.withServicesAuto(true, true, func() error { return r.runMessages(rest[1:]) })
+			return r.withServicesAutoLocked(true, true, true, func() error { return r.runMessages(rest[1:]) })
 		}
 		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
-		return r.withLocalStoreDefault(autoShareUpdate, func() error { return r.runMessages(rest[1:]) })
+		return r.withLocalStoreDefaultLocked(autoShareUpdate, autoShareUpdate, func() error { return r.runMessages(rest[1:]) })
 	case "dms":
 		return r.withLocalStoreDefault(false, func() error { return r.runDirectMessages(rest[1:]) })
 	case "mentions":
-		return r.withLocalStoreDefault(true, func() error { return r.runMentions(rest[1:]) })
+		return r.withLocalStoreLocked(true, func() error { return r.runMentions(rest[1:]) })
 	case "embed":
-		return r.withLocalStoreDefault(true, func() error { return r.runEmbed(rest[1:]) })
+		return r.withLocalStoreLocked(true, func() error { return r.runEmbed(rest[1:]) })
 	case "sql":
-		return r.withLocalStoreDefault(true, func() error { return r.runSQL(rest[1:]) })
+		return r.withLocalStoreLocked(true, func() error { return r.runSQL(rest[1:]) })
 	case "members":
-		return r.withLocalStoreDefault(true, func() error { return r.runMembers(rest[1:]) })
+		return r.withLocalStoreLocked(true, func() error { return r.runMembers(rest[1:]) })
 	case "channels":
-		return r.withLocalStoreDefault(true, func() error { return r.runChannels(rest[1:]) })
+		return r.withLocalStoreLocked(true, func() error { return r.runChannels(rest[1:]) })
 	case "status":
-		return r.withLocalStoreDefault(true, func() error { return r.runStatus(rest[1:]) })
+		return r.withLocalStoreLocked(true, func() error { return r.runStatus(rest[1:]) })
 	case "report":
-		return r.withLocalStoreDefault(true, func() error { return r.runReport(rest[1:]) })
+		return r.withLocalStoreLocked(true, func() error { return r.runReport(rest[1:]) })
 	case "publish":
-		return r.withServicesAuto(false, false, func() error { return r.runPublish(rest[1:]) })
+		return r.withServicesAutoLocked(false, false, true, func() error { return r.runPublish(rest[1:]) })
 	case "subscribe":
 		return r.runSubscribe(rest[1:])
 	case "update":
-		return r.withServicesAuto(false, false, func() error { return r.runUpdate(rest[1:]) })
+		return r.withServicesAutoLocked(false, false, true, func() error { return r.runUpdate(rest[1:]) })
 	case "doctor":
 		return r.runDoctor(rest[1:])
 	default:
@@ -170,7 +171,19 @@ func (r *runtime) withServices(withDiscord bool, fn func() error) error {
 	return r.withServicesAuto(withDiscord, !withDiscord, fn)
 }
 
+func (r *runtime) withServicesLocked(withDiscord bool, fn func() error) error {
+	return r.withServicesAutoLocked(withDiscord, !withDiscord, true, fn)
+}
+
+func (r *runtime) withLocalStoreLocked(autoShareUpdate bool, fn func() error) error {
+	return r.withLocalStoreDefaultLocked(autoShareUpdate, true, fn)
+}
+
 func (r *runtime) withLocalStoreDefault(autoShareUpdate bool, fn func() error) error {
+	return r.withLocalStoreDefaultLocked(autoShareUpdate, false, fn)
+}
+
+func (r *runtime) withLocalStoreDefaultLocked(autoShareUpdate, lockDB bool, fn func() error) error {
 	cfg, err := config.Load(r.configPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -189,10 +202,20 @@ func (r *runtime) withLocalStoreDefault(autoShareUpdate bool, fn func() error) e
 		return configErr(err)
 	}
 	r.cfg = cfg
+	if lockDB {
+		return r.withSyncLock(func() error {
+			return r.openLocalStore(dbPath, autoShareUpdate, fn)
+		})
+	}
+	return r.openLocalStore(dbPath, autoShareUpdate, fn)
+}
+
+func (r *runtime) openLocalStore(dbPath string, autoShareUpdate bool, fn func() error) error {
 	storeFactory := r.openStore
 	if storeFactory == nil {
 		storeFactory = store.Open
 	}
+	var err error
 	r.store, err = storeFactory(r.ctx, dbPath)
 	if err != nil {
 		return dbErr(err)
@@ -207,6 +230,10 @@ func (r *runtime) withLocalStoreDefault(autoShareUpdate bool, fn func() error) e
 }
 
 func (r *runtime) withServicesAuto(withDiscord, autoShareUpdate bool, fn func() error) error {
+	return r.withServicesAutoLocked(withDiscord, autoShareUpdate, false, fn)
+}
+
+func (r *runtime) withServicesAutoLocked(withDiscord, autoShareUpdate, lockDB bool, fn func() error) error {
 	cfg, err := config.Load(r.configPath)
 	if err != nil {
 		return configErr(err)
@@ -219,10 +246,20 @@ func (r *runtime) withServicesAuto(withDiscord, autoShareUpdate bool, fn func() 
 		return configErr(err)
 	}
 	r.cfg = cfg
+	if lockDB {
+		return r.withSyncLock(func() error {
+			return r.openServices(dbPath, withDiscord, autoShareUpdate, fn)
+		})
+	}
+	return r.openServices(dbPath, withDiscord, autoShareUpdate, fn)
+}
+
+func (r *runtime) openServices(dbPath string, withDiscord, autoShareUpdate bool, fn func() error) error {
 	storeFactory := r.openStore
 	if storeFactory == nil {
 		storeFactory = store.Open
 	}
+	var err error
 	r.store, err = storeFactory(r.ctx, dbPath)
 	if err != nil {
 		return dbErr(err)

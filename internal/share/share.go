@@ -283,13 +283,14 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 }
 
 func applyImportPragmas(ctx context.Context, db *sql.DB) (func(context.Context) error, error) {
-	// Snapshot imports replace derived local state; disabling the write journal
-	// avoids preserving a multi-GB cache that can be recreated from Git.
+	// Snapshot imports touch most of the archive. Keep SQLite's crash recovery
+	// enabled; journal_mode=off can leave the live DB malformed if the process
+	// or host dies mid-import.
 	for _, stmt := range []string{
 		`pragma temp_store = memory`,
 		`pragma cache_size = -262144`,
-		`pragma synchronous = off`,
-		`pragma journal_mode = off`,
+		`pragma journal_mode = wal`,
+		`pragma synchronous = normal`,
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return nil, fmt.Errorf("apply import pragma %q: %w", stmt, err)

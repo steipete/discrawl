@@ -7,6 +7,7 @@ All notable changes to `discrawl` will be documented in this file.
 ### Fixes
 
 - `discrawl sync` now serializes concurrent runs with a local lock, preventing two refreshes from writing the archive at the same time.
+- Git snapshot imports now keep SQLite crash recovery enabled and share the same archive lock as sync, update, tail, wiretap, embed, and auto-update reads so interrupted imports are less likely to corrupt the live database.
 - Git snapshot imports now recover from corrupt local FTS tables by dropping and rebuilding search indexes, and repair missing guild IDs from channel metadata so shared archive reports stay fresh.
 - Channel-history sync now falls back to the channel guild when Discord omits `message.guild_id`, keeping messages, attachments, mentions, and FTS rows correctly scoped.
 

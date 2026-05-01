@@ -125,34 +125,37 @@ func (r *runtime) runSubscribe(args []string) error {
 	if err != nil {
 		return configErr(err)
 	}
-	s, err := store.Open(r.ctx, dbPath)
-	if err != nil {
-		return dbErr(err)
-	}
-	defer func() { _ = s.Close() }()
-	expandedRepo, err := config.ExpandPath(cfg.Share.RepoPath)
-	if err != nil {
-		return configErr(err)
-	}
-	opts := share.Options{RepoPath: expandedRepo, Remote: cfg.Share.Remote, Branch: cfg.Share.Branch}
-	if *withEmbeddings {
-		applyEmbeddingShareOptions(&opts, cfg)
-	}
-	if err := share.Pull(r.ctx, opts); err != nil {
-		return err
-	}
-	manifest, imported, err := share.ImportIfChanged(r.ctx, s, opts)
-	if err != nil {
-		return err
-	}
-	return r.print(map[string]any{
-		"config_path":  r.configPath,
-		"repo_path":    opts.RepoPath,
-		"remote":       opts.Remote,
-		"generated_at": manifest.GeneratedAt,
-		"tables":       manifest.Tables,
-		"embeddings":   manifest.Embeddings,
-		"imported":     imported,
+	r.cfg = cfg
+	return r.withSyncLock(func() error {
+		s, err := store.Open(r.ctx, dbPath)
+		if err != nil {
+			return dbErr(err)
+		}
+		defer func() { _ = s.Close() }()
+		expandedRepo, err := config.ExpandPath(cfg.Share.RepoPath)
+		if err != nil {
+			return configErr(err)
+		}
+		opts := share.Options{RepoPath: expandedRepo, Remote: cfg.Share.Remote, Branch: cfg.Share.Branch}
+		if *withEmbeddings {
+			applyEmbeddingShareOptions(&opts, cfg)
+		}
+		if err := share.Pull(r.ctx, opts); err != nil {
+			return err
+		}
+		manifest, imported, err := share.ImportIfChanged(r.ctx, s, opts)
+		if err != nil {
+			return err
+		}
+		return r.print(map[string]any{
+			"config_path":  r.configPath,
+			"repo_path":    opts.RepoPath,
+			"remote":       opts.Remote,
+			"generated_at": manifest.GeneratedAt,
+			"tables":       manifest.Tables,
+			"embeddings":   manifest.Embeddings,
+			"imported":     imported,
+		})
 	})
 }
 
