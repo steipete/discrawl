@@ -149,8 +149,9 @@ func TestStoreMaintenanceHelpers(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = s.Close() }()
 
-	require.NoError(t, ensureDBFile(dbPath))
-	require.NoError(t, tightenDBFilePerms(dbPath))
+	info, err := os.Stat(dbPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 	require.NoError(t, s.RebuildSearchIndexes(ctx))
 	version, err := s.schemaVersion(ctx)
 	require.NoError(t, err)
