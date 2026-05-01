@@ -32,7 +32,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 ### Changes
 
-- Add `discrawl tui`, a terminal archive browser for stored guild messages and local `@me` wiretap DMs using the shared `crawlkit/termkit` package.
+- Add `discrawl tui`, a terminal archive browser for stored guild messages and local `@me` wiretap DMs using the shared `crawlkit/tui` package.
 
 ### Fixes
 

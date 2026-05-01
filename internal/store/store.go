@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/vincentkoc/crawlkit/sqlitekit"
+	crawlstore "github.com/vincentkoc/crawlkit/store"
 )
 
 const (
@@ -111,7 +111,7 @@ type ChannelRow struct {
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
-	base, err := sqlitekit.Open(ctx, sqlitekit.Options{Path: path})
+	base, err := crawlstore.Open(ctx, crawlstore.Options{Path: path})
 	if err != nil {
 		return nil, err
 	}

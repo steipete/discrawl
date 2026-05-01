@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/vincentkoc/crawlkit/termkit"
+	"github.com/vincentkoc/crawlkit/tui"
 
 	"github.com/steipete/discrawl/internal/store"
 )
@@ -49,12 +49,12 @@ func (r *runtime) runTUI(args []string) error {
 	if r.json {
 		return r.print(items)
 	}
-	if err := termkit.Run(r.ctx, termkit.Options{
+	if err := tui.Run(r.ctx, tui.Options{
 		Title:        "discrawl archive",
 		EmptyMessage: "discrawl has no local messages yet",
 		Items:        items,
 	}); err != nil {
-		if errors.Is(err, termkit.ErrNotTerminal) {
+		if errors.Is(err, tui.ErrNotTerminal) {
 			return fmt.Errorf("%w; run discrawl tui from a TTY or pass --json", err)
 		}
 		return err
@@ -62,8 +62,8 @@ func (r *runtime) runTUI(args []string) error {
 	return nil
 }
 
-func discordTUIItems(rows []store.MessageRow) []termkit.Item {
-	items := make([]termkit.Item, 0, len(rows))
+func discordTUIItems(rows []store.MessageRow) []tui.Item {
+	items := make([]tui.Item, 0, len(rows))
 	for _, row := range rows {
 		title := strings.TrimSpace(row.Content)
 		if title == "" {
@@ -73,7 +73,7 @@ func discordTUIItems(rows []store.MessageRow) []termkit.Item {
 		if row.GuildID == "@me" {
 			tags = append(tags, "dm")
 		}
-		items = append(items, termkit.Item{
+		items = append(items, tui.Item{
 			Title:    title,
 			Subtitle: strings.TrimSpace(strings.Join([]string{row.GuildID, row.ChannelName, row.AuthorName, formatTime(row.CreatedAt)}, " ")),
 			Detail: strings.TrimSpace(strings.Join([]string{

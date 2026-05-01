@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/steipete/discrawl/internal/store"
-	"github.com/vincentkoc/crawlkit/gitshare"
-	"github.com/vincentkoc/crawlkit/pack"
+	"github.com/vincentkoc/crawlkit/mirror"
+	"github.com/vincentkoc/crawlkit/snapshot"
 )
 
 const (
@@ -28,7 +28,7 @@ const (
 	directMessageGuildID        = "@me"
 )
 
-var ErrNoManifest = pack.ErrNoManifest
+var ErrNoManifest = snapshot.ErrNoManifest
 
 const shardFlushRows = 1024
 
@@ -74,7 +74,7 @@ type Manifest struct {
 	Files       map[string]string   `json:"files,omitempty"`
 }
 
-type TableManifest = pack.TableManifest
+type TableManifest = snapshot.TableManifest
 
 type EmbeddingManifest struct {
 	Provider     string   `json:"provider"`
@@ -89,22 +89,22 @@ func EnsureRepo(ctx context.Context, opts Options) error {
 	if strings.TrimSpace(opts.RepoPath) == "" {
 		return errors.New("share repo path is empty")
 	}
-	return gitshare.EnsureRepo(ctx, gitshareOptions(opts))
+	return mirror.EnsureRepo(ctx, mirrorOptions(opts))
 }
 
 func Pull(ctx context.Context, opts Options) error {
 	if strings.TrimSpace(opts.Remote) == "" && strings.TrimSpace(opts.RepoPath) == "" {
 		return nil
 	}
-	return gitshare.Pull(ctx, gitshareOptions(opts))
+	return mirror.Pull(ctx, mirrorOptions(opts))
 }
 
 func Commit(ctx context.Context, opts Options, message string) (bool, error) {
-	return gitshare.Commit(ctx, gitshareOptions(opts), message)
+	return mirror.Commit(ctx, mirrorOptions(opts), message)
 }
 
 func Push(ctx context.Context, opts Options) error {
-	if err := gitshare.Push(ctx, gitshareOptions(opts)); err != nil {
+	if err := mirror.Push(ctx, mirrorOptions(opts)); err != nil {
 		branch := opts.Branch
 		if strings.TrimSpace(branch) == "" {
 			branch = "main"
@@ -118,7 +118,7 @@ func Export(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 	if err := EnsureRepo(ctx, opts); err != nil {
 		return Manifest{}, err
 	}
-	base, err := pack.Export(ctx, pack.ExportOptions{
+	base, err := snapshot.Export(ctx, snapshot.ExportOptions{
 		DB:            s.DB(),
 		RootDir:       opts.RepoPath,
 		Tables:        SnapshotTables,
@@ -170,7 +170,7 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 			_ = restorePragmas(ctx)
 		}
 	}()
-	if _, err := pack.Import(ctx, pack.ImportOptions{
+	if _, err := snapshot.Import(ctx, snapshot.ImportOptions{
 		DB:           s.DB(),
 		RootDir:      opts.RepoPath,
 		DeleteTables: SnapshotTables,
@@ -347,8 +347,8 @@ func ReadManifest(repoPath string) (Manifest, error) {
 	return manifest, nil
 }
 
-func gitshareOptions(opts Options) gitshare.Options {
-	return gitshare.Options{RepoPath: opts.RepoPath, Remote: opts.Remote, Branch: opts.Branch}
+func mirrorOptions(opts Options) mirror.Options {
+	return mirror.Options{RepoPath: opts.RepoPath, Remote: opts.Remote, Branch: opts.Branch}
 }
 
 func NeedsImport(ctx context.Context, s *store.Store, staleAfter time.Duration) bool {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vincentkoc/crawlkit/configkit"
+	crawlconfig "github.com/vincentkoc/crawlkit/config"
 )
 
 const (
@@ -85,14 +85,14 @@ type TokenResolution struct {
 	Path   string
 }
 
-var appConfig = configkit.App{Name: "discrawl", ConfigEnv: DefaultConfigEnv, BaseDir: "~/.discrawl", LegacyBaseDir: "~/.discrawl"}
+var appConfig = crawlconfig.App{Name: "discrawl", ConfigEnv: DefaultConfigEnv, BaseDir: "~/.discrawl", LegacyBaseDir: "~/.discrawl"}
 
 func Default() Config {
 	home, _ := os.UserHomeDir()
 	paths, err := appConfig.DefaultPaths()
 	if err != nil {
 		base := filepath.Join(home, ".discrawl")
-		paths = configkit.Paths{
+		paths = crawlconfig.Paths{
 			DBPath:   filepath.Join(base, "discrawl.db"),
 			CacheDir: filepath.Join(base, "cache"),
 			LogDir:   filepath.Join(base, "logs"),
@@ -170,7 +170,7 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if err := configkit.LoadTOML(expanded, &cfg); err != nil {
+	if err := crawlconfig.LoadTOML(expanded, &cfg); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.Normalize(); err != nil {
@@ -187,7 +187,7 @@ func Write(path string, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return configkit.WriteTOML(expanded, cfg, 0o600)
+	return crawlconfig.WriteTOML(expanded, cfg, 0o600)
 }
 
 func (c *Config) Normalize() error {
@@ -341,7 +341,7 @@ func (c Config) ShareEnabled() bool {
 }
 
 func EnsureRuntimeDirs(cfg Config) error {
-	return configkit.EnsureRuntimeDirs(configkit.RuntimeConfig{
+	return crawlconfig.EnsureRuntimeDirs(crawlconfig.RuntimeConfig{
 		DBPath:   cfg.DBPath,
 		CacheDir: cfg.CacheDir,
 		LogDir:   cfg.LogDir,
@@ -352,7 +352,7 @@ func ExpandPath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("empty path")
 	}
-	return filepath.Clean(os.ExpandEnv(configkit.ExpandHome(path))), nil
+	return filepath.Clean(os.ExpandEnv(crawlconfig.ExpandHome(path))), nil
 }
 
 func uniqueStrings(in []string) []string {
