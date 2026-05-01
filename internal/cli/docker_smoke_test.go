@@ -18,7 +18,7 @@ func TestDockerGitSourceSmoke(t *testing.T) {
 		t.Skip("docker is not installed")
 	}
 	root := repoRoot(t)
-	cmd := exec.Command("bash", filepath.Join(root, "scripts", "docker-git-source-smoke.sh"))
+	cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(root, "scripts", "docker-git-source-smoke.sh"))
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
@@ -26,7 +26,7 @@ func TestDockerGitSourceSmoke(t *testing.T) {
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd := exec.CommandContext(t.Context(), "git", "rev-parse", "--show-toplevel")
 	out, err := cmd.Output()
 	require.NoError(t, err)
 	return strings.TrimSpace(string(out))

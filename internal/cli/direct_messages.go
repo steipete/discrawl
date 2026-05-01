@@ -84,12 +84,13 @@ func (r *runtime) runDirectMessages(args []string) error {
 
 	messageLimit := *limit
 	messageLast := *last
-	if *all {
+	switch {
+	case *all:
 		messageLimit = 0
 		messageLast = 0
-	} else if flagPassed(fs, "limit") {
+	case flagPassed(fs, "limit"):
 		messageLast = 0
-	} else {
+	default:
 		messageLimit = 0
 	}
 	rows, err := r.store.ListMessages(r.ctx, store.MessageListOptions{

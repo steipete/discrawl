@@ -728,7 +728,7 @@ func publishSnapshot(t *testing.T, ctx context.Context, s *store.Store, opts sha
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	// #nosec G204 -- fixed git argv in test setup.
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(t.Context(), "git", args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))

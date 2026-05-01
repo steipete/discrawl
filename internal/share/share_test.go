@@ -462,9 +462,9 @@ func TestGitCommitDetectsNoChanges(t *testing.T) {
 	_, err := Export(ctx, src, opts)
 	require.NoError(t, err)
 	// #nosec G204 -- fixed git argv in test setup.
-	require.NoError(t, exec.Command("git", "-C", repo, "config", "user.name", "discrawl test").Run())
+	require.NoError(t, exec.CommandContext(t.Context(), "git", "-C", repo, "config", "user.name", "discrawl test").Run())
 	// #nosec G204 -- fixed git argv in test setup.
-	require.NoError(t, exec.Command("git", "-C", repo, "config", "user.email", "discrawl@example.com").Run())
+	require.NoError(t, exec.CommandContext(t.Context(), "git", "-C", repo, "config", "user.email", "discrawl@example.com").Run())
 
 	committed, err := Commit(ctx, opts, "test: snapshot")
 	require.NoError(t, err)
@@ -483,16 +483,13 @@ func TestPullAndPushWithBareRemote(t *testing.T) {
 	dir := t.TempDir()
 	remote := filepath.Join(dir, "remote.git")
 	// #nosec G204 -- fixed git argv in test setup.
-	require.NoError(t, exec.Command("git", "-C", dir, "init", "--bare", remote).Run())
+	require.NoError(t, exec.CommandContext(t.Context(), "git", "-C", dir, "init", "--bare", remote).Run())
 
 	publisher := filepath.Join(dir, "publisher")
 	opts := Options{RepoPath: publisher, Remote: remote, Branch: "main"}
 	_, err := Export(ctx, src, opts)
 	require.NoError(t, err)
-	// #nosec G204 -- fixed git argv in test setup.
-	require.NoError(t, exec.Command("git", "-C", publisher, "config", "user.name", "discrawl test").Run())
-	// #nosec G204 -- fixed git argv in test setup.
-	require.NoError(t, exec.Command("git", "-C", publisher, "config", "user.email", "discrawl@example.com").Run())
+	configureGitUser(t, publisher)
 	committed, err := Commit(ctx, opts, "test: snapshot")
 	require.NoError(t, err)
 	require.True(t, committed)
@@ -512,7 +509,7 @@ func TestPushRebasesRemoteReadmeUpdates(t *testing.T) {
 	dir := t.TempDir()
 	remote := filepath.Join(dir, "remote.git")
 	// #nosec G204 -- fixed git argv in test setup.
-	require.NoError(t, exec.Command("git", "-C", dir, "init", "--bare", remote).Run())
+	require.NoError(t, exec.CommandContext(t.Context(), "git", "-C", dir, "init", "--bare", remote).Run())
 
 	publisher := filepath.Join(dir, "publisher")
 	opts := Options{RepoPath: publisher, Remote: remote, Branch: "main"}
@@ -908,9 +905,9 @@ func seedDirectMessageData(t *testing.T, ctx context.Context, s *store.Store) {
 func configureGitUser(t *testing.T, repo string) {
 	t.Helper()
 	// #nosec G204 -- fixed git argv in test setup.
-	require.NoError(t, exec.Command("git", "-C", repo, "config", "user.name", "discrawl test").Run())
+	require.NoError(t, exec.CommandContext(t.Context(), "git", "-C", repo, "config", "user.name", "discrawl test").Run())
 	// #nosec G204 -- fixed git argv in test setup.
-	require.NoError(t, exec.Command("git", "-C", repo, "config", "user.email", "discrawl@example.com").Run())
+	require.NoError(t, exec.CommandContext(t.Context(), "git", "-C", repo, "config", "user.email", "discrawl@example.com").Run())
 }
 
 func mustReadManifest(t *testing.T, repo string) Manifest {

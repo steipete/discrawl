@@ -27,7 +27,7 @@ func TestMainHelpAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Executable: %v", err)
 	}
-	cmd := exec.Command(exe, "-test.run=TestMainHelpAndVersion")
+	cmd := exec.CommandContext(t.Context(), exe, "-test.run=TestMainHelpAndVersion")
 	cmd.Env = append(os.Environ(), "DISCRAWL_MAIN_ERROR=1")
 	err = cmd.Run()
 	var exitErr *exec.ExitError
