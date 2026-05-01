@@ -109,7 +109,7 @@ func trendsRows(ctx context.Context, db *sql.DB, since, until time.Time, weeks i
 	out := make([]TrendsRow, 0, len(channels))
 	for _, ch := range channels {
 		weekly := make([]WeeklyCount, 0, weeks)
-		for i := 0; i < weeks; i++ {
+		for i := range weeks {
 			start := since.AddDate(0, 0, 7*i)
 			weekly = append(weekly, WeeklyCount{
 				WeekStart: start,

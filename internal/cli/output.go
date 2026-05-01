@@ -343,7 +343,7 @@ func printHuman(w io.Writer, value any) error {
 				weekStarts = append(weekStarts, week.WeekStart)
 			}
 		} else {
-			for i := 0; i < v.Weeks; i++ {
+			for i := range v.Weeks {
 				weekStarts = append(weekStarts, v.Since.AddDate(0, 0, 7*i))
 			}
 		}

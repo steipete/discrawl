@@ -106,7 +106,7 @@ func seedTrendsStore(t *testing.T, ctx context.Context) (*store.Store, time.Time
 
 	seed := func(guildID, channelID, channelName string, weekStart time.Time, count int) {
 		mutations := make([]store.MessageMutation, 0, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			createdAt := weekStart.Add(time.Duration(2+i) * time.Hour)
 			mutations = append(mutations, store.MessageMutation{Record: store.MessageRecord{
 				ID:                channelID + "-" + createdAt.Format("20060102150405"),
