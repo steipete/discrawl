@@ -7,7 +7,12 @@ All notable changes to `discrawl` will be documented in this file.
 ### Fixes
 
 - Added OS keyring fallback for Discord bot-token resolution, keeping env as the first source and documenting the default keyring item. (#17)
-- Documented and covered FTS query normalization so operator-like search terms stay parameterized and quoted before SQLite `MATCH`. Thanks @mvanhorn.
+- Clarified and locked down FTS query normalization so operator-like search terms such as `AND`, `OR`, `NOT`, `NEAR`, and `*` stay parameterized and quoted before SQLite `MATCH`. Thanks @mvanhorn.
+
+### Maintenance
+
+- Tightened Go linting with additional golangci-lint checks for compiler directives, host/port formatting, predeclared identifiers, missing command contexts, and related code-quality regressions.
+- Updated test subprocess helpers to use test-scoped contexts and cleaned up assertions so the stricter CI suite stays green.
 
 ## 0.6.2 - 2026-05-01
 
