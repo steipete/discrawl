@@ -67,10 +67,10 @@ func TestDigestCommand(t *testing.T) {
 		var payload map[string]any
 		require.NoError(t, json.Unmarshal(out.Bytes(), &payload))
 		require.Equal(t, "7d", payload["window_label"])
-		require.Equal(t, float64(3), payload["top_n"])
+		require.InEpsilon(t, 3, payload["top_n"], 0.001)
 		totals, ok := payload["totals"].(map[string]any)
 		require.True(t, ok)
-		require.Equal(t, float64(2), totals["messages"])
+		require.InEpsilon(t, 2, totals["messages"], 0.001)
 	})
 
 	t.Run("channel name filter", func(t *testing.T) {

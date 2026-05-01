@@ -490,6 +490,22 @@ Notes:
 - `--channel` accepts a channel id or exact channel name
 - `--top-n` controls how many top posters and mention targets are shown per channel
 
+### `analytics`
+
+Groups activity-style queries under one namespace.
+
+```bash
+discrawl analytics
+discrawl analytics quiet --since 30d
+discrawl analytics quiet --guild 123456789012345678
+discrawl --json analytics quiet --since 60d
+```
+
+Notes:
+
+- `analytics quiet` shows channels with no messages in the lookback window, including never-active channels
+- `analytics quiet --guild` scopes the report to one guild; when omitted, `default_guild_id` is used if configured
+
 ### `doctor`
 
 Checks config, auth, DB, and FTS wiring.

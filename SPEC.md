@@ -812,3 +812,22 @@ Behavior:
 - top mentions are ranked from `mention_events` and include all target types (`user` and `role`)
 - channels are sorted by message count descending, then channel name ascending
 - JSON output returns a `Digest` object with channel rows and totals; plain output emits one tab-separated row per channel
+
+## Analytics
+
+`discrawl analytics` is a subcommand group for activity-style queries.
+
+Example usage:
+
+```bash
+discrawl analytics
+discrawl analytics quiet --since 30d
+discrawl analytics quiet --guild 123456789012345678
+discrawl --json analytics quiet --since 60d
+```
+
+Behavior:
+
+- `analytics quiet` defaults to `30d` lookback and supports `--guild`
+- `analytics quiet` includes channels with no messages at all
+- quiet rows are sorted with never-active channels first, then by longest silence
