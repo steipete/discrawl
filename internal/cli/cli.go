@@ -47,6 +47,10 @@ func ExitCode(err error) int {
 }
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		printUsage(stdout)
+		return nil
+	}
 	global := flag.NewFlagSet("discrawl", flag.ContinueOnError)
 	global.SetOutput(io.Discard)
 	configPath := global.String("config", "", "")
@@ -66,8 +70,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 	rest := global.Args()
-	if len(rest) == 0 || rest[0] == "help" {
+	if len(rest) == 0 || rest[0] == "help" || rest[0] == "--help" || rest[0] == "-h" {
 		printUsage(stdout)
+		return nil
+	}
+	if rest[0] == "version" {
+		_, _ = io.WriteString(stdout, version+"\n")
 		return nil
 	}
 	level := slog.LevelInfo
@@ -129,6 +137,8 @@ type attachmentTextConfigurer interface {
 
 func (r *runtime) dispatch(rest []string) error {
 	switch rest[0] {
+	case "metadata":
+		return r.runMetadata(rest[1:])
 	case "init":
 		return r.runInit(rest[1:])
 	case "sync":
@@ -141,12 +151,13 @@ func (r *runtime) dispatch(rest []string) error {
 		return r.withServicesLocked(true, func() error { return r.runTail(rest[1:]) })
 	case "wiretap":
 		return r.withLocalStoreLocked(false, func() error { return r.runWiretap(rest[1:]) })
+	case "tap", "cache-import":
+		return r.withLocalStoreLocked(false, func() error { return r.runWiretap(rest[1:]) })
 	case "search":
 		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
 		return r.withLocalStoreDefaultLocked(autoShareUpdate, autoShareUpdate, func() error { return r.runSearch(rest[1:]) })
 	case "tui":
-		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
-		return r.withLocalStoreDefaultLocked(autoShareUpdate, autoShareUpdate, func() error { return r.runTUI(rest[1:]) })
+		return r.withLocalStoreReadOnly(func() error { return r.runTUI(rest[1:]) })
 	case "messages":
 		if hasBoolFlag(rest[1:], "--sync") && !hasBoolFlag(rest[1:], "--dm") {
 			return r.withServicesAutoLocked(true, true, true, func() error { return r.runMessages(rest[1:]) })
@@ -170,7 +181,7 @@ func (r *runtime) dispatch(rest []string) error {
 	case "channels":
 		return r.withLocalStoreLocked(true, func() error { return r.runChannels(rest[1:]) })
 	case "status":
-		return r.withLocalStoreLocked(true, func() error { return r.runStatus(rest[1:]) })
+		return r.withLocalStoreReadOnly(func() error { return r.runStatus(rest[1:]) })
 	case "report":
 		return r.withLocalStoreLocked(true, func() error { return r.runReport(rest[1:]) })
 	case "publish":
@@ -249,6 +260,35 @@ func (r *runtime) openLocalStore(dbPath string, updateMode shareUpdateMode, fn f
 			return err
 		}
 	}
+	return fn()
+}
+
+func (r *runtime) withLocalStoreReadOnly(fn func() error) error {
+	cfg, err := config.Load(r.configPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return configErr(err)
+		}
+		cfg = config.Default()
+		if err := cfg.Normalize(); err != nil {
+			return configErr(err)
+		}
+	}
+	dbPath, err := config.ExpandPath(cfg.DBPath)
+	if err != nil {
+		return configErr(err)
+	}
+	r.cfg = cfg
+	var openErr error
+	r.store, openErr = store.OpenReadOnly(r.ctx, dbPath)
+	if openErr != nil {
+		if errors.Is(openErr, os.ErrNotExist) {
+			r.store = nil
+			return fn()
+		}
+		return dbErr(openErr)
+	}
+	defer func() { _ = r.store.Close() }()
 	return fn()
 }
 

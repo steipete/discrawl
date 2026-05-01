@@ -21,8 +21,12 @@ func (r *runtime) runTUI(args []string) error {
 	dm := fs.Bool("dm", false, "")
 	guildsFlag := fs.String("guilds", "", "")
 	guildFlag := fs.String("guild", "", "")
+	jsonOut := fs.Bool("json", false, "")
 	if err := fs.Parse(args); err != nil {
 		return usageErr(err)
+	}
+	if *jsonOut {
+		r.json = true
 	}
 	if fs.NArg() != 0 {
 		return usageErr(errors.New("tui takes flags only"))
@@ -33,6 +37,16 @@ func (r *runtime) runTUI(args []string) error {
 	guildIDs, err := directMessageGuildScope(*dm, *guildFlag, *guildsFlag)
 	if err != nil {
 		return usageErr(err)
+	}
+	if r.store == nil {
+		return tui.Browse(r.ctx, tui.BrowseOptions{
+			AppName:      "discrawl",
+			Title:        "discrawl archive",
+			EmptyMessage: "discrawl has no local messages yet",
+			JSON:         r.json,
+			Layout:       tui.LayoutChat,
+			Stdout:       r.stdout,
+		})
 	}
 	rows, err := r.store.ListMessages(r.ctx, store.MessageListOptions{
 		GuildIDs:     guildIDs,
@@ -50,6 +64,7 @@ func (r *runtime) runTUI(args []string) error {
 		EmptyMessage: "discrawl has no local messages yet",
 		Rows:         discordTUIRows(rows),
 		JSON:         r.json,
+		Layout:       tui.LayoutChat,
 		Stdout:       r.stdout,
 	})
 }

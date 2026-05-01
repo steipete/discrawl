@@ -124,6 +124,22 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return store, nil
 }
 
+func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
+	base, err := crawlstore.OpenReadOnly(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	store := &Store{db: base.DB(), path: path}
+	if version, err := store.schemaVersion(ctx); err != nil {
+		_ = base.Close()
+		return nil, err
+	} else if version != storeSchemaVersion {
+		_ = base.Close()
+		return nil, fmt.Errorf("database schema version mismatch: got %d want %d", version, storeSchemaVersion)
+	}
+	return store, nil
+}
+
 func (s *Store) Close() error {
 	if s == nil || s.db == nil {
 		return nil

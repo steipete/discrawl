@@ -17,6 +17,7 @@ import (
 	"github.com/steipete/discrawl/internal/discord"
 	"github.com/steipete/discrawl/internal/discorddesktop"
 	"github.com/steipete/discrawl/internal/embed"
+	"github.com/steipete/discrawl/internal/share"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/syncer"
 )
@@ -314,16 +315,37 @@ func (r *runtime) runWiretap(args []string) error {
 }
 
 func (r *runtime) runStatus(args []string) error {
-	if len(args) != 0 {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	if fs.NArg() != 0 {
 		return usageErr(errors.New("status takes no arguments"))
+	}
+	if *jsonOut {
+		r.json = true
 	}
 	dbPath, err := config.ExpandPath(r.cfg.DBPath)
 	if err != nil {
 		return configErr(err)
 	}
-	status, err := r.store.Status(r.ctx, dbPath, r.cfg.EffectiveDefaultGuildID())
-	if err != nil {
-		return err
+	status := store.Status{DBPath: dbPath, DefaultGuildID: r.cfg.EffectiveDefaultGuildID()}
+	if r.store != nil {
+		status, err = r.store.Status(r.ctx, dbPath, r.cfg.EffectiveDefaultGuildID())
+		if err != nil {
+			return err
+		}
+	}
+	if r.json {
+		needsUpdate := false
+		if r.store != nil && r.cfg.ShareEnabled() {
+			if staleAfter, err := time.ParseDuration(r.cfg.Share.StaleAfter); err == nil {
+				needsUpdate = share.NeedsImport(r.ctx, r.store, staleAfter)
+			}
+		}
+		return r.print(controlStatus(r.configPath, r.cfg, status, needsUpdate))
 	}
 	return r.print(status)
 }
@@ -384,8 +406,17 @@ func (r *runtime) runEmbed(args []string) error {
 }
 
 func (r *runtime) runDoctor(args []string) error {
-	if len(args) != 0 {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "")
+	if err := fs.Parse(args); err != nil {
+		return usageErr(err)
+	}
+	if fs.NArg() != 0 {
 		return usageErr(errors.New("doctor takes no arguments"))
+	}
+	if *jsonOut {
+		r.json = true
 	}
 	report := map[string]any{
 		"config_path": r.configPath,
