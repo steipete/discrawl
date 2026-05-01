@@ -30,6 +30,10 @@ All notable changes to `discrawl` will be documented in this file.
 
 ## 0.6.3 - 2026-05-01
 
+### Changes
+
+- Add `discrawl tui`, a terminal archive browser for stored guild messages and local `@me` wiretap DMs using the shared `crawlkit/termkit` package.
+
 ### Fixes
 
 - Added OS keyring fallback for Discord bot-token resolution, keeping env as the first source and documenting the default keyring item. (#17)

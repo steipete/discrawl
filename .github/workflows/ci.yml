@@ -93,6 +93,13 @@ jobs:
       - name: Build
         run: go build ./cmd/discrawl
 
+      - name: Smoke test CLI help
+        run: |
+          set -euo pipefail
+          output="$(go run ./cmd/discrawl help)"
+          printf '%s\n' "$output"
+          printf '%s' "$output" | grep -q "tui"
+
   deps:
     runs-on: ubuntu-latest
     timeout-minutes: 15

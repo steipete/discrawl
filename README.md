@@ -22,6 +22,7 @@ Wiretap DMs stay local and are never exported to the Git-backed snapshot mirror.
 - tails Gateway events for live updates, with periodic repair syncs
 - imports classifiable Discord Desktop cache messages with `wiretap`, including proven DMs under `@me`
 - publishes and imports private Git-backed archive snapshots for org-wide read access
+- browses stored messages and local DMs in a terminal archive UI
 - supports Git-only read mode with no Discord credentials on reader machines
 - generates backup README activity reports, with optional AI-written field notes
 - exposes read-only SQL for ad hoc analysis
@@ -158,6 +159,17 @@ discrawl messages --channel general --hours 24
 - verifies DB + FTS wiring
 
 ## Commands
+
+### `tui`
+
+Opens the local terminal archive browser for stored messages.
+
+```bash
+discrawl tui
+discrawl tui --guild 123456789012345678 --channel general
+discrawl tui --dm
+discrawl --json tui --limit 50
+```
 
 ### `init`
 
@@ -683,6 +695,7 @@ go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.1 run
 go test ./... -coverprofile=/tmp/discrawl.cover
 go tool cover -func=/tmp/discrawl.cover | tail -n 1
 go build ./cmd/discrawl
+go run ./cmd/discrawl help | grep tui
 ```
 
 Target coverage is `>= 85%`.
