@@ -52,8 +52,8 @@ func parseLookback(value string) (time.Duration, error) {
 	if value == "" {
 		return 0, errors.New("empty duration")
 	}
-	if strings.HasSuffix(value, "d") {
-		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
+	if daysValue, ok := strings.CutSuffix(value, "d"); ok {
+		days, err := strconv.Atoi(daysValue)
 		if err != nil {
 			return 0, fmt.Errorf("invalid day count: %w", err)
 		}
