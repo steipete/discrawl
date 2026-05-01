@@ -6,6 +6,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 ### Fixes
 
+- Added OS keyring fallback for Discord bot-token resolution, keeping env as the first source and documenting the default keyring item. (#17)
 - Documented and covered FTS query normalization so operator-like search terms stay parameterized and quoted before SQLite `MATCH`. Thanks @mvanhorn.
 
 ## 0.6.2 - 2026-05-01

@@ -51,7 +51,7 @@ These are settled unless the user explicitly changes them:
 - DB location: `~/.discrawl/discrawl.db`
 - cache dir: `~/.discrawl/cache/`
 - log dir: `~/.discrawl/logs/`
-- token source: `DISCORD_BOT_TOKEN` or configured env var
+- token source: `DISCORD_BOT_TOKEN` or configured env var, then optional OS keyring fallback
 - guild model: one guild in CLI UX, multi-guild-ready schema
 - search: hybrid, with FTS first and embeddings optional
 - embedding provider: OpenAI
@@ -563,6 +563,8 @@ log_dir = "~/.discrawl/logs"
 [discord]
 token_source = "env"
 token_env = "DISCORD_BOT_TOKEN"
+token_keyring_service = "discrawl"
+token_keyring_account = "discord_bot_token"
 
 [sync]
 concurrency = 4
@@ -603,6 +605,7 @@ Do not:
 Do:
 
 - load bot token from env
+- fall back to the configured OS keyring item when env is empty
 - load OpenAI key from env
 - redact secrets in debug and doctor output
 

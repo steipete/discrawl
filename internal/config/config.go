@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	DefaultConfigEnv = "DISCRAWL_CONFIG"
-	DefaultTokenEnv  = "DISCORD_BOT_TOKEN"
+	DefaultConfigEnv           = "DISCRAWL_CONFIG"
+	DefaultTokenEnv            = "DISCORD_BOT_TOKEN"
+	DefaultTokenKeyringService = "discrawl"
+	DefaultTokenKeyringAccount = "discord_bot_token"
 )
 
 type Config struct {
@@ -33,8 +35,10 @@ type Config struct {
 }
 
 type DiscordConfig struct {
-	TokenSource string `toml:"token_source"`
-	TokenEnv    string `toml:"token_env"`
+	TokenSource         string `toml:"token_source"`
+	TokenEnv            string `toml:"token_env"`
+	TokenKeyringService string `toml:"token_keyring_service"`
+	TokenKeyringAccount string `toml:"token_keyring_account"`
 }
 
 type DesktopConfig struct {
@@ -90,8 +94,10 @@ func Default() Config {
 		LogDir:         filepath.Join(base, "logs"),
 		DefaultGuildID: "",
 		Discord: DiscordConfig{
-			TokenSource: "env",
-			TokenEnv:    DefaultTokenEnv,
+			TokenSource:         "env",
+			TokenEnv:            DefaultTokenEnv,
+			TokenKeyringService: DefaultTokenKeyringService,
+			TokenKeyringAccount: DefaultTokenKeyringAccount,
 		},
 		Desktop: DesktopConfig{
 			Path:         defaultDiscordDesktopPath(home),
@@ -204,11 +210,21 @@ func (c *Config) Normalize() error {
 			c.LogDir = def.LogDir
 		}
 	}
+	c.Discord.TokenSource = strings.ToLower(strings.TrimSpace(c.Discord.TokenSource))
+	c.Discord.TokenEnv = strings.TrimSpace(c.Discord.TokenEnv)
+	c.Discord.TokenKeyringService = strings.TrimSpace(c.Discord.TokenKeyringService)
+	c.Discord.TokenKeyringAccount = strings.TrimSpace(c.Discord.TokenKeyringAccount)
 	if c.Discord.TokenSource == "" {
 		c.Discord.TokenSource = "env"
 	}
 	if c.Discord.TokenEnv == "" {
 		c.Discord.TokenEnv = DefaultTokenEnv
+	}
+	if c.Discord.TokenKeyringService == "" {
+		c.Discord.TokenKeyringService = DefaultTokenKeyringService
+	}
+	if c.Discord.TokenKeyringAccount == "" {
+		c.Discord.TokenKeyringAccount = DefaultTokenKeyringAccount
 	}
 	if c.Desktop.Path == "" {
 		c.Desktop.Path = defaultDiscordDesktopPath(homeDir())

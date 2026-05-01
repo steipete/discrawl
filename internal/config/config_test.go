@@ -1,12 +1,14 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 )
 
 func TestNormalizeFillsDefaults(t *testing.T) {
@@ -17,6 +19,8 @@ func TestNormalizeFillsDefaults(t *testing.T) {
 	require.Equal(t, 1, cfg.Version)
 	require.Equal(t, "env", cfg.Discord.TokenSource)
 	require.Equal(t, DefaultTokenEnv, cfg.Discord.TokenEnv)
+	require.Equal(t, DefaultTokenKeyringService, cfg.Discord.TokenKeyringService)
+	require.Equal(t, DefaultTokenKeyringAccount, cfg.Discord.TokenKeyringAccount)
 	require.Equal(t, defaultSyncConcurrency(), cfg.Sync.Concurrency)
 	require.GreaterOrEqual(t, cfg.Sync.Concurrency, 8)
 	require.LessOrEqual(t, cfg.Sync.Concurrency, 32)
@@ -62,6 +66,41 @@ func TestResolveDiscordTokenFromEnv(t *testing.T) {
 	require.Equal(t, "env", token.Source)
 }
 
+func TestResolveDiscordTokenFallsBackToKeyring(t *testing.T) {
+	cfg := Default()
+	t.Setenv(DefaultTokenEnv, "")
+	stubDiscordTokenKeyring(t, func(service, account string) (string, error) {
+		require.Equal(t, DefaultTokenKeyringService, service)
+		require.Equal(t, DefaultTokenKeyringAccount, account)
+		return "Bot keyring-token", nil
+	})
+
+	token, err := ResolveDiscordToken(cfg)
+	require.NoError(t, err)
+	require.Equal(t, "keyring-token", token.Token)
+	require.Equal(t, "keyring", token.Source)
+	require.Equal(t, "discrawl/discord_bot_token", token.Path)
+}
+
+func TestResolveDiscordTokenFromKeyringSource(t *testing.T) {
+	cfg := Default()
+	cfg.Discord.TokenSource = "keyring"
+	cfg.Discord.TokenKeyringService = " custom-service "
+	cfg.Discord.TokenKeyringAccount = " custom-account "
+	t.Setenv(DefaultTokenEnv, "ignored-env-token")
+	stubDiscordTokenKeyring(t, func(service, account string) (string, error) {
+		require.Equal(t, "custom-service", service)
+		require.Equal(t, "custom-account", account)
+		return "custom-keyring-token", nil
+	})
+
+	token, err := ResolveDiscordToken(cfg)
+	require.NoError(t, err)
+	require.Equal(t, "custom-keyring-token", token.Token)
+	require.Equal(t, "keyring", token.Source)
+	require.Equal(t, "custom-service/custom-account", token.Path)
+}
+
 func TestResolveDiscordTokenFromCustomEnv(t *testing.T) {
 	cfg := Default()
 	cfg.Discord.TokenEnv = "DISCRAWL_TEST_DISCORD_TOKEN"
@@ -76,9 +115,13 @@ func TestResolveDiscordTokenFromCustomEnv(t *testing.T) {
 func TestResolveDiscordTokenRequiresEnvValue(t *testing.T) {
 	cfg := Default()
 	t.Setenv(DefaultTokenEnv, "")
+	stubDiscordTokenKeyring(t, func(_, _ string) (string, error) {
+		return "", keyring.ErrNotFound
+	})
 
 	_, err := ResolveDiscordToken(cfg)
-	require.ErrorContains(t, err, `discord token not found in environment variable "DISCORD_BOT_TOKEN"`)
+	require.ErrorContains(t, err, `discord token not found in environment variable "DISCORD_BOT_TOKEN" or keyring item "discrawl"/"discord_bot_token"`)
+	require.True(t, errors.Is(err, keyring.ErrNotFound))
 }
 
 func TestResolveDiscordTokenDisabled(t *testing.T) {
@@ -258,6 +301,9 @@ func TestResolvePathUsesEnv(t *testing.T) {
 func TestConfigErrorsAndBackupFallback(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(DefaultTokenEnv, "")
+	stubDiscordTokenKeyring(t, func(_, _ string) (string, error) {
+		return "", keyring.ErrNotFound
+	})
 
 	_, err := ExpandPath("")
 	require.Error(t, err)
@@ -270,4 +316,13 @@ func TestConfigErrorsAndBackupFallback(t *testing.T) {
 	cfg := Default()
 	_, err = ResolveDiscordToken(cfg)
 	require.Error(t, err)
+}
+
+func stubDiscordTokenKeyring(t *testing.T, get func(service, account string) (string, error)) {
+	t.Helper()
+	old := discordTokenKeyringGet
+	discordTokenKeyringGet = get
+	t.Cleanup(func() {
+		discordTokenKeyringGet = old
+	})
 }

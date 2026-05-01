@@ -60,6 +60,7 @@ Without those intents/permissions, `sync`, `tail`, member snapshots, or message 
 Token resolution:
 
 1. `DISCORD_BOT_TOKEN` or the configured `discord.token_env`
+2. OS keyring item `discrawl` / `discord_bot_token`, or the configured keyring service/account
 
 `discrawl` accepts either raw token text or a value prefixed with `Bot `. It normalizes that automatically.
 
@@ -78,6 +79,21 @@ export DISCORD_BOT_TOKEN="your-bot-token"
 ```
 
 Then reload your shell before running `discrawl`.
+
+If you prefer the OS keyring, keep the token out of config and store it in the default keyring item:
+
+```bash
+# macOS Keychain
+security add-generic-password -U -s discrawl -a discord_bot_token -w "$DISCORD_BOT_TOKEN"
+
+# Linux Secret Service / libsecret
+printf %s "$DISCORD_BOT_TOKEN" | secret-tool store --label="discrawl Discord bot token" service discrawl username discord_bot_token
+
+# Windows Credential Manager
+cmdkey /generic:discrawl:discord_bot_token /user:discord_bot_token /pass:%DISCORD_BOT_TOKEN%
+```
+
+Set `discord.token_source = "keyring"` if you want to require keyring lookup instead of env-first fallback.
 
 Default runtime paths:
 
@@ -538,6 +554,8 @@ log_dir = "~/.discrawl/logs"
 [discord]
 token_source = "env" # use "none" for Git-only read access
 token_env = "DISCORD_BOT_TOKEN"
+token_keyring_service = "discrawl"
+token_keyring_account = "discord_bot_token"
 
 [sync]
 source = "both" # use "discord" for bot-only sync or "wiretap" for desktop-cache-only import
@@ -575,6 +593,7 @@ Config override rules:
 - `--config` beats everything
 - `DISCRAWL_CONFIG` overrides the default config path
 - `discord.token_source = "none"` disables live Discord access for Git-only readers
+- `discord.token_source = "keyring"` skips env lookup and reads only the configured OS keyring item
 - `DISCRAWL_NO_AUTO_UPDATE=1` disables Git snapshot auto-update for read commands in one process, useful for report jobs that already imported a fresh backup.
 
 ## Embeddings
@@ -642,6 +661,7 @@ Set `sync.attachment_text = false` if you want to keep attachment metadata and f
 
 - do not commit bot tokens or API keys
 - default config lives in your home directory, not inside the repo
+- prefer env vars or the OS keyring for bot tokens
 - CI runs secret scanning with `gitleaks`
 - `doctor` reports token source, not token contents
 
