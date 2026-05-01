@@ -679,7 +679,9 @@ func extractJSONObjects(data []byte) [][]byte {
 
 func shouldSkipDir(name string) bool {
 	switch strings.ToLower(name) {
-	case "crashpad", "gpu-cache", "shadercache", "spellcheck", "dawncache":
+	case "blob_storage", "component_crx_cache", "crashpad", "dawngraphitecache",
+		"dawnwebgpucache", "download_cache", "gpucache", "gpu-cache",
+		"shadercache", "spellcheck", "videodecodestats", "widevinecdm":
 		return true
 	default:
 		return false

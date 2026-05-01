@@ -356,6 +356,56 @@ func TestImportClassifiesMessagesFromCachedChannelRoutes(t *testing.T) {
 	require.Equal(t, [][]string{{"Discord Desktop Guild 999999999999999998"}}, guildRows)
 }
 
+func TestImportClassifiesGzipCacheMessagesFromRendererRoutes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "Cache", "Cache_Data")
+	logPath := filepath.Join(dir, "logs")
+	require.NoError(t, os.MkdirAll(cachePath, 0o755))
+	require.NoError(t, os.MkdirAll(logPath, 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(logPath, "renderer_js.log"), []byte(`[Routing/Utils] transitionTo - Transitioning to /channels/@me/111111111111111122
+[Routing/Utils] transitionTo - Transitioning to /channels/999999999999999995/111111111111111123
+`), 0o600))
+
+	var compressed bytes.Buffer
+	zw := gzip.NewWriter(&compressed)
+	_, err := zw.Write([]byte(`[
+{"id":"333333333333333348","channel_id":"111111111111111122","content":"current cache dm","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222234","username":"alice","global_name":"Alice"}},
+{"id":"333333333333333349","channel_id":"111111111111111123","content":"current cache guild","timestamp":"2026-04-23T18:20:44Z","author":{"id":"222222222222222235","username":"bob","global_name":"Bob"}}
+]`))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	cacheBlob := append([]byte("1/0/https://discord.com/api/v9/channels/111111111111111122/messages?limit=13\x00content-encoding\x00gzip\x00"), compressed.Bytes()...)
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_0"), cacheBlob, 0o600))
+
+	dbPath := filepath.Join(dir, "discrawl.db")
+	st, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = st.Close() }()
+
+	stats, err := Import(ctx, st, Options{Path: dir})
+	require.NoError(t, err)
+	require.Equal(t, 2, stats.FilesScanned)
+	require.Equal(t, 2, stats.Messages)
+	require.Equal(t, 1, stats.DMMessages)
+	require.Equal(t, 1, stats.GuildMessages)
+	require.Equal(t, 0, stats.SkippedMessages)
+
+	dmResults, err := st.SearchMessages(ctx, store.SearchOptions{Query: "current cache dm", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, dmResults, 1)
+	require.Equal(t, DirectMessageGuildID, dmResults[0].GuildID)
+	require.Equal(t, "Alice", dmResults[0].ChannelName)
+
+	guildResults, err := st.SearchMessages(ctx, store.SearchOptions{Query: "current cache guild", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, guildResults, 1)
+	require.Equal(t, "999999999999999995", guildResults[0].GuildID)
+	require.Equal(t, "channel-111123", guildResults[0].ChannelName)
+}
+
 func TestImportInfersDirectMessageNamesFromCachedUsers(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
