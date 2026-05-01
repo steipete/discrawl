@@ -228,6 +228,54 @@ func TestImportExtractsCompressedUnknownMessageArrayFromChromiumCache(t *testing
 	require.Empty(t, results)
 }
 
+func TestImportClassifiesCachedAPIMessageArrayFromSelectedDMRoute(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "Cache", "Cache_Data")
+	storagePath := filepath.Join(dir, "Local Storage", "leveldb")
+	require.NoError(t, os.MkdirAll(cachePath, 0o755))
+	require.NoError(t, os.MkdirAll(storagePath, 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(storagePath, "000001.log"), []byte(`noise
+{"_state":{"selectedGuildId":null,"selectedChannelId":"1459084628458471569","selectedChannelIds":{"null":"1459084628458471569"}}}
+`), 0o600))
+
+	messages := `[
+{"id":"1499513741308461240","channel_id":"1459084628458471569","content":"changed your mind later","timestamp":"2026-04-30T20:52:15.546Z","author":{"id":"1395396685148061737","username":"onur_tc","global_name":"onur"}},
+{"id":"1499513741308461241","channel_id":"1459084628458471569","content":"please correct me","timestamp":"2026-04-30T20:52:16.546Z","author":{"id":"1395396685148061737","username":"onur_tc","global_name":"onur"}},
+{"id":"1499562787343278080","channel_id":"1459084628458471569","content":"I know you are going through a rough time","timestamp":"2026-05-01T00:08:34.929Z","author":{"id":"999999999999999991","username":"steipete","global_name":"Peter"}}
+]`
+	var compressed bytes.Buffer
+	zw := gzip.NewWriter(&compressed)
+	_, err := zw.Write([]byte(messages))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	cacheBlob := append([]byte("https://discord.com/api/v9/channels/1459084628458471569/messages?limit=14\x00"), compressed.Bytes()...)
+	cacheBlob = append(cacheBlob, []byte("chromium trailing metadata")...)
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_0"), cacheBlob, 0o600))
+
+	dbPath := filepath.Join(dir, "discrawl.db")
+	st, err := store.Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = st.Close() }()
+
+	stats, err := Import(ctx, st, Options{Path: dir})
+	require.NoError(t, err)
+	require.Equal(t, 2, stats.FilesScanned)
+	require.Equal(t, 3, stats.Messages)
+	require.Equal(t, 3, stats.DMMessages)
+	require.Equal(t, 1, stats.DMChannels)
+	require.Equal(t, 0, stats.SkippedMessages)
+
+	results, err := st.SearchMessages(ctx, store.SearchOptions{Query: "changed your mind", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, DirectMessageGuildID, results[0].GuildID)
+	require.Equal(t, "onur", results[0].ChannelName)
+	require.Equal(t, "onur", results[0].AuthorName)
+}
+
 func TestImportReconcilesMessagesWithLaterGuildChannelMetadata(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

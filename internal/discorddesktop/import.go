@@ -348,6 +348,7 @@ func collectValue(snap snapshot, channelLookup map[string]store.ChannelRecord, v
 	switch typed := value.(type) {
 	case map[string]any:
 		collectUserLabel(snap, typed)
+		collectSelectedDirectMessageRoutes(snap, typed)
 		if channel, ok := parseChannel(typed); ok {
 			snap.channels[channel.ID] = channel
 			channelLookup[channel.ID] = channel
@@ -380,12 +381,44 @@ func collectChannelRoutes(snap snapshot, data []byte) {
 		if !looksSnowflake(channelID) {
 			continue
 		}
-		if existing, ok := snap.routes[channelID]; ok && existing != guildID {
-			snap.routes[channelID] = ""
-			continue
-		}
-		snap.routes[channelID] = guildID
+		collectChannelRoute(snap, channelID, guildID)
 	}
+}
+
+func collectSelectedDirectMessageRoutes(snap snapshot, raw map[string]any) {
+	for _, candidate := range selectedChannelRouteCandidates(raw) {
+		if selected, _ := candidate["selectedChannelIds"].(map[string]any); selected != nil {
+			if channelID := stringField(selected, "null"); looksSnowflake(channelID) {
+				collectChannelRoute(snap, channelID, DirectMessageGuildID)
+			}
+		}
+		if guildValue, hasGuild := candidate["selectedGuildId"]; hasGuild && guildValue == nil {
+			if channelID := stringField(candidate, "selectedChannelId"); looksSnowflake(channelID) {
+				collectChannelRoute(snap, channelID, DirectMessageGuildID)
+			}
+		}
+	}
+}
+
+func selectedChannelRouteCandidates(raw map[string]any) []map[string]any {
+	candidates := []map[string]any{raw}
+	for _, key := range []string{"_state", "state"} {
+		if child, _ := raw[key].(map[string]any); child != nil {
+			candidates = append(candidates, child)
+		}
+	}
+	return candidates
+}
+
+func collectChannelRoute(snap snapshot, channelID, guildID string) {
+	if !looksSnowflake(channelID) || guildID == "" {
+		return
+	}
+	if existing, ok := snap.routes[channelID]; ok && existing != guildID {
+		snap.routes[channelID] = ""
+		return
+	}
+	snap.routes[channelID] = guildID
 }
 
 func parseChannel(raw map[string]any) (store.ChannelRecord, bool) {
