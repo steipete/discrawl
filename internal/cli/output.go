@@ -105,6 +105,7 @@ Commands:
   tail
   wiretap
   search
+  tui
   messages
   digest
   analytics

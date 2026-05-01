@@ -144,6 +144,9 @@ func (r *runtime) dispatch(rest []string) error {
 	case "search":
 		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
 		return r.withLocalStoreDefaultLocked(autoShareUpdate, autoShareUpdate, func() error { return r.runSearch(rest[1:]) })
+	case "tui":
+		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
+		return r.withLocalStoreDefaultLocked(autoShareUpdate, autoShareUpdate, func() error { return r.runTUI(rest[1:]) })
 	case "messages":
 		if hasBoolFlag(rest[1:], "--sync") && !hasBoolFlag(rest[1:], "--dm") {
 			return r.withServicesAutoLocked(true, true, true, func() error { return r.runMessages(rest[1:]) })

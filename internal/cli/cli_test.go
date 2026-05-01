@@ -137,6 +137,18 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 		require.NoError(t, Run(ctx, args, &out, &bytes.Buffer{}))
 		require.NotEmpty(t, out.String())
 	}
+
+	before, err := os.ReadFile(dbPath)
+	require.NoError(t, err)
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, []string{"--config", cfgPath, "--json", "tui", "--limit", "5"}, &out, &bytes.Buffer{}))
+	var rows []map[string]any
+	require.NoError(t, json.Unmarshal(out.Bytes(), &rows))
+	require.NotEmpty(t, rows)
+	require.Equal(t, "panic locked database", rows[0]["title"])
+	after, err := os.ReadFile(dbPath)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "tui --json should not mutate the database")
 }
 
 func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
