@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/steipete/discrawl/internal/discorddesktop"
+	"github.com/steipete/discrawl/internal/report"
 	"github.com/steipete/discrawl/internal/store"
 	"github.com/steipete/discrawl/internal/syncer"
 )
@@ -69,6 +70,11 @@ func printPlain(w io.Writer, value any) error {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", formatTime(row.CreatedAt), row.GuildID, row.ChannelID, row.AuthorID, row.TargetType, row.TargetID, row.Content)
 		}
 		return nil
+	case report.Digest:
+		for _, row := range v.Channels {
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%d\n", row.ChannelID, row.ChannelName, row.Kind, row.GuildID, row.Messages, row.Threads, row.ActiveAuthors)
+		}
+		return nil
 	default:
 		return errors.New("no plain printer")
 	}
@@ -87,6 +93,7 @@ Commands:
   wiretap
   search
   messages
+  digest
   dms
   mentions
   embed
@@ -274,6 +281,26 @@ func printHuman(w io.Writer, value any) error {
 			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", row.GuildID, row.ID, row.Kind, row.Name)
 		}
 		return tw.Flush()
+	case report.Digest:
+		for _, channel := range v.Channels {
+			if _, err := fmt.Fprintf(w, "%s (%s)\n", channel.ChannelName, firstNonEmpty(channel.Kind, "unknown")); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "  messages=%d threads=%d authors=%d\n", channel.Messages, channel.Threads, channel.ActiveAuthors); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "  top posters  %s\n", formatRankedCounts(channel.TopPosters)); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "  top mentions %s\n\n", formatRankedCounts(channel.TopMentions)); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(w, "Window: %s to %s (%s)\n", formatTime(v.Since), formatTime(v.Until), v.WindowLabel); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(w, "Totals: messages=%d threads=%d channels=%d authors=%d\n", v.Totals.Messages, v.Totals.Threads, v.Totals.Channels, v.Totals.ActiveAuthors)
+		return err
 	case map[string]any:
 		keys := make([]string, 0, len(v))
 		for key := range v {
@@ -321,4 +348,15 @@ func trimForTable(value string) string {
 		return value
 	}
 	return value[:37] + "..."
+}
+
+func formatRankedCounts(rows []report.RankedCount) string {
+	if len(rows) == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		parts = append(parts, fmt.Sprintf("%s (%d)", firstNonEmpty(row.Name, "unknown"), row.Count))
+	}
+	return strings.Join(parts, ", ")
 }
