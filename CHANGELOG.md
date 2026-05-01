@@ -32,10 +32,13 @@ All notable changes to `discrawl` will be documented in this file.
 
 ### Changes
 
+- Add crawlkit control metadata/status surfaces with `metadata --json`, `status --json`, and `doctor --json`.
+- Add `tap` and `cache-import` as public desktop-cache import names while keeping `wiretap` as a documented legacy alias.
 - Add `discrawl tui`, a terminal archive browser for stored guild messages and local `@me` wiretap DMs using the shared `crawlkit/tui` package.
 
 ### Fixes
 
+- Keep status and TUI reads safe for fresh or missing local databases without triggering git-share auto-update.
 - Added OS keyring fallback for Discord bot-token resolution, keeping env as the first source and documenting the default keyring item. (#17)
 - Clarified and locked down FTS query normalization so operator-like search terms such as `AND`, `OR`, `NOT`, `NEAR`, and `*` stay parameterized and quoted before SQLite `MATCH`. Thanks @mvanhorn.
 

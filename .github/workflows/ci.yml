@@ -91,14 +91,19 @@ jobs:
           }'
 
       - name: Build
-        run: go build ./cmd/discrawl
+        run: go build -o bin/discrawl ./cmd/discrawl
 
-      - name: Smoke test CLI help
+      - name: Smoke test CLI control surface
         run: |
           set -euo pipefail
-          output="$(go run ./cmd/discrawl help)"
+          output="$(./bin/discrawl help)"
           printf '%s\n' "$output"
+          printf '%s' "$output" | grep -q "metadata"
           printf '%s' "$output" | grep -q "tui"
+          test -n "$(./bin/discrawl --version)"
+          ./bin/discrawl metadata --json | grep -q '"schema_version"'
+          ./bin/discrawl status --json | grep -q '"databases"'
+          ./bin/discrawl tui --json | grep -q '^\['
 
   deps:
     runs-on: ubuntu-latest
