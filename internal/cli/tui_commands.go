@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"strings"
 
@@ -45,44 +44,43 @@ func (r *runtime) runTUI(args []string) error {
 	if err != nil {
 		return err
 	}
-	items := discordTUIItems(rows)
-	if r.json {
-		return r.print(items)
-	}
-	if err := tui.Run(r.ctx, tui.Options{
+	return tui.Browse(r.ctx, tui.BrowseOptions{
+		AppName:      "discrawl",
 		Title:        "discrawl archive",
 		EmptyMessage: "discrawl has no local messages yet",
-		Items:        items,
-	}); err != nil {
-		if errors.Is(err, tui.ErrNotTerminal) {
-			return fmt.Errorf("%w; run discrawl tui from a TTY or pass --json", err)
-		}
-		return err
-	}
-	return nil
+		Rows:         discordTUIRows(rows),
+		JSON:         r.json,
+		Stdout:       r.stdout,
+	})
 }
 
-func discordTUIItems(rows []store.MessageRow) []tui.Item {
-	items := make([]tui.Item, 0, len(rows))
+func discordTUIRows(rows []store.MessageRow) []tui.Row {
+	items := make([]tui.Row, 0, len(rows))
 	for _, row := range rows {
 		title := strings.TrimSpace(row.Content)
 		if title == "" {
 			title = row.MessageID
 		}
-		tags := []string{"message", row.GuildID, row.ChannelID}
+		tags := []string{row.GuildID, row.ChannelID}
 		if row.GuildID == "@me" {
 			tags = append(tags, "dm")
 		}
-		items = append(items, tui.Item{
-			Title:    title,
-			Subtitle: strings.TrimSpace(strings.Join([]string{row.GuildID, row.ChannelName, row.AuthorName, formatTime(row.CreatedAt)}, " ")),
-			Detail: strings.TrimSpace(strings.Join([]string{
-				"id=" + row.MessageID,
-				"channel=" + row.ChannelID,
-				"author=" + row.AuthorID,
-				"reply_to=" + row.ReplyToMessage,
-			}, "\n")),
-			Tags: tags,
+		items = append(items, tui.Row{
+			Source:    "discord",
+			Kind:      "message",
+			ID:        row.MessageID,
+			ParentID:  row.ReplyToMessage,
+			Scope:     row.GuildID,
+			Container: firstNonEmpty(row.ChannelName, row.ChannelID),
+			Author:    firstNonEmpty(row.AuthorName, row.AuthorID),
+			Title:     title,
+			Text:      row.Content,
+			CreatedAt: formatTime(row.CreatedAt),
+			Tags:      tags,
+			Fields: map[string]string{
+				"channel_id": row.ChannelID,
+				"author_id":  row.AuthorID,
+			},
 		})
 	}
 	return items
