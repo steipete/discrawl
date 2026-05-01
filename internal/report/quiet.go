@@ -95,8 +95,7 @@ select
 	coalesce(lm.last_message, '') as last_message
 from channels c
 left join latest_messages lm on lm.guild_id = c.guild_id and lm.channel_id = c.id
-where 1 = 1
-  and c.kind in ('text', 'announcement', 'thread_public', 'thread_private', 'thread_announcement')
+where ` + quietChannelKindPredicate + `
 `)
 	args := make([]any, 0, 2)
 	if guildID != "" {

@@ -807,7 +807,7 @@ Behavior:
 - `--since` accepts Go durations (`72h`, `30m`) and `Nd` shorthand (`7d`, `30d`)
 - `--guild` filters by `guild_id`; empty means no guild filter
 - `--channel` accepts channel id or exact channel name
-- per-channel metrics include `messages`, `threads` (distinct `reply_to_message_id`), and `active_authors`
+- per-channel metrics include `messages`, `replies`, and `active_authors`
 - top posters are ranked by message count using member display fallback order: `display_name -> nick -> global_name -> username -> author_id -> unknown`
 - top mentions are ranked from `mention_events` and include all target types (`user` and `role`)
 - channels are sorted by message count descending, then channel name ascending
@@ -823,11 +823,17 @@ Example usage:
 discrawl analytics
 discrawl analytics quiet --since 30d
 discrawl analytics quiet --guild 123456789012345678
+discrawl analytics trends --weeks 8
+discrawl analytics trends --weeks 12 --channel general
 discrawl --json analytics quiet --since 60d
+discrawl --json analytics trends --weeks 4
 ```
 
 Behavior:
 
 - `analytics quiet` defaults to `30d` lookback and supports `--guild`
-- `analytics quiet` includes channels with no messages at all
+- `analytics quiet` includes top-level text/announcement channels with no messages at all
 - quiet rows are sorted with never-active channels first, then by longest silence
+- `analytics trends` defaults to `8` weeks and supports `--guild` plus `--channel` (id or exact name)
+- `analytics trends` buckets messages into Monday-start UTC weeks and zero-fills missing weeks for every returned message-capable channel
+- trends rows are sorted by total messages descending, then channel name ascending

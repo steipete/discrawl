@@ -4,8 +4,14 @@ All notable changes to `discrawl` will be documented in this file.
 
 ## 0.6.2 - Unreleased
 
+### Changes
+
+- Added `discrawl digest` for per-channel activity summaries with messages, replies, active authors, top posters, and top mentions. Thanks @mvanhorn.
+- Added `discrawl analytics quiet` and `discrawl analytics trends` for finding silent top-level channels and week-over-week channel volume. Thanks @mvanhorn.
+
 ### Fixes
 
+- `discrawl digest` now reports reply counts as `replies` instead of mislabeling reply roots as Discord threads.
 - `discrawl sync` now serializes concurrent runs with a local lock, preventing two refreshes from writing the archive at the same time.
 - Git snapshot imports now keep SQLite crash recovery enabled and share the same archive lock as sync, update, tail, wiretap, embed, and auto-update reads so interrupted imports are less likely to corrupt the live database.
 - Git snapshot imports now recover from corrupt local FTS tables by dropping and rebuilding search indexes, and repair missing guild IDs from channel metadata so shared archive reports stay fresh.

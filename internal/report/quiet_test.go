@@ -23,14 +23,13 @@ func TestBuildQuiet(t *testing.T) {
 		require.Equal(t, now, quiet.GeneratedAt)
 		require.Equal(t, now.Add(-30*24*time.Hour), quiet.Since)
 		require.Equal(t, now, quiet.Until)
-		require.Equal(t, 4, quiet.Totals.Channels)
+		require.Equal(t, 3, quiet.Totals.Channels)
 
-		ids := []string{quiet.Channels[0].ChannelID, quiet.Channels[1].ChannelID, quiet.Channels[2].ChannelID, quiet.Channels[3].ChannelID}
-		require.Equal(t, []string{"c0", "c2", "c9", "c3"}, ids)
+		ids := []string{quiet.Channels[0].ChannelID, quiet.Channels[1].ChannelID, quiet.Channels[2].ChannelID}
+		require.Equal(t, []string{"c0", "c2", "c9"}, ids)
 		require.Equal(t, -1, quiet.Channels[0].DaysSilent)
 		require.Equal(t, 45, quiet.Channels[1].DaysSilent)
 		require.Equal(t, 40, quiet.Channels[2].DaysSilent)
-		require.Equal(t, 35, quiet.Channels[3].DaysSilent)
 	})
 
 	t.Run("zero activity channel inclusion", func(t *testing.T) {
@@ -52,7 +51,7 @@ func TestBuildQuiet(t *testing.T) {
 	t.Run("guild filter", func(t *testing.T) {
 		quiet, err := BuildQuiet(ctx, s, QuietOptions{Now: now, Since: 30 * 24 * time.Hour, GuildID: "g1"})
 		require.NoError(t, err)
-		require.Len(t, quiet.Channels, 3)
+		require.Len(t, quiet.Channels, 2)
 		for _, row := range quiet.Channels {
 			require.Equal(t, "g1", row.GuildID)
 		}
@@ -74,10 +73,9 @@ func TestBuildQuiet(t *testing.T) {
 	t.Run("sort order most silent first with never-active first", func(t *testing.T) {
 		quiet, err := BuildQuiet(ctx, s, QuietOptions{Now: now, Since: 30 * 24 * time.Hour})
 		require.NoError(t, err)
-		require.Len(t, quiet.Channels, 4)
+		require.Len(t, quiet.Channels, 3)
 		require.Equal(t, "c0", quiet.Channels[0].ChannelID)
 		require.Greater(t, quiet.Channels[1].DaysSilent, quiet.Channels[2].DaysSilent)
-		require.Greater(t, quiet.Channels[2].DaysSilent, quiet.Channels[3].DaysSilent)
 	})
 }
 

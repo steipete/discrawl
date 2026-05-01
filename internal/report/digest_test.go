@@ -30,7 +30,7 @@ func TestBuildDigest(t *testing.T) {
 		require.Equal(t, "c1", digest.Channels[0].ChannelID)
 		require.Equal(t, "general", digest.Channels[0].ChannelName)
 		require.Equal(t, 4, digest.Channels[0].Messages)
-		require.Equal(t, 1, digest.Channels[0].Threads)
+		require.Equal(t, 2, digest.Channels[0].Replies)
 		require.Equal(t, 3, digest.Channels[0].ActiveAuthors)
 
 		require.Equal(t, "Alice", digest.Channels[0].TopPosters[0].Name)
@@ -40,7 +40,7 @@ func TestBuildDigest(t *testing.T) {
 		require.Equal(t, "Oncall", digest.Channels[0].TopMentions[1].Name)
 
 		require.Equal(t, 6, digest.Totals.Messages)
-		require.Equal(t, 1, digest.Totals.Threads)
+		require.Equal(t, 2, digest.Totals.Replies)
 		require.Equal(t, 3, digest.Totals.Channels)
 		require.Equal(t, 4, digest.Totals.ActiveAuthors)
 	})

@@ -39,7 +39,7 @@ type ChannelDigest struct {
 	Kind          string        `json:"kind,omitempty"`
 	GuildID       string        `json:"guild_id"`
 	Messages      int           `json:"messages"`
-	Threads       int           `json:"threads"`
+	Replies       int           `json:"replies"`
 	ActiveAuthors int           `json:"active_authors"`
 	TopPosters    []RankedCount `json:"top_posters"`
 	TopMentions   []RankedCount `json:"top_mentions"`
@@ -48,7 +48,7 @@ type ChannelDigest struct {
 // DigestTotals sums message and channel counts across the digest window.
 type DigestTotals struct {
 	Messages      int `json:"messages"`
-	Threads       int `json:"threads"`
+	Replies       int `json:"replies"`
 	Channels      int `json:"channels"`
 	ActiveAuthors int `json:"active_authors"`
 }
@@ -118,7 +118,7 @@ select
 	coalesce(nullif(c.name, ''), c.id) as channel_name,
 	coalesce(c.kind, '') as kind,
 	count(m.id) as messages,
-	count(distinct case when nullif(m.reply_to_message_id, '') is not null then m.reply_to_message_id else null end) as threads,
+	count(case when nullif(m.reply_to_message_id, '') is not null then 1 else null end) as replies,
 	count(distinct nullif(m.author_id, '')) as active_authors
 from channels c
 left join messages m on m.guild_id = c.guild_id
@@ -151,7 +151,7 @@ order by messages desc, channel_name asc
 	var out []ChannelDigest
 	for rows.Next() {
 		var row ChannelDigest
-		if err := rows.Scan(&row.GuildID, &row.ChannelID, &row.ChannelName, &row.Kind, &row.Messages, &row.Threads, &row.ActiveAuthors); err != nil {
+		if err := rows.Scan(&row.GuildID, &row.ChannelID, &row.ChannelName, &row.Kind, &row.Messages, &row.Replies, &row.ActiveAuthors); err != nil {
 			return nil, fmt.Errorf("digest per-channel scan: %w", err)
 		}
 		out = append(out, row)
@@ -208,7 +208,7 @@ func digestTotals(ctx context.Context, db *sql.DB, since, until time.Time, guild
 	query.WriteString(`
 select
 	count(*) as messages,
-	count(distinct case when nullif(m.reply_to_message_id, '') is not null then m.reply_to_message_id else null end) as threads,
+	count(case when nullif(m.reply_to_message_id, '') is not null then 1 else null end) as replies,
 	count(distinct m.guild_id || '|' || m.channel_id) as channels,
 	count(distinct nullif(m.author_id, '')) as active_authors
 from messages m
@@ -227,7 +227,7 @@ where m.created_at >= ?
 	}
 
 	var totals DigestTotals
-	if err := db.QueryRowContext(ctx, query.String(), args...).Scan(&totals.Messages, &totals.Threads, &totals.Channels, &totals.ActiveAuthors); err != nil {
+	if err := db.QueryRowContext(ctx, query.String(), args...).Scan(&totals.Messages, &totals.Replies, &totals.Channels, &totals.ActiveAuthors); err != nil {
 		return DigestTotals{}, fmt.Errorf("digest totals: %w", err)
 	}
 	return totals, nil

@@ -498,13 +498,18 @@ Groups activity-style queries under one namespace.
 discrawl analytics
 discrawl analytics quiet --since 30d
 discrawl analytics quiet --guild 123456789012345678
+discrawl analytics trends --weeks 8
+discrawl analytics trends --weeks 12 --channel general
 discrawl --json analytics quiet --since 60d
+discrawl --json analytics trends --weeks 4
 ```
 
 Notes:
 
-- `analytics quiet` shows channels with no messages in the lookback window, including never-active channels
+- `analytics quiet` shows top-level text/announcement channels with no messages in the lookback window, including never-active channels
 - `analytics quiet --guild` scopes the report to one guild; when omitted, `default_guild_id` is used if configured
+- `analytics trends` shows Monday-start UTC weekly message counts per message-capable channel
+- `analytics trends --channel` accepts a channel id or exact channel name
 
 ### `doctor`
 

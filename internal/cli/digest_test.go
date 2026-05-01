@@ -71,6 +71,8 @@ func TestDigestCommand(t *testing.T) {
 		totals, ok := payload["totals"].(map[string]any)
 		require.True(t, ok)
 		require.InEpsilon(t, 2, totals["messages"], 0.001)
+		require.Contains(t, totals, "replies")
+		require.NotContains(t, totals, "threads")
 	})
 
 	t.Run("channel name filter", func(t *testing.T) {

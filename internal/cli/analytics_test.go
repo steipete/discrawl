@@ -32,7 +32,7 @@ func TestAnalyticsCommand(t *testing.T) {
 		require.NoError(t, Run(ctx, []string{"--config", cfgPath, "analytics"}, &out, &bytes.Buffer{}))
 		require.Contains(t, out.String(), "Usage: discrawl analytics <subcommand> [flags]")
 		require.Contains(t, out.String(), "quiet")
-		require.NotContains(t, out.String(), "trends")
+		require.Contains(t, out.String(), "trends")
 	})
 
 	t.Run("analytics quiet json schema", func(t *testing.T) {
@@ -80,6 +80,50 @@ func TestAnalyticsCommand(t *testing.T) {
 		require.Contains(t, out.String(), "c3\tstale\ttext\tg1\t")
 	})
 
+	t.Run("analytics trends json schema", func(t *testing.T) {
+		var out bytes.Buffer
+		require.NoError(t, Run(ctx, []string{"--config", cfgPath, "--json", "analytics", "trends", "--weeks", "4"}, &out, &bytes.Buffer{}))
+
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(out.Bytes(), &payload))
+		require.InEpsilon(t, 4, payload["weeks"], 0.001)
+		require.Contains(t, payload, "rows")
+
+		rows, ok := payload["rows"].([]any)
+		require.True(t, ok)
+		require.NotEmpty(t, rows)
+
+		first, ok := rows[0].(map[string]any)
+		require.True(t, ok)
+		require.Contains(t, first, "channel_id")
+		require.Contains(t, first, "channel_name")
+		require.Contains(t, first, "weekly")
+
+		weekly := first["weekly"].([]any)
+		require.Len(t, weekly, 4)
+		weekRow := weekly[0].(map[string]any)
+		require.Contains(t, weekRow, "week_start")
+		require.Contains(t, weekRow, "messages")
+	})
+
+	t.Run("analytics trends human output", func(t *testing.T) {
+		var out bytes.Buffer
+		require.NoError(t, Run(ctx, []string{"--config", cfgPath, "analytics", "trends", "--weeks", "4"}, &out, &bytes.Buffer{}))
+
+		text := out.String()
+		require.Contains(t, text, "CHANNEL")
+		require.Contains(t, text, "TOTAL")
+		require.Contains(t, text, "general")
+		require.Contains(t, text, "Window:")
+	})
+
+	t.Run("analytics trends plain output", func(t *testing.T) {
+		var out bytes.Buffer
+		require.NoError(t, Run(ctx, []string{"--config", cfgPath, "--plain", "analytics", "trends", "--weeks", "4"}, &out, &bytes.Buffer{}))
+
+		require.Contains(t, out.String(), "g1\tc1\tgeneral\ttext\t")
+	})
+
 	t.Run("unknown analytics subcommand returns usage error", func(t *testing.T) {
 		err := Run(ctx, []string{"--config", cfgPath, "analytics", "unknown-sub"}, &bytes.Buffer{}, &bytes.Buffer{})
 		require.Error(t, err)
@@ -90,6 +134,9 @@ func TestAnalyticsCommand(t *testing.T) {
 		cases := [][]string{
 			{"--config", cfgPath, "analytics", "quiet", "--bogus"},
 			{"--config", cfgPath, "analytics", "quiet", "extra"},
+			{"--config", cfgPath, "analytics", "trends", "--bogus"},
+			{"--config", cfgPath, "analytics", "trends", "--weeks", "-1"},
+			{"--config", cfgPath, "analytics", "trends", "extra"},
 		}
 		for _, args := range cases {
 			err := Run(ctx, args, &bytes.Buffer{}, &bytes.Buffer{})
