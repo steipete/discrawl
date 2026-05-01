@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -121,7 +120,7 @@ func TestResolveDiscordTokenRequiresEnvValue(t *testing.T) {
 
 	_, err := ResolveDiscordToken(cfg)
 	require.ErrorContains(t, err, `discord token not found in environment variable "DISCORD_BOT_TOKEN" or keyring item "discrawl"/"discord_bot_token"`)
-	require.True(t, errors.Is(err, keyring.ErrNotFound))
+	require.ErrorIs(t, err, keyring.ErrNotFound)
 }
 
 func TestResolveDiscordTokenDisabled(t *testing.T) {
