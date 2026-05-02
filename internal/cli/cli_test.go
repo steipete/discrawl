@@ -199,6 +199,28 @@ func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
 	require.Contains(t, out.String(), "secret DM launch plan")
 }
 
+func TestDiscordTUIRowsIncludePaneMetadata(t *testing.T) {
+	rows := discordTUIRows([]store.MessageRow{{
+		MessageID:      "m1",
+		GuildID:        "@me",
+		ChannelID:      "c1",
+		ChannelName:    "Vincent K",
+		AuthorID:       "u1",
+		AuthorName:     "Peter",
+		Content:        "hello from desktop",
+		CreatedAt:      time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
+		ReplyToMessage: "m0",
+		HasAttachments: true,
+		Pinned:         true,
+	}})
+	require.Len(t, rows, 1)
+	require.Equal(t, "hello from desktop", rows[0].Title)
+	require.Contains(t, rows[0].Tags, "dm")
+	require.Equal(t, "true", rows[0].Fields["attachments"])
+	require.Equal(t, "true", rows[0].Fields["pinned"])
+	require.Equal(t, "m0", rows[0].Fields["reply_to"])
+}
+
 func TestParseMessageWindow(t *testing.T) {
 	rt := &runtime{now: func() time.Time {
 		return time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)

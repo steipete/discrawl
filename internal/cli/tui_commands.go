@@ -111,10 +111,20 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 			CreatedAt: formatTime(row.CreatedAt),
 			Tags:      tags,
 			Fields: map[string]string{
-				"channel_id": row.ChannelID,
-				"author_id":  row.AuthorID,
+				"attachments": boolString(row.HasAttachments),
+				"author_id":   row.AuthorID,
+				"channel_id":  row.ChannelID,
+				"pinned":      boolString(row.Pinned),
+				"reply_to":    row.ReplyToMessage,
 			},
 		})
 	}
 	return items
+}
+
+func boolString(value bool) string {
+	if value {
+		return "true"
+	}
+	return ""
 }
