@@ -40,12 +40,14 @@ func (r *runtime) runTUI(args []string) error {
 	}
 	if r.store == nil {
 		return tui.Browse(r.ctx, tui.BrowseOptions{
-			AppName:      "discrawl",
-			Title:        "discrawl archive",
-			EmptyMessage: "discrawl has no local messages yet",
-			JSON:         r.json,
-			Layout:       tui.LayoutChat,
-			Stdout:       r.stdout,
+			AppName:        "discrawl",
+			Title:          "discrawl archive",
+			EmptyMessage:   "discrawl has no local messages yet",
+			JSON:           r.json,
+			Layout:         tui.LayoutChat,
+			SourceKind:     r.archiveSourceKind(),
+			SourceLocation: r.archiveSourceLocation(),
+			Stdout:         r.stdout,
 		})
 	}
 	rows, err := r.store.ListMessages(r.ctx, store.MessageListOptions{
@@ -59,14 +61,30 @@ func (r *runtime) runTUI(args []string) error {
 		return err
 	}
 	return tui.Browse(r.ctx, tui.BrowseOptions{
-		AppName:      "discrawl",
-		Title:        "discrawl archive",
-		EmptyMessage: "discrawl has no local messages yet",
-		Rows:         discordTUIRows(rows),
-		JSON:         r.json,
-		Layout:       tui.LayoutChat,
-		Stdout:       r.stdout,
+		AppName:        "discrawl",
+		Title:          "discrawl archive",
+		EmptyMessage:   "discrawl has no local messages yet",
+		Rows:           discordTUIRows(rows),
+		JSON:           r.json,
+		Layout:         tui.LayoutChat,
+		SourceKind:     r.archiveSourceKind(),
+		SourceLocation: r.archiveSourceLocation(),
+		Stdout:         r.stdout,
 	})
+}
+
+func (r *runtime) archiveSourceKind() string {
+	if strings.TrimSpace(r.cfg.Share.Remote) != "" {
+		return tui.SourceRemote
+	}
+	return tui.SourceLocal
+}
+
+func (r *runtime) archiveSourceLocation() string {
+	if strings.TrimSpace(r.cfg.Share.Remote) != "" {
+		return r.cfg.Share.Remote
+	}
+	return r.cfg.DBPath
 }
 
 func discordTUIRows(rows []store.MessageRow) []tui.Row {
