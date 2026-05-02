@@ -43,7 +43,7 @@ func (r *runtime) runTUI(args []string) error {
 	if *limit <= 0 {
 		return usageErr(errors.New("tui --limit must be positive"))
 	}
-	guildIDs, err := directMessageGuildScope(*dm, *guildFlag, *guildsFlag)
+	guildIDs, err := r.resolveTUIGuilds(*dm, *guildFlag, *guildsFlag)
 	if err != nil {
 		return usageErr(err)
 	}
@@ -80,6 +80,17 @@ func (r *runtime) runTUI(args []string) error {
 		SourceLocation: r.archiveSourceLocation(),
 		Stdout:         r.stdout,
 	})
+}
+
+func (r *runtime) resolveTUIGuilds(dm bool, guild, guilds string) ([]string, error) {
+	guildIDs, err := directMessageGuildScope(dm, guild, guilds)
+	if err != nil || dm || len(guildIDs) > 0 {
+		return guildIDs, err
+	}
+	if defaultGuild := r.cfg.EffectiveDefaultGuildID(); defaultGuild != "" {
+		return []string{defaultGuild}, nil
+	}
+	return nil, nil
 }
 
 func (r *runtime) archiveSourceKind() string {

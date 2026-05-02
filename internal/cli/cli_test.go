@@ -76,6 +76,21 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 		NormalizedContent: "panic locked database",
 		RawJSON:           `{}`,
 	}))
+	require.NoError(t, s.UpsertGuild(ctx, store.GuildRecord{ID: "g2", Name: "Other Guild", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertChannel(ctx, store.ChannelRecord{ID: "c2", GuildID: "g2", Kind: "text", Name: "random", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertMessage(ctx, store.MessageRecord{
+		ID:                "m-other",
+		GuildID:           "g2",
+		ChannelID:         "c2",
+		ChannelName:       "random",
+		AuthorID:          "u2",
+		AuthorName:        "Outside",
+		MessageType:       0,
+		CreatedAt:         time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano),
+		Content:           "outside default guild",
+		NormalizedContent: "outside default guild",
+		RawJSON:           `{}`,
+	}))
 	require.NoError(t, s.UpsertMessage(ctx, store.MessageRecord{
 		ID:                "m2",
 		GuildID:           "g1",
