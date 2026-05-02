@@ -96,3 +96,12 @@ func hasBoolFlag(args []string, name string) bool {
 	}
 	return false
 }
+
+func hasHelpArg(args []string) bool {
+	for _, arg := range args {
+		if arg == "help" || arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
+}

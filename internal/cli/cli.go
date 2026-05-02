@@ -157,6 +157,9 @@ func (r *runtime) dispatch(rest []string) error {
 		autoShareUpdate := !hasBoolFlag(rest[1:], "--dm")
 		return r.withLocalStoreDefaultLocked(autoShareUpdate, autoShareUpdate, func() error { return r.runSearch(rest[1:]) })
 	case "tui":
+		if hasHelpArg(rest[1:]) {
+			return r.runTUI(rest[1:])
+		}
 		return r.withLocalStoreReadOnly(func() error { return r.runTUI(rest[1:]) })
 	case "messages":
 		if hasBoolFlag(rest[1:], "--sync") && !hasBoolFlag(rest[1:], "--dm") {

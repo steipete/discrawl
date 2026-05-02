@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"flag"
-	"io"
 	"strings"
 
 	"github.com/vincentkoc/crawlkit/tui"
@@ -13,16 +12,26 @@ import (
 
 func (r *runtime) runTUI(args []string) error {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	channel := fs.String("channel", "", "")
-	author := fs.String("author", "", "")
-	limit := fs.Int("limit", 200, "")
-	includeEmpty := fs.Bool("include-empty", false, "")
-	dm := fs.Bool("dm", false, "")
-	guildsFlag := fs.String("guilds", "", "")
-	guildFlag := fs.String("guild", "", "")
-	jsonOut := fs.Bool("json", false, "")
+	fs.SetOutput(r.stderr)
+	if hasHelpArg(args) {
+		fs.SetOutput(r.stdout)
+	}
+	channel := fs.String("channel", "", "channel id")
+	author := fs.String("author", "", "author/user id")
+	limit := fs.Int("limit", 200, "row limit")
+	includeEmpty := fs.Bool("include-empty", false, "include empty messages")
+	dm := fs.Bool("dm", false, "browse direct messages")
+	guildsFlag := fs.String("guilds", "", "comma-separated guild ids")
+	guildFlag := fs.String("guild", "", "guild id")
+	jsonOut := fs.Bool("json", false, "write browser rows as JSON")
+	if len(args) == 1 && args[0] == "help" {
+		fs.Usage()
+		return nil
+	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return usageErr(err)
 	}
 	if *jsonOut {

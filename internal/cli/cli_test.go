@@ -155,6 +155,16 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 	require.Equal(t, before, after, "tui --json should not mutate the database")
 }
 
+func TestTUIHelpReturnsUsage(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	require.NoError(t, Run(context.Background(), []string{"tui", "--help"}, &stdout, &stderr))
+	require.Contains(t, stdout.String(), "Usage of tui:")
+	require.Contains(t, stdout.String(), "-limit")
+	require.Empty(t, stderr.String())
+}
+
 func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
