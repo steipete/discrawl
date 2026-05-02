@@ -35,6 +35,7 @@ All notable changes to `discrawl` will be documented in this file.
 - Add crawlkit control metadata/status surfaces with `metadata --json`, `status --json`, and `doctor --json`.
 - Add `tap` and `cache-import` as public desktop-cache import names while keeping `wiretap` as a documented legacy alias.
 - Add `discrawl tui`, a terminal archive browser for stored guild messages and local `@me` wiretap DMs using the shared `crawlkit/tui` package.
+- Render TUI rows with compact panes and expose pinned, attachment, reply, channel, and author metadata in the detail pane.
 
 ### Fixes
 
