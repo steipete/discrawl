@@ -184,6 +184,26 @@ func TestSnapshotExcludesAndPreservesDirectMessages(t *testing.T) {
 	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "channels")), directMessageGuildID)
 	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "messages")), "private dm content")
 	require.NotContains(t, snapshotTableText(t, repo, tableEntry(t, manifest, "sync_state")), "wiretap:last_import")
+	manifest = appendSnapshotRow(t, repo, manifest, "messages", map[string]any{
+		"id":                 "hostile-dm",
+		"guild_id":           directMessageGuildID,
+		"channel_id":         "dm-c2",
+		"author_id":          "u9",
+		"message_type":       0,
+		"created_at":         "2026-04-24T16:00:00Z",
+		"content":            "hostile imported dm",
+		"normalized_content": "hostile imported dm",
+		"pinned":             0,
+		"has_attachments":    0,
+		"raw_json":           `{}`,
+		"updated_at":         "2026-04-24T16:00:00Z",
+	})
+	manifest = appendSnapshotRow(t, repo, manifest, "sync_state", map[string]any{
+		"scope":      "wiretap:hostile",
+		"cursor":     "private",
+		"updated_at": "2026-04-24T16:00:00Z",
+	})
+	writeShareManifest(t, repo, manifest)
 
 	dst, err := store.Open(ctx, filepath.Join(t.TempDir(), "dst.db"))
 	require.NoError(t, err)
@@ -202,6 +222,12 @@ func TestSnapshotExcludesAndPreservesDirectMessages(t *testing.T) {
 	wiretapState, err := dst.GetSyncState(ctx, "wiretap:last_import")
 	require.NoError(t, err)
 	require.Equal(t, "2026-04-24T15:33:17Z", wiretapState)
+	hostileResults, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "hostile imported dm", Limit: 10})
+	require.NoError(t, err)
+	require.Empty(t, hostileResults)
+	_, rows, err := dst.ReadOnlyQuery(ctx, "select count(*) from sync_state where scope = 'wiretap:hostile'")
+	require.NoError(t, err)
+	require.Equal(t, "0", rows[0][0])
 }
 
 func TestExportImportEmbeddingsOptIn(t *testing.T) {
@@ -798,6 +824,33 @@ func writeGzipJSONLines(t *testing.T, path string, lines []string) {
 	}
 	require.NoError(t, gz.Close())
 	require.NoError(t, file.Close())
+}
+
+func appendSnapshotRow(t *testing.T, repo string, manifest Manifest, tableName string, row map[string]any) Manifest {
+	t.Helper()
+	for i := range manifest.Tables {
+		if manifest.Tables[i].Name != tableName {
+			continue
+		}
+		rel := filepath.ToSlash(filepath.Join("tables", tableName, "hostile-"+strconv.Itoa(len(manifest.Tables[i].Files))+".jsonl.gz"))
+		full := filepath.Join(repo, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		body, err := json.Marshal(row)
+		require.NoError(t, err)
+		writeGzipJSONLines(t, full, []string{string(body)})
+		manifest.Tables[i].Files = append(manifest.Tables[i].Files, rel)
+		manifest.Tables[i].Rows++
+		return manifest
+	}
+	t.Fatalf("table %s not found", tableName)
+	return manifest
+}
+
+func writeShareManifest(t *testing.T, repo string, manifest Manifest) {
+	t.Helper()
+	body, err := json.MarshalIndent(manifest, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ManifestName), append(body, '\n'), 0o600))
 }
 
 func snapshotTableText(t *testing.T, repo string, table TableManifest) string {

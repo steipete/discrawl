@@ -174,6 +174,9 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		DB:           s.DB(),
 		RootDir:      opts.RepoPath,
 		DeleteTables: SnapshotTables,
+		Filter: func(table string, row map[string]any) (bool, error) {
+			return !isDirectMessageSnapshotRow(table, row), nil
+		},
 		BeforeImport: func(ctx context.Context, tx *sql.Tx) error {
 			for _, table := range []string{"message_fts", "member_fts"} {
 				if _, err := tx.ExecContext(ctx, "drop table if exists "+table); err != nil {
