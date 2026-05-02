@@ -148,7 +148,7 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 	require.Equal(t, "panic locked database", rows[0]["title"])
 	require.Equal(t, "discord", rows[0]["source"])
 	require.Equal(t, "message", rows[0]["kind"])
-	require.Equal(t, "g1", rows[0]["scope"])
+	require.Equal(t, "Guild", rows[0]["scope"])
 	require.Equal(t, "general", rows[0]["container"])
 	after, err := os.ReadFile(dbPath)
 	require.NoError(t, err)
@@ -213,6 +213,7 @@ func TestDiscordTUIRowsIncludePaneMetadata(t *testing.T) {
 	rows := discordTUIRows([]store.MessageRow{{
 		MessageID:      "m1",
 		GuildID:        "@me",
+		GuildName:      "Discord Direct Messages",
 		ChannelID:      "c1",
 		ChannelName:    "Vincent K",
 		AuthorID:       "u1",
@@ -229,6 +230,19 @@ func TestDiscordTUIRowsIncludePaneMetadata(t *testing.T) {
 	require.Equal(t, "true", rows[0].Fields["attachments"])
 	require.Equal(t, "true", rows[0].Fields["pinned"])
 	require.Equal(t, "m0", rows[0].Fields["reply_to"])
+	require.Equal(t, "@me", rows[0].Fields["guild_id"])
+
+	rows = discordTUIRows([]store.MessageRow{{
+		MessageID: "m2",
+		GuildID:   "g1",
+		ChannelID: "c2",
+		AuthorID:  "439223656200273932",
+		Content:   "desktop-only author",
+		CreatedAt: time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
+		Source:    "discord_desktop",
+	}})
+	require.Equal(t, "user:439223...3932", rows[0].Author)
+	require.Contains(t, rows[0].Tags, "discord_desktop")
 }
 
 func TestParseMessageWindow(t *testing.T) {

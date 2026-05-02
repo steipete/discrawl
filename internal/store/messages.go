@@ -31,6 +31,7 @@ type MentionListOptions struct {
 type MessageRow struct {
 	MessageID      string    `json:"message_id"`
 	GuildID        string    `json:"guild_id"`
+	GuildName      string    `json:"guild_name,omitempty"`
 	ChannelID      string    `json:"channel_id"`
 	ChannelName    string    `json:"channel_name"`
 	AuthorID       string    `json:"author_id"`
@@ -38,6 +39,7 @@ type MessageRow struct {
 	Content        string    `json:"content"`
 	CreatedAt      time.Time `json:"created_at"`
 	ReplyToMessage string    `json:"reply_to_message_id,omitempty"`
+	Source         string    `json:"source,omitempty"`
 	HasAttachments bool      `json:"has_attachments"`
 	Pinned         bool      `json:"pinned"`
 }
@@ -75,6 +77,7 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 		select
 			m.id,
 			m.guild_id,
+			coalesce(g.name, ''),
 			m.channel_id,
 			coalesce(c.name, ''),
 			coalesce(m.author_id, ''),
@@ -93,9 +96,11 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 			end,
 			m.created_at,
 			coalesce(m.reply_to_message_id, ''),
+			coalesce(json_extract(m.raw_json, '$.source'), ''),
 			m.has_attachments,
 			m.pinned
 		from messages m
+		left join guilds g on g.id = m.guild_id
 		left join channels c on c.id = m.channel_id
 		left join members mem on mem.guild_id = m.guild_id and mem.user_id = m.author_id
 		where ` + strings.Join(clauses, " and ") + `
@@ -139,6 +144,7 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 		if err := rows.Scan(
 			&row.MessageID,
 			&row.GuildID,
+			&row.GuildName,
 			&row.ChannelID,
 			&row.ChannelName,
 			&row.AuthorID,
@@ -146,6 +152,7 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 			&row.Content,
 			&created,
 			&row.ReplyToMessage,
+			&row.Source,
 			&hasAttachments,
 			&pinned,
 		); err != nil {

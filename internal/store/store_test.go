@@ -1520,6 +1520,7 @@ func TestListMessagesFiltersAndLimit(t *testing.T) {
 
 	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c1", GuildID: "g1", Kind: "text", Name: "maintainers", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertChannel(ctx, ChannelRecord{ID: "c2", GuildID: "g1", Kind: "text", Name: "random", RawJSON: `{}`}))
+	require.NoError(t, s.UpsertGuild(ctx, GuildRecord{ID: "g1", Name: "Guild", RawJSON: `{}`}))
 	require.NoError(t, s.UpsertMember(ctx, MemberRecord{
 		GuildID:     "g1",
 		UserID:      "u1",
@@ -1626,6 +1627,7 @@ func TestListMessagesFiltersAndLimit(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Equal(t, "m4", rows[0].MessageID)
 	require.Equal(t, "fallback-user", rows[0].AuthorName)
+	require.Equal(t, "Guild", rows[0].GuildName)
 	require.True(t, rows[0].Pinned)
 	require.True(t, rows[0].HasAttachments)
 

@@ -107,14 +107,17 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 		if row.GuildID == "@me" {
 			tags = append(tags, "dm")
 		}
+		if row.Source != "" {
+			tags = append(tags, row.Source)
+		}
 		items = append(items, tui.Row{
 			Source:    "discord",
 			Kind:      "message",
 			ID:        row.MessageID,
 			ParentID:  row.ReplyToMessage,
-			Scope:     row.GuildID,
+			Scope:     firstNonEmpty(row.GuildName, row.GuildID),
 			Container: firstNonEmpty(row.ChannelName, row.ChannelID),
-			Author:    firstNonEmpty(row.AuthorName, row.AuthorID),
+			Author:    discordAuthorLabel(row),
 			Title:     title,
 			Text:      row.Content,
 			CreatedAt: formatTime(row.CreatedAt),
@@ -123,12 +126,32 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 				"attachments": boolString(row.HasAttachments),
 				"author_id":   row.AuthorID,
 				"channel_id":  row.ChannelID,
+				"guild_id":    row.GuildID,
 				"pinned":      boolString(row.Pinned),
 				"reply_to":    row.ReplyToMessage,
+				"source":      row.Source,
 			},
 		})
 	}
 	return items
+}
+
+func discordAuthorLabel(row store.MessageRow) string {
+	if name := strings.TrimSpace(row.AuthorName); name != "" {
+		return name
+	}
+	if id := strings.TrimSpace(row.AuthorID); id != "" {
+		return "user:" + compactDiscordID(id)
+	}
+	return ""
+}
+
+func compactDiscordID(id string) string {
+	id = strings.TrimSpace(id)
+	if len(id) <= 10 {
+		return id
+	}
+	return id[:6] + "..." + id[len(id)-4:]
 }
 
 func boolString(value bool) string {
