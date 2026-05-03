@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"strings"
 
 	"github.com/vincentkoc/crawlkit/tui"
@@ -13,6 +14,12 @@ import (
 func (r *runtime) runTUI(args []string) error {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
 	fs.SetOutput(r.stderr)
+	fs.Usage = func() {
+		_, _ = fmt.Fprintln(fs.Output(), "Usage of tui:")
+		fs.PrintDefaults()
+		_, _ = fmt.Fprintln(fs.Output())
+		_, _ = fmt.Fprintln(fs.Output(), tui.ControlsHelp())
+	}
 	if hasHelpArg(args) {
 		fs.SetOutput(r.stdout)
 	}
