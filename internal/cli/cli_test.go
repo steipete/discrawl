@@ -621,6 +621,8 @@ func TestSyncImportsGitShareBeforeLiveDiscord(t *testing.T) {
 	cfg.Share.RepoPath = filepath.Join(dir, "reader-share")
 	cfg.Share.AutoUpdate = true
 	cfg.Share.StaleAfter = "15m"
+	cfg.Desktop.Path = filepath.Join(dir, "empty-discord")
+	require.NoError(t, os.MkdirAll(cfg.Desktop.Path, 0o755))
 	require.NoError(t, config.Write(cfgPath, cfg))
 
 	hybrid := &hybridSyncService{}
