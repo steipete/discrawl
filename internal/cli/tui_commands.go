@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -66,13 +67,20 @@ func (r *runtime) runTUI(args []string) error {
 			Stdout:         r.stdout,
 		})
 	}
-	rows, err := r.store.ListMessages(r.ctx, store.MessageListOptions{
-		GuildIDs:     guildIDs,
-		Channel:      *channel,
-		Author:       *author,
-		Limit:        *limit,
-		IncludeEmpty: *includeEmpty,
-	})
+	loadRows := func() ([]tui.Row, error) {
+		rows, err := r.store.ListMessages(r.ctx, store.MessageListOptions{
+			GuildIDs:     guildIDs,
+			Channel:      *channel,
+			Author:       *author,
+			Limit:        *limit,
+			IncludeEmpty: *includeEmpty,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return discordTUIRows(rows), nil
+	}
+	archiveRows, err := loadRows()
 	if err != nil {
 		return err
 	}
@@ -80,7 +88,8 @@ func (r *runtime) runTUI(args []string) error {
 		AppName:        "discrawl",
 		Title:          "discrawl archive",
 		EmptyMessage:   "discrawl has no local messages yet",
-		Rows:           discordTUIRows(rows),
+		Rows:           archiveRows,
+		Refresh:        func(context.Context) ([]tui.Row, error) { return loadRows() },
 		JSON:           r.json,
 		Layout:         tui.LayoutChat,
 		SourceKind:     r.archiveSourceKind(),
