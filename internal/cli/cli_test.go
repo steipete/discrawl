@@ -229,28 +229,33 @@ func TestWiretapImportsDesktopDirectMessages(t *testing.T) {
 
 func TestDiscordTUIRowsIncludePaneMetadata(t *testing.T) {
 	rows := discordTUIRows([]store.MessageRow{{
-		MessageID:      "m1",
-		GuildID:        "@me",
-		GuildName:      "Discord Direct Messages",
-		ChannelID:      "c1",
-		ChannelName:    "Vincent K",
-		AuthorID:       "u1",
-		AuthorName:     "Peter",
-		Content:        "hello from desktop",
-		DisplayContent: "hello from Vincent",
-		CreatedAt:      time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		ReplyToMessage: "m0",
-		HasAttachments: true,
-		Pinned:         true,
+		MessageID:       "m1",
+		GuildID:         "@me",
+		GuildName:       "Discord Direct Messages",
+		ChannelID:       "c1",
+		ChannelName:     "Vincent K",
+		AuthorID:        "u1",
+		AuthorName:      "Peter",
+		Content:         "hello from desktop",
+		DisplayContent:  "hello from Vincent",
+		CreatedAt:       time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
+		ReplyToMessage:  "m0",
+		HasAttachments:  true,
+		AttachmentNames: "trace.txt",
+		AttachmentText:  "stack trace line one",
+		Pinned:          true,
 	}})
 	require.Len(t, rows, 1)
 	require.Equal(t, "hello from Vincent", rows[0].Title)
-	require.Equal(t, "hello from Vincent", rows[0].Detail)
+	require.Contains(t, rows[0].Detail, "hello from Vincent")
+	require.Contains(t, rows[0].Detail, "Attachments")
+	require.Contains(t, rows[0].Detail, "stack trace line one")
 	require.Equal(t, "hello from Vincent", rows[0].Text)
 	require.Equal(t, "Direct messages", rows[0].Scope)
 	require.Equal(t, "Vincent K", rows[0].Container)
 	require.Contains(t, rows[0].Tags, "dm")
 	require.Equal(t, "true", rows[0].Fields["attachments"])
+	require.Equal(t, "trace.txt", rows[0].Fields["attachment_names"])
 	require.Equal(t, "true", rows[0].Fields["pinned"])
 	require.Equal(t, "m0", rows[0].Fields["reply_to"])
 	require.Equal(t, "@me", rows[0].Fields["guild_id"])

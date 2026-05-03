@@ -92,6 +92,8 @@ func TestAttachmentTextAndMentionsAreQueryable(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 	require.Contains(t, messages[0].Content, "stack trace")
+	require.Equal(t, "trace.txt", messages[0].AttachmentNames)
+	require.Contains(t, messages[0].AttachmentText, "stack trace line one")
 
 	mentions, err := s.ListMentions(ctx, MentionListOptions{Target: "Shadow", Limit: 10})
 	require.NoError(t, err)

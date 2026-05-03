@@ -128,8 +128,9 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 	for _, row := range rows {
 		content := discordDisplayContent(row)
 		title := strings.TrimSpace(content)
+		detail := discordDetailContent(row, content)
 		if title == "" {
-			title = row.MessageID
+			title = firstNonEmpty(strings.TrimSpace(row.AttachmentText), row.MessageID)
 		}
 		tags := []string{row.GuildID, row.ChannelID}
 		if row.GuildID == "@me" {
@@ -148,22 +149,37 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 			Author:    discordAuthorLabel(row),
 			Title:     title,
 			Text:      content,
-			Detail:    content,
+			Detail:    detail,
 			URL:       discordMessageURL(row),
 			CreatedAt: formatTime(row.CreatedAt),
 			Tags:      tags,
 			Fields: map[string]string{
-				"attachments": boolString(row.HasAttachments),
-				"author_id":   row.AuthorID,
-				"channel_id":  row.ChannelID,
-				"guild_id":    row.GuildID,
-				"pinned":      boolString(row.Pinned),
-				"reply_to":    row.ReplyToMessage,
-				"source":      row.Source,
+				"attachment_names": row.AttachmentNames,
+				"attachments":      boolString(row.HasAttachments),
+				"author_id":        row.AuthorID,
+				"channel_id":       row.ChannelID,
+				"guild_id":         row.GuildID,
+				"pinned":           boolString(row.Pinned),
+				"reply_to":         row.ReplyToMessage,
+				"source":           row.Source,
 			},
 		})
 	}
 	return items
+}
+
+func discordDetailContent(row store.MessageRow, content string) string {
+	var parts []string
+	if strings.TrimSpace(content) != "" {
+		parts = append(parts, strings.TrimSpace(content))
+	}
+	if strings.TrimSpace(row.AttachmentText) != "" {
+		parts = append(parts, "Attachments\n"+strings.TrimSpace(row.AttachmentText))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func discordDisplayContent(row store.MessageRow) string {

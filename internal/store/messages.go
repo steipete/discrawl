@@ -35,20 +35,22 @@ type MentionListOptions struct {
 }
 
 type MessageRow struct {
-	MessageID      string    `json:"message_id"`
-	GuildID        string    `json:"guild_id"`
-	GuildName      string    `json:"guild_name,omitempty"`
-	ChannelID      string    `json:"channel_id"`
-	ChannelName    string    `json:"channel_name"`
-	AuthorID       string    `json:"author_id"`
-	AuthorName     string    `json:"author_name"`
-	Content        string    `json:"content"`
-	DisplayContent string    `json:"display_content,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	ReplyToMessage string    `json:"reply_to_message_id,omitempty"`
-	Source         string    `json:"source,omitempty"`
-	HasAttachments bool      `json:"has_attachments"`
-	Pinned         bool      `json:"pinned"`
+	MessageID       string    `json:"message_id"`
+	GuildID         string    `json:"guild_id"`
+	GuildName       string    `json:"guild_name,omitempty"`
+	ChannelID       string    `json:"channel_id"`
+	ChannelName     string    `json:"channel_name"`
+	AuthorID        string    `json:"author_id"`
+	AuthorName      string    `json:"author_name"`
+	Content         string    `json:"content"`
+	DisplayContent  string    `json:"display_content,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	ReplyToMessage  string    `json:"reply_to_message_id,omitempty"`
+	Source          string    `json:"source,omitempty"`
+	HasAttachments  bool      `json:"has_attachments"`
+	AttachmentNames string    `json:"attachment_names,omitempty"`
+	AttachmentText  string    `json:"attachment_text,omitempty"`
+	Pinned          bool      `json:"pinned"`
 }
 
 func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]MessageRow, error) {
@@ -105,6 +107,8 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 			coalesce(m.reply_to_message_id, ''),
 			coalesce(json_extract(m.raw_json, '$.source'), ''),
 			m.has_attachments,
+			coalesce((select group_concat(a.filename, ', ') from message_attachments a where a.message_id = m.id), ''),
+			coalesce((select group_concat(a.text_content, char(10)) from message_attachments a where a.message_id = m.id and trim(a.text_content) <> ''), ''),
 			m.pinned
 		from messages m
 		left join guilds g on g.id = m.guild_id
@@ -161,6 +165,8 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 			&row.ReplyToMessage,
 			&row.Source,
 			&hasAttachments,
+			&row.AttachmentNames,
+			&row.AttachmentText,
 			&pinned,
 		); err != nil {
 			return nil, err

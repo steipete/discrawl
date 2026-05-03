@@ -32,6 +32,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 - Label direct-message TUI panes as direct messages instead of raw `@me` guild rows, keeping DM channel/person context readable.
 - Inherit shared crawlkit TUI improvements for newest-first startup, count-header sorting, selected-message-first chat detail panes, and gitcrawl-style metadata labels.
+- Surface Discord attachment filenames and extracted text in TUI detail panes instead of only showing `attachments=true`.
 
 ## 0.6.3 - 2026-05-01
 
