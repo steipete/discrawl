@@ -242,6 +242,7 @@ func TestDiscordTUIRowsIncludePaneMetadata(t *testing.T) {
 	}})
 	require.Len(t, rows, 1)
 	require.Equal(t, "hello from desktop", rows[0].Title)
+	require.Equal(t, "hello from desktop", rows[0].Detail)
 	require.Equal(t, "Direct messages", rows[0].Scope)
 	require.Equal(t, "Vincent K", rows[0].Container)
 	require.Contains(t, rows[0].Tags, "dm")

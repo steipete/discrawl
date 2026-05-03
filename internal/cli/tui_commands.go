@@ -131,6 +131,7 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 			Author:    discordAuthorLabel(row),
 			Title:     title,
 			Text:      row.Content,
+			Detail:    row.Content,
 			URL:       discordMessageURL(row),
 			CreatedAt: formatTime(row.CreatedAt),
 			Tags:      tags,
