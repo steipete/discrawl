@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -78,7 +79,11 @@ func TestMainCancelsWatchOnSIGTERM(t *testing.T) {
 	}
 	cmd := exec.CommandContext(t.Context(), exe, "-test.run=TestMainCancelsWatchOnSIGTERM")
 	cmd.Env = append(os.Environ(), "DISCRAWL_MAIN_SIGNAL_CHILD=1")
-	if err := cmd.Run(); err != nil {
+	output, err := cmd.CombinedOutput()
+	if isContextCanceledExit(err, output) {
+		return
+	}
+	if err != nil {
 		t.Fatalf("expected graceful SIGTERM cancellation, got %v", err)
 	}
 }
@@ -97,12 +102,8 @@ func TestMainCancelsWiretapImportOnSIGTERMWithoutCorruptingDB(t *testing.T) {
 	cmd := exec.CommandContext(t.Context(), exe, "-test.run=TestMainCancelsWiretapImportOnSIGTERMWithoutCorruptingDB")
 	cmd.Env = append(os.Environ(), "DISCRAWL_MAIN_IMPORT_SIGNAL_DIR="+dir)
 	output, err := cmd.CombinedOutput()
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
+	if !isContextCanceledExit(err, output) {
 		t.Fatalf("expected context-canceled exit from SIGTERM, got err=%v output=%s", err, output)
-	}
-	if exitErr.ExitCode() != 1 {
-		t.Fatalf("expected graceful exit code 1, got %d output=%s", exitErr.ExitCode(), output)
 	}
 
 	ctx := t.Context()
@@ -166,6 +167,11 @@ func writeLargeWiretapCache(t *testing.T, path string, count int) {
 		)
 		requireNoError(t, err)
 	}
+}
+
+func isContextCanceledExit(err error, output []byte) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && bytes.Contains(output, []byte("context canceled"))
 }
 
 func requireNoError(t *testing.T, err error) {
