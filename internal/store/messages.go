@@ -2,8 +2,14 @@ package store
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
+)
+
+var (
+	discordUserMentionRE    = regexp.MustCompile(`<@!?([A-Za-z0-9]+)>`)
+	discordChannelMentionRE = regexp.MustCompile(`<#([A-Za-z0-9]+)>`)
 )
 
 type MessageListOptions struct {
@@ -209,7 +215,10 @@ func (s *Store) resolveMessageDisplayMentions(ctx context.Context, rows []Messag
 		}
 		rows[index].DisplayContent = replaceDiscordMention(rows[index].DisplayContent, targetType, targetID, targetName)
 	}
-	return mentionRows.Err()
+	if err := mentionRows.Err(); err != nil {
+		return err
+	}
+	return s.resolveInlineDiscordMentions(ctx, rows)
 }
 
 func replaceDiscordMention(content, targetType, targetID, targetName string) string {
@@ -230,4 +239,143 @@ func replaceDiscordMention(content, targetType, targetID, targetName string) str
 		content = strings.ReplaceAll(content, "<@"+targetID+">", "@"+label)
 		return strings.ReplaceAll(content, "<@!"+targetID+">", "@"+label)
 	}
+}
+
+func (s *Store) resolveInlineDiscordMentions(ctx context.Context, rows []MessageRow) error {
+	userIDs := map[string]struct{}{}
+	channelIDs := map[string]struct{}{}
+	for _, row := range rows {
+		for _, match := range discordUserMentionRE.FindAllStringSubmatch(row.DisplayContent, -1) {
+			if len(match) > 1 && strings.TrimSpace(match[1]) != "" {
+				userIDs[match[1]] = struct{}{}
+			}
+		}
+		for _, match := range discordChannelMentionRE.FindAllStringSubmatch(row.DisplayContent, -1) {
+			if len(match) > 1 && strings.TrimSpace(match[1]) != "" {
+				channelIDs[match[1]] = struct{}{}
+			}
+		}
+	}
+	userNames, err := s.discordMemberDisplayNames(ctx, userIDs)
+	if err != nil {
+		return err
+	}
+	channelNames, err := s.discordChannelNames(ctx, channelIDs)
+	if err != nil {
+		return err
+	}
+	for index := range rows {
+		guildID := strings.TrimSpace(rows[index].GuildID)
+		rows[index].DisplayContent = discordUserMentionRE.ReplaceAllStringFunc(rows[index].DisplayContent, func(match string) string {
+			parts := discordUserMentionRE.FindStringSubmatch(match)
+			if len(parts) < 2 {
+				return match
+			}
+			if name := firstResolvedDiscordName(userNames, guildID, parts[1]); name != "" {
+				return "@" + name
+			}
+			return match
+		})
+		rows[index].DisplayContent = discordChannelMentionRE.ReplaceAllStringFunc(rows[index].DisplayContent, func(match string) string {
+			parts := discordChannelMentionRE.FindStringSubmatch(match)
+			if len(parts) < 2 {
+				return match
+			}
+			if name := firstResolvedDiscordName(channelNames, guildID, parts[1]); name != "" {
+				return "#" + name
+			}
+			return match
+		})
+	}
+	return nil
+}
+
+func (s *Store) discordMemberDisplayNames(ctx context.Context, ids map[string]struct{}) (map[string]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	args := mapKeysAsAny(ids)
+	query := `
+		select guild_id, user_id,
+			coalesce(
+				nullif(display_name, ''),
+				nullif(nick, ''),
+				nullif(global_name, ''),
+				nullif(username, ''),
+				''
+			)
+		from members
+		where user_id in (` + placeholders(len(args)) + `)
+	`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var guildID, userID, name string
+		if err := rows.Scan(&guildID, &userID, &name); err != nil {
+			return nil, err
+		}
+		rememberResolvedDiscordName(out, guildID, userID, name)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) discordChannelNames(ctx context.Context, ids map[string]struct{}) (map[string]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	args := mapKeysAsAny(ids)
+	query := `select guild_id, id, coalesce(nullif(name, ''), '') from channels where id in (` + placeholders(len(args)) + `)`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var guildID, channelID, name string
+		if err := rows.Scan(&guildID, &channelID, &name); err != nil {
+			return nil, err
+		}
+		rememberResolvedDiscordName(out, guildID, channelID, name)
+	}
+	return out, rows.Err()
+}
+
+func mapKeysAsAny(values map[string]struct{}) []any {
+	out := make([]any, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	return out
+}
+
+func rememberResolvedDiscordName(out map[string]string, guildID, id, name string) {
+	id = strings.TrimSpace(id)
+	name = strings.TrimSpace(name)
+	if id == "" || name == "" {
+		return
+	}
+	if guildID = strings.TrimSpace(guildID); guildID != "" {
+		out[guildID+"|"+id] = name
+	}
+	if _, ok := out["|"+id]; !ok {
+		out["|"+id] = name
+	}
+}
+
+func firstResolvedDiscordName(values map[string]string, guildID, id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	if guildID = strings.TrimSpace(guildID); guildID != "" {
+		if value := strings.TrimSpace(values[guildID+"|"+id]); value != "" {
+			return value
+		}
+	}
+	return strings.TrimSpace(values["|"+id])
 }
