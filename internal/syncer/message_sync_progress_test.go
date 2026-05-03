@@ -73,6 +73,8 @@ func TestMessageSyncProgressFinishReportsSummaryCounts(t *testing.T) {
 	logs := out.String()
 	require.Contains(t, logs, `msg="message sync finished"`)
 	require.Contains(t, logs, `processed_channels=3`)
+	require.Contains(t, logs, `percent=100.0`)
+	require.Contains(t, logs, `completion=100.0%`)
 	require.Contains(t, logs, `messages_written=42`)
 	require.Contains(t, logs, `skipped_missing_access_channels=1`)
 	require.Contains(t, logs, `skipped_unknown_channel_channels=1`)
@@ -105,4 +107,6 @@ func TestMessageSyncProgressReportsWaitingHeartbeat(t *testing.T) {
 	require.Contains(t, logs, `oldest_active_channel_id=c1`)
 	require.Contains(t, logs, `oldest_active_channel_name=slowpoke`)
 	require.Contains(t, logs, `active_channels=1`)
+	require.Contains(t, logs, `percent=0.0`)
+	require.Contains(t, logs, `completion=0.0%`)
 }

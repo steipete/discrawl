@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/vincentkoc/crawlkit/progress"
+
 	"github.com/steipete/discrawl/internal/store"
 )
 
@@ -663,6 +665,8 @@ func (p *messageSyncProgress) complete(channel *discordgo.Channel, count int, ou
 	totalChannels := p.totalChannels
 	messages := p.messages
 	elapsed := now.Sub(p.startedAt).Round(time.Second).String()
+	percent := progress.Percent(int64(processed), int64(totalChannels))
+	completion := progress.Completion(int64(processed), int64(totalChannels))
 	p.mu.Unlock()
 	p.syncer.logger.Info(
 		"message sync progress",
@@ -670,6 +674,8 @@ func (p *messageSyncProgress) complete(channel *discordgo.Channel, count int, ou
 		"processed_channels", processed,
 		"total_channels", totalChannels,
 		"remaining_channels", totalChannels-processed,
+		"percent", percent,
+		"completion", completion,
 		"active_channels", activeChannels,
 		"messages_written", messages,
 		"deferred_channels", deferred,
@@ -698,6 +704,8 @@ func (p *messageSyncProgress) finish(err error) {
 		totalChannels := p.totalChannels
 		messages := p.messages
 		elapsed := now.Sub(p.startedAt).Round(time.Second).String()
+		percent := progress.Percent(int64(processed), int64(totalChannels))
+		completion := progress.Completion(int64(processed), int64(totalChannels))
 		oldestID, oldestName, oldestElapsed, oldestIdle, oldestPages, oldestPageMessages := oldestInflightDetails(p.inflight, now)
 		p.mu.Unlock()
 		attrs := []any{
@@ -705,6 +713,8 @@ func (p *messageSyncProgress) finish(err error) {
 			"processed_channels", processed,
 			"total_channels", totalChannels,
 			"remaining_channels", totalChannels - processed,
+			"percent", percent,
+			"completion", completion,
 			"active_channels", activeChannels,
 			"messages_written", messages,
 			"deferred_channels", deferred,
@@ -766,6 +776,8 @@ func (p *messageSyncProgress) logWaitHeartbeat() {
 	messages := p.messages
 	idleFor := now.Sub(p.lastProgressAt).Round(time.Second).String()
 	elapsed := now.Sub(p.startedAt).Round(time.Second).String()
+	percent := progress.Percent(int64(processed), int64(totalChannels))
+	completion := progress.Completion(int64(processed), int64(totalChannels))
 	oldestID, oldestName, oldestElapsed, oldestIdle, oldestPages, oldestPageMessages := oldestInflightDetails(p.inflight, now)
 	p.mu.Unlock()
 	p.syncer.logger.Info(
@@ -774,6 +786,8 @@ func (p *messageSyncProgress) logWaitHeartbeat() {
 		"processed_channels", processed,
 		"total_channels", totalChannels,
 		"remaining_channels", totalChannels-processed,
+		"percent", percent,
+		"completion", completion,
 		"active_channels", activeChannels,
 		"messages_written", messages,
 		"deferred_channels", deferred,
