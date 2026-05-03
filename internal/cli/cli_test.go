@@ -241,6 +241,8 @@ func TestDiscordTUIRowsIncludePaneMetadata(t *testing.T) {
 	}})
 	require.Len(t, rows, 1)
 	require.Equal(t, "hello from desktop", rows[0].Title)
+	require.Equal(t, "Direct messages", rows[0].Scope)
+	require.Equal(t, "Vincent K", rows[0].Container)
 	require.Contains(t, rows[0].Tags, "dm")
 	require.Equal(t, "true", rows[0].Fields["attachments"])
 	require.Equal(t, "true", rows[0].Fields["pinned"])
@@ -257,6 +259,7 @@ func TestDiscordTUIRowsIncludePaneMetadata(t *testing.T) {
 		Source:    "discord_desktop",
 	}})
 	require.Equal(t, "user:439223...3932", rows[0].Author)
+	require.Equal(t, "DM c2", discordContainerLabel(store.MessageRow{GuildID: "@me", ChannelID: "c2"}))
 	require.Contains(t, rows[0].Tags, "discord_desktop")
 }
 

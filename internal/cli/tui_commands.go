@@ -126,8 +126,8 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 			Kind:      "message",
 			ID:        row.MessageID,
 			ParentID:  row.ReplyToMessage,
-			Scope:     firstNonEmpty(row.GuildName, row.GuildID),
-			Container: firstNonEmpty(row.ChannelName, row.ChannelID),
+			Scope:     discordScopeLabel(row),
+			Container: discordContainerLabel(row),
 			Author:    discordAuthorLabel(row),
 			Title:     title,
 			Text:      row.Content,
@@ -145,6 +145,20 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 		})
 	}
 	return items
+}
+
+func discordScopeLabel(row store.MessageRow) string {
+	if row.GuildID == "@me" {
+		return "Direct messages"
+	}
+	return firstNonEmpty(row.GuildName, row.GuildID)
+}
+
+func discordContainerLabel(row store.MessageRow) string {
+	if row.GuildID == "@me" {
+		return firstNonEmpty(row.ChannelName, "DM "+compactDiscordID(row.ChannelID))
+	}
+	return firstNonEmpty(row.ChannelName, row.ChannelID)
 }
 
 func discordAuthorLabel(row store.MessageRow) string {
