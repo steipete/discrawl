@@ -8,6 +8,11 @@ All notable changes to `discrawl` will be documented in this file.
 
 - `discrawl` now handles SIGINT/SIGTERM by canceling active sync/import contexts so large SQLite and FTS writes can roll back and close cleanly instead of being terminated mid-transaction.
 
+### Maintenance
+
+- Refreshed dependency and CI tooling pins, including GoReleaser, `go-toml`, golangci-lint, and gosec.
+- Tightened CI compatibility with the latest linters and made signal-cancellation and sync fixture tests deterministic under the race detector.
+
 ## 0.6.3 - 2026-05-01
 
 ### Fixes
