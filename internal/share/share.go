@@ -52,6 +52,17 @@ type Options struct {
 	EmbeddingProvider     string
 	EmbeddingModel        string
 	EmbeddingInputVersion string
+	Progress              func(ImportProgress)
+}
+
+type ImportProgress struct {
+	Phase     string
+	Table     string
+	File      string
+	FileIndex int
+	FileCount int
+	Rows      int
+	TotalRows int
 }
 
 type Manifest struct {
@@ -221,6 +232,7 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 	if err != nil {
 		return Manifest{}, err
 	}
+	opts.reportProgress(ImportProgress{Phase: "start", TotalRows: manifestRowCount(manifest)})
 	restorePragmas, err := applyImportPragmas(ctx, s.DB())
 	if err != nil {
 		return Manifest{}, err
@@ -242,11 +254,13 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		}
 	}()
 	for _, table := range []string{"message_fts", "member_fts"} {
+		opts.reportProgress(ImportProgress{Phase: "drop_fts", Table: table})
 		if _, err := tx.ExecContext(ctx, "drop table if exists "+table); err != nil {
 			return Manifest{}, fmt.Errorf("drop %s: %w", table, err)
 		}
 	}
 	for _, table := range slices.Backward(SnapshotTables) {
+		opts.reportProgress(ImportProgress{Phase: "clear", Table: table})
 		query, args := snapshotDeleteQuery(table)
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return Manifest{}, fmt.Errorf("clear %s: %w", table, err)
@@ -256,10 +270,13 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		if err := ctx.Err(); err != nil {
 			return Manifest{}, err
 		}
-		if err := importTable(ctx, tx, opts.RepoPath, table); err != nil {
+		opts.reportProgress(ImportProgress{Phase: "table_start", Table: table.Name, TotalRows: table.Rows})
+		if err := importTable(ctx, tx, opts, table); err != nil {
 			return Manifest{}, err
 		}
+		opts.reportProgress(ImportProgress{Phase: "table_done", Table: table.Name, TotalRows: table.Rows})
 	}
+	opts.reportProgress(ImportProgress{Phase: "repair"})
 	if err := repairImportedGuildIDs(ctx, tx); err != nil {
 		return Manifest{}, err
 	}
@@ -268,10 +285,12 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 			return Manifest{}, err
 		}
 	}
+	opts.reportProgress(ImportProgress{Phase: "commit"})
 	if err := tx.Commit(); err != nil {
 		return Manifest{}, err
 	}
 	committed = true
+	opts.reportProgress(ImportProgress{Phase: "rebuild_fts"})
 	if err := s.RebuildSearchIndexes(ctx); err != nil {
 		return Manifest{}, err
 	}
@@ -282,6 +301,7 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		return Manifest{}, err
 	}
 	pragmasRestored = true
+	opts.reportProgress(ImportProgress{Phase: "done", TotalRows: manifestRowCount(manifest)})
 	return manifest, nil
 }
 
@@ -333,6 +353,23 @@ func ImportIfChanged(ctx context.Context, s *store.Store, opts Options) (Manifes
 		return Manifest{}, false, err
 	}
 	return imported, true, nil
+}
+
+func (opts Options) reportProgress(progress ImportProgress) {
+	if opts.Progress != nil {
+		opts.Progress(progress)
+	}
+}
+
+func manifestRowCount(manifest Manifest) int {
+	total := 0
+	for _, table := range manifest.Tables {
+		total += table.Rows
+	}
+	for _, embeddings := range manifest.Embeddings {
+		total += embeddings.Rows
+	}
+	return total
 }
 
 func ImportEmbeddings(ctx context.Context, s *store.Store, opts Options, manifest Manifest) error {
@@ -572,7 +609,7 @@ func exportEmbeddings(ctx context.Context, db *sql.DB, opts Options) (EmbeddingM
 	}, nil
 }
 
-func importTable(ctx context.Context, tx *sql.Tx, repoPath string, table TableManifest) error {
+func importTable(ctx context.Context, tx *sql.Tx, opts Options, table TableManifest) error {
 	files := table.Files
 	if len(files) == 0 && strings.TrimSpace(table.File) != "" {
 		files = []string{table.File}
@@ -586,34 +623,38 @@ func importTable(ctx context.Context, tx *sql.Tx, repoPath string, table TableMa
 		return fmt.Errorf("prepare import %s: %w", table.Name, err)
 	}
 	defer func() { _ = stmt.Close() }()
-	for _, rel := range files {
+	for i, rel := range files {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := importTableFile(ctx, stmt, repoPath, table, columns, rel); err != nil {
+		opts.reportProgress(ImportProgress{Phase: "file_start", Table: table.Name, File: rel, FileIndex: i + 1, FileCount: len(files), TotalRows: table.Rows})
+		rows, err := importTableFile(ctx, stmt, opts.RepoPath, table, columns, rel)
+		if err != nil {
 			return err
 		}
+		opts.reportProgress(ImportProgress{Phase: "file_done", Table: table.Name, File: rel, FileIndex: i + 1, FileCount: len(files), Rows: rows, TotalRows: table.Rows})
 	}
 	return nil
 }
 
-func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table TableManifest, columns []string, rel string) error {
+func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table TableManifest, columns []string, rel string) (int, error) {
 	path := filepath.Join(repoPath, filepath.FromSlash(rel))
 	file, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", rel, err)
+		return 0, fmt.Errorf("open %s: %w", rel, err)
 	}
 	defer func() { _ = file.Close() }()
 	gz, err := gzip.NewReader(file)
 	if err != nil {
-		return fmt.Errorf("read gzip %s: %w", rel, err)
+		return 0, fmt.Errorf("read gzip %s: %w", rel, err)
 	}
 	defer func() { _ = gz.Close() }()
 	dec := json.NewDecoder(gz)
 	dec.UseNumber()
+	count := 0
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return count, err
 		}
 		row := map[string]any{}
 		err := dec.Decode(&row)
@@ -621,7 +662,7 @@ func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("decode %s: %w", rel, err)
+			return count, fmt.Errorf("decode %s: %w", rel, err)
 		}
 		if isDirectMessageSnapshotRow(table.Name, row) {
 			continue
@@ -631,10 +672,11 @@ func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table
 			values[i] = importValue(row[column])
 		}
 		if _, err := stmt.ExecContext(ctx, values...); err != nil {
-			return fmt.Errorf("insert %s: %w", table.Name, err)
+			return count, fmt.Errorf("insert %s: %w", table.Name, err)
 		}
+		count++
 	}
-	return nil
+	return count, nil
 }
 
 func repairImportedGuildIDs(ctx context.Context, tx *sql.Tx) error {

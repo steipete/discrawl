@@ -136,13 +136,15 @@ func (r *runtime) runSubscribe(args []string) error {
 		if err != nil {
 			return configErr(err)
 		}
-		opts := share.Options{RepoPath: expandedRepo, Remote: cfg.Share.Remote, Branch: cfg.Share.Branch}
+		opts := share.Options{RepoPath: expandedRepo, Remote: cfg.Share.Remote, Branch: cfg.Share.Branch, Progress: r.shareProgress}
 		if *withEmbeddings {
 			applyEmbeddingShareOptions(&opts, cfg)
 		}
+		r.setSyncLockPhase("share pull")
 		if err := share.Pull(r.ctx, opts); err != nil {
 			return err
 		}
+		r.setSyncLockPhase("share import")
 		manifest, imported, err := share.ImportIfChanged(r.ctx, s, opts)
 		if err != nil {
 			return err
@@ -176,12 +178,15 @@ func (r *runtime) runUpdate(args []string) error {
 	if err != nil {
 		return err
 	}
+	opts.Progress = r.shareProgress
 	if *withEmbeddings {
 		applyEmbeddingShareOptions(&opts, r.cfg)
 	}
+	r.setSyncLockPhase("share pull")
 	if err := share.Pull(r.ctx, opts); err != nil {
 		return err
 	}
+	r.setSyncLockPhase("share import")
 	manifest, imported, err := share.ImportIfChanged(r.ctx, r.store, opts)
 	if err != nil {
 		return err

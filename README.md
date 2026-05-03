@@ -173,15 +173,20 @@ discrawl init --db ~/data/discrawl.db
 
 Refreshes SQLite from one or both archive sources.
 
-By default, `sync` runs both sources:
+By default, `sync` runs both live/local sources and does not import the Git snapshot first:
 
 - Discord bot-token sync for bot-visible guild data
 - local Discord Desktop cache import for classifiable cached messages and proven DMs
+
+Use `discrawl update` when you want to pull/import the shared Git snapshot. If you intentionally want a sync run to import the snapshot before live deltas, pass `--update=auto` to import only when stale or `--update=force` to pull/import before syncing. `--no-update` is accepted as an explicit no-op alias for the default.
 
 Run one explicit `--full` pass when you want a complete historical guild archive. Use plain `sync` afterward for frequent latest-message and desktop-cache refreshes.
 
 ```bash
 discrawl sync
+discrawl sync --update=auto
+discrawl sync --update=force
+discrawl sync --no-update
 discrawl sync --full
 discrawl sync --full --all
 discrawl sync --guild 123456789012345678
@@ -207,7 +212,8 @@ Bot sync modes:
 
 | Command | Use when | Behavior |
 | --- | --- | --- |
-| `discrawl sync` | routine refresh | imports any stale Git snapshot first, skips member refreshes, checks live top-level channels plus active threads, and only fetches new messages for channels with a stored latest cursor |
+| `discrawl sync` | routine refresh | skips member refreshes, checks live top-level channels plus active threads, and only fetches new messages for channels with a stored latest cursor |
+| `discrawl sync --update=auto` | hybrid Git/live refresh | imports a stale Git snapshot first, then runs the routine live refresh |
 | `discrawl sync --all-channels` | repair pass | broad incremental sweep across every stored channel/thread, including archived threads |
 | `discrawl sync --full` | historical backfill | crawls older history until channels are complete; can take a long time on large servers |
 
@@ -218,7 +224,7 @@ Bot sync modes:
 `--latest-only` is still accepted for explicit latest-only runs; it is now the default for untargeted `sync`. Use `--all-channels` to opt out of the fast default without doing a full historical crawl.
 When `--channels` includes a forum channel id, `discrawl` expands that forum's threads and syncs their messages as part of the targeted run.
 `--since` limits initial history/bootstrap and full-history backfill to messages at or after the given RFC3339 timestamp. It does not mark older history as complete, so a later `sync --full` without `--since` can continue the backfill.
-Long runs now emit periodic progress logs to stderr so large backfills do not look hung.
+Long runs now emit periodic progress logs to stderr so large backfills and Git snapshot imports do not look hung.
 If in-flight channels stop completing for a while, `discrawl` now emits `message sync waiting` heartbeat logs with the oldest active channel, per-channel page activity, and skip/defer counters, and every run ends with a `message sync finished` summary.
 Each channel crawl also has a bounded runtime budget, so a pathological channel is deferred and retried on the next sync instead of pinning a worker forever.
 Full sync member refresh is best-effort and currently gives up after five minutes without a caller-supplied deadline, so message sync completion is not held hostage by a slow guild member crawl.
@@ -454,9 +460,9 @@ discrawl subscribe --stale-after 15m https://github.com/example/discord-archive.
 discrawl subscribe --no-auto-update https://github.com/example/discord-archive.git
 ```
 
-Once `share.remote` is configured, read commands auto-fetch and import when the local share import is older than `share.stale_after` (default `15m`). `discrawl update` forces the same pull/import step manually.
+Once `share.remote` is configured, read commands auto-fetch and import when the local share import is older than `share.stale_after` (default `15m`). `discrawl update` forces the same pull/import step manually. `discrawl sync` does not auto-import the share unless `--update=auto` or `--update=force` is provided, so routine live refreshes stay fast.
 
-Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync` and `discrawl messages --sync` import the Git snapshot first, then use live Discord for latest-message deltas. Use `sync --all-channels` or `sync --full` when you intentionally want a broader live repair/backfill pass.
+Hybrid mode is supported too: keep normal Discord credentials configured and set `share.remote`. `discrawl sync --update=auto` and `discrawl messages --sync` import the Git snapshot first, then use live Discord for latest-message deltas. Use `sync --all-channels` or `sync --full` when you intentionally want a broader live repair/backfill pass.
 
 Git snapshots publish non-DM archive tables by default. Embedding queue state stays local to each machine, and Git-only readers can use FTS immediately without an embedding provider.
 

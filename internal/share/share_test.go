@@ -35,10 +35,20 @@ func TestExportImportRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = dst.Close() }()
 
-	imported, changed, err := ImportIfChanged(ctx, dst, Options{RepoPath: repo, Branch: "main"})
+	var progress []ImportProgress
+	imported, changed, err := ImportIfChanged(ctx, dst, Options{
+		RepoPath: repo,
+		Branch:   "main",
+		Progress: func(p ImportProgress) { progress = append(progress, p) },
+	})
 	require.NoError(t, err)
 	require.True(t, changed)
 	require.Equal(t, manifest.GeneratedAt, imported.GeneratedAt)
+	require.Contains(t, progressPhases(progress), "start")
+	require.Contains(t, progressPhases(progress), "table_start")
+	require.Contains(t, progressPhases(progress), "file_done")
+	require.Contains(t, progressPhases(progress), "rebuild_fts")
+	require.Contains(t, progressPhases(progress), "done")
 
 	results, err := dst.SearchMessages(ctx, store.SearchOptions{Query: "launch", Limit: 10})
 	require.NoError(t, err)
@@ -673,7 +683,7 @@ func TestShareSmallHelpersAndValidation(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	tx, err := s.DB().BeginTx(ctx, nil)
 	require.NoError(t, err)
-	require.ErrorContains(t, importTable(ctx, tx, t.TempDir(), TableManifest{Name: "messages", Columns: []string{"id"}}), "has no files")
+	require.ErrorContains(t, importTable(ctx, tx, Options{RepoPath: t.TempDir()}, TableManifest{Name: "messages", Columns: []string{"id"}}), "has no files")
 	require.NoError(t, tx.Rollback())
 
 	require.ErrorContains(t, ImportEmbeddings(ctx, s, Options{
@@ -727,7 +737,7 @@ func TestLegacyManifestFileImportAndEmbeddingDecodeErrors(t *testing.T) {
 	})
 	tx, err := s.DB().BeginTx(ctx, nil)
 	require.NoError(t, err)
-	require.NoError(t, importTable(ctx, tx, repo, TableManifest{
+	require.NoError(t, importTable(ctx, tx, Options{RepoPath: repo}, TableManifest{
 		Name:    "guilds",
 		File:    tableRel,
 		Columns: []string{"id", "name", "icon", "raw_json", "updated_at"},
@@ -934,4 +944,12 @@ func tableNames(manifest Manifest) []string {
 		names = append(names, table.Name)
 	}
 	return names
+}
+
+func progressPhases(progress []ImportProgress) []string {
+	phases := make([]string, 0, len(progress))
+	for _, item := range progress {
+		phases = append(phases, item.Phase)
+	}
+	return phases
 }

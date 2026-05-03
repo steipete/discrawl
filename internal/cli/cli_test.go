@@ -600,7 +600,7 @@ func TestShareUpdateImportsNewRemoteSnapshot(t *testing.T) {
 	require.Contains(t, out.String(), "newer git snapshot arrived")
 }
 
-func TestSyncImportsGitShareBeforeLiveDiscord(t *testing.T) {
+func TestSyncSkipsGitShareByDefaultAndCanImportBeforeLiveDiscord(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	remoteRepo := filepath.Join(dir, "remote.git")
@@ -643,14 +643,30 @@ func TestSyncImportsGitShareBeforeLiveDiscord(t *testing.T) {
 	}
 
 	require.NoError(t, rt.dispatch([]string{"sync", "--all"}))
-	require.True(t, hybrid.sawGitMessage)
+	require.False(t, hybrid.sawGitMessage)
 
 	reader, err := store.Open(ctx, cfg.DBPath)
 	require.NoError(t, err)
-	defer func() { _ = reader.Close() }()
 	rows, err := reader.ListMessages(ctx, store.MessageListOptions{Channel: "general", IncludeEmpty: true})
 	require.NoError(t, err)
 	contents := make([]string, 0, len(rows))
+	for _, row := range rows {
+		contents = append(contents, row.Content)
+	}
+	require.NotContains(t, contents, "automatic updates work")
+	require.Contains(t, contents, "live discord filled the delta")
+	require.NoError(t, reader.Close())
+
+	hybrid.sawGitMessage = false
+	require.NoError(t, rt.dispatch([]string{"sync", "--all", "--update=auto"}))
+	require.True(t, hybrid.sawGitMessage)
+
+	reader, err = store.Open(ctx, cfg.DBPath)
+	require.NoError(t, err)
+	defer func() { _ = reader.Close() }()
+	rows, err = reader.ListMessages(ctx, store.MessageListOptions{Channel: "general", IncludeEmpty: true})
+	require.NoError(t, err)
+	contents = contents[:0]
 	for _, row := range rows {
 		contents = append(contents, row.Content)
 	}
@@ -1543,6 +1559,17 @@ func TestHelpers(t *testing.T) {
 
 	require.Equal(t, []string{"a", "b"}, csvList("a,b,a"))
 	require.Equal(t, "x", (&cliError{code: 2, err: assertErr("x")}).Error())
+	mode, err := syncShareUpdateMode([]string{"--all"})
+	require.NoError(t, err)
+	require.Equal(t, shareUpdateNever, mode)
+	mode, err = syncShareUpdateMode([]string{"--update=auto"})
+	require.NoError(t, err)
+	require.Equal(t, shareUpdateAuto, mode)
+	mode, err = syncShareUpdateMode([]string{"--update", "force"})
+	require.NoError(t, err)
+	require.Equal(t, shareUpdateForce, mode)
+	_, err = syncShareUpdateMode([]string{"--update"})
+	require.Error(t, err)
 	require.Equal(t, 2, ExitCode(usageErr(assertErr("x"))))
 	require.Equal(t, 4, ExitCode(authErr(assertErr("x"))))
 	require.Equal(t, 5, ExitCode(dbErr(assertErr("x"))))
@@ -1926,6 +1953,8 @@ func TestCommandUsageErrors(t *testing.T) {
 	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--days", "-1"})))
 	require.Equal(t, 2, ExitCode(rt.runMessages([]string{"--days", "1", "--since", "2026-03-01T00:00:00Z"})))
 	require.Equal(t, 2, ExitCode(rt.runSync([]string{"--all", "--guild", "g1"})))
+	require.Equal(t, 2, ExitCode(rt.runSync([]string{"--update", "bogus"})))
+	require.Equal(t, 2, ExitCode(rt.runSync([]string{"--update=force", "--no-update"})))
 	require.Equal(t, 2, ExitCode(rt.runChannels(nil)))
 	require.Equal(t, 2, ExitCode(rt.runStatus([]string{"extra"})))
 	require.NoError(t, (&runtime{stdout: &bytes.Buffer{}}).runDoctor(nil))

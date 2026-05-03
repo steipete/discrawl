@@ -113,8 +113,18 @@ func (r *runtime) runSync(args []string) error {
 	latestOnly := fs.Bool("latest-only", false, "")
 	guildsFlag := fs.String("guilds", "", "")
 	guildFlag := fs.String("guild", "", "")
+	updateMode := fs.String("update", "", "")
+	noUpdate := fs.Bool("no-update", false, "")
 	if err := fs.Parse(args); err != nil {
 		return usageErr(err)
+	}
+	if *noUpdate && strings.TrimSpace(*updateMode) != "" && !strings.EqualFold(strings.TrimSpace(*updateMode), string(shareUpdateNever)) {
+		return usageErr(errors.New("use either --no-update or --update, not both"))
+	}
+	if strings.TrimSpace(*updateMode) != "" {
+		if _, err := parseShareUpdateMode(*updateMode); err != nil {
+			return usageErr(err)
+		}
 	}
 	sources, err := parseSyncSources(*source)
 	if err != nil {
@@ -151,6 +161,7 @@ func (r *runtime) runSync(args []string) error {
 func (r *runtime) runSyncLocked(sources syncSources, opts syncer.SyncOptions) error {
 	var apiStats *syncer.SyncStats
 	if sources.discord {
+		r.setSyncLockPhase("discord sync")
 		shouldClose := r.client == nil
 		if err := r.ensureDiscordServices(); err != nil {
 			return err
@@ -166,6 +177,7 @@ func (r *runtime) runSyncLocked(sources syncSources, opts syncer.SyncOptions) er
 	}
 	var wiretapStats *discorddesktop.Stats
 	if sources.wiretap {
+		r.setSyncLockPhase("wiretap import")
 		stats, err := discorddesktop.Import(r.ctx, r.store, discorddesktop.Options{
 			Path:         r.cfg.Desktop.Path,
 			MaxFileBytes: r.cfg.Desktop.MaxFileBytes,

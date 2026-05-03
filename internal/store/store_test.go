@@ -1337,6 +1337,7 @@ func TestOpenCreatesQueryIndexes(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	messageIndexes := indexNames(t, ctx, s.DB(), "messages")
+	require.Contains(t, messageIndexes, "idx_messages_created_id")
 	require.Contains(t, messageIndexes, "idx_messages_guild_created_id")
 	require.Contains(t, messageIndexes, "idx_messages_channel_created_id")
 	require.Contains(t, messageIndexes, "idx_messages_author_created_id")
@@ -1361,6 +1362,7 @@ func TestOpenMigratesLegacyQueryIndexes(t *testing.T) {
 		"idx_messages_guild_created_id",
 		"idx_messages_channel_created_id",
 		"idx_messages_author_created_id",
+		"idx_messages_created_id",
 		"idx_mentions_guild_event",
 		"idx_mentions_channel_event",
 	} {
@@ -1376,6 +1378,7 @@ func TestOpenMigratesLegacyQueryIndexes(t *testing.T) {
 	version, err := s.schemaVersion(ctx)
 	require.NoError(t, err)
 	require.Equal(t, storeSchemaVersion, version)
+	require.Contains(t, indexNames(t, ctx, s.DB(), "messages"), "idx_messages_created_id")
 	require.Contains(t, indexNames(t, ctx, s.DB(), "messages"), "idx_messages_channel_created_id")
 	require.Contains(t, indexNames(t, ctx, s.DB(), "mention_events"), "idx_mentions_guild_event")
 }

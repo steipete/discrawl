@@ -90,23 +90,24 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 }
 
 type runtime struct {
-	ctx        context.Context
-	configPath string
-	cfg        config.Config
-	stdout     io.Writer
-	stderr     io.Writer
-	json       bool
-	plain      bool
-	logger     *slog.Logger
-	store      *store.Store
-	client     discordClient
-	syncer     syncService
-	dbLockHeld bool
-	openStore  func(context.Context, string) (*store.Store, error)
-	newDiscord func(config.Config) (discordClient, error)
-	newSyncer  func(syncer.Client, *store.Store, *slog.Logger) syncService
-	newEmbed   func(config.EmbeddingsConfig) (embed.Provider, error)
-	now        func() time.Time
+	ctx         context.Context
+	configPath  string
+	cfg         config.Config
+	stdout      io.Writer
+	stderr      io.Writer
+	json        bool
+	plain       bool
+	logger      *slog.Logger
+	store       *store.Store
+	client      discordClient
+	syncer      syncService
+	dbLockHeld  bool
+	lockStarted time.Time
+	openStore   func(context.Context, string) (*store.Store, error)
+	newDiscord  func(config.Config) (discordClient, error)
+	newSyncer   func(syncer.Client, *store.Store, *slog.Logger) syncService
+	newEmbed    func(config.EmbeddingsConfig) (embed.Provider, error)
+	now         func() time.Time
 }
 
 type discordClient interface {
@@ -131,7 +132,11 @@ func (r *runtime) dispatch(rest []string) error {
 	case "init":
 		return r.runInit(rest[1:])
 	case "sync":
-		return r.withLocalStoreLocked(true, func() error { return r.runSync(rest[1:]) })
+		updateMode, err := syncShareUpdateMode(rest[1:])
+		if err != nil {
+			return usageErr(err)
+		}
+		return r.withLocalStoreUpdateLocked(updateMode, true, func() error { return r.runSync(rest[1:]) })
 	case "tail":
 		return r.withServicesLocked(true, func() error { return r.runTail(rest[1:]) })
 	case "wiretap":
@@ -187,14 +192,18 @@ func (r *runtime) withServicesLocked(withDiscord bool, fn func() error) error {
 }
 
 func (r *runtime) withLocalStoreLocked(autoShareUpdate bool, fn func() error) error {
-	return r.withLocalStoreDefaultLocked(autoShareUpdate, true, fn)
+	return r.withLocalStoreUpdateLocked(boolShareUpdateMode(autoShareUpdate), true, fn)
 }
 
 func (r *runtime) withLocalStoreDefault(autoShareUpdate bool, fn func() error) error {
-	return r.withLocalStoreDefaultLocked(autoShareUpdate, false, fn)
+	return r.withLocalStoreUpdateLocked(boolShareUpdateMode(autoShareUpdate), false, fn)
 }
 
 func (r *runtime) withLocalStoreDefaultLocked(autoShareUpdate, lockDB bool, fn func() error) error {
+	return r.withLocalStoreUpdateLocked(boolShareUpdateMode(autoShareUpdate), lockDB, fn)
+}
+
+func (r *runtime) withLocalStoreUpdateLocked(updateMode shareUpdateMode, lockDB bool, fn func() error) error {
 	cfg, err := config.Load(r.configPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -215,13 +224,13 @@ func (r *runtime) withLocalStoreDefaultLocked(autoShareUpdate, lockDB bool, fn f
 	r.cfg = cfg
 	if lockDB {
 		return r.withSyncLock(func() error {
-			return r.openLocalStore(dbPath, autoShareUpdate, fn)
+			return r.openLocalStore(dbPath, updateMode, fn)
 		})
 	}
-	return r.openLocalStore(dbPath, autoShareUpdate, fn)
+	return r.openLocalStore(dbPath, updateMode, fn)
 }
 
-func (r *runtime) openLocalStore(dbPath string, autoShareUpdate bool, fn func() error) error {
+func (r *runtime) openLocalStore(dbPath string, updateMode shareUpdateMode, fn func() error) error {
 	storeFactory := r.openStore
 	if storeFactory == nil {
 		storeFactory = store.Open
@@ -232,8 +241,8 @@ func (r *runtime) openLocalStore(dbPath string, autoShareUpdate bool, fn func() 
 		return dbErr(err)
 	}
 	defer func() { _ = r.store.Close() }()
-	if autoShareUpdate && os.Getenv("DISCRAWL_NO_AUTO_UPDATE") != "1" {
-		if err := r.autoUpdateShare(); err != nil {
+	if updateMode != shareUpdateNever && os.Getenv("DISCRAWL_NO_AUTO_UPDATE") != "1" {
+		if err := r.autoUpdateShare(updateMode); err != nil {
 			return err
 		}
 	}
@@ -245,6 +254,10 @@ func (r *runtime) withServicesAuto(withDiscord, autoShareUpdate bool, fn func() 
 }
 
 func (r *runtime) withServicesAutoLocked(withDiscord, autoShareUpdate, lockDB bool, fn func() error) error {
+	return r.withServicesUpdateLocked(withDiscord, boolShareUpdateMode(autoShareUpdate), lockDB, fn)
+}
+
+func (r *runtime) withServicesUpdateLocked(withDiscord bool, updateMode shareUpdateMode, lockDB bool, fn func() error) error {
 	cfg, err := config.Load(r.configPath)
 	if err != nil {
 		return configErr(err)
@@ -259,13 +272,13 @@ func (r *runtime) withServicesAutoLocked(withDiscord, autoShareUpdate, lockDB bo
 	r.cfg = cfg
 	if lockDB {
 		return r.withSyncLock(func() error {
-			return r.openServices(dbPath, withDiscord, autoShareUpdate, fn)
+			return r.openServices(dbPath, withDiscord, updateMode, fn)
 		})
 	}
-	return r.openServices(dbPath, withDiscord, autoShareUpdate, fn)
+	return r.openServices(dbPath, withDiscord, updateMode, fn)
 }
 
-func (r *runtime) openServices(dbPath string, withDiscord, autoShareUpdate bool, fn func() error) error {
+func (r *runtime) openServices(dbPath string, withDiscord bool, updateMode shareUpdateMode, fn func() error) error {
 	storeFactory := r.openStore
 	if storeFactory == nil {
 		storeFactory = store.Open
@@ -276,8 +289,8 @@ func (r *runtime) openServices(dbPath string, withDiscord, autoShareUpdate bool,
 		return dbErr(err)
 	}
 	defer func() { _ = r.store.Close() }()
-	if autoShareUpdate && os.Getenv("DISCRAWL_NO_AUTO_UPDATE") != "1" {
-		if err := r.autoUpdateShare(); err != nil {
+	if updateMode != shareUpdateNever && os.Getenv("DISCRAWL_NO_AUTO_UPDATE") != "1" {
+		if err := r.autoUpdateShare(updateMode); err != nil {
 			return err
 		}
 	}
@@ -321,24 +334,27 @@ func (r *runtime) ensureDiscordServices() error {
 	return nil
 }
 
-func (r *runtime) autoUpdateShare() error {
-	if !r.cfg.ShareEnabled() || !r.cfg.Share.AutoUpdate {
+func (r *runtime) autoUpdateShare(mode shareUpdateMode) error {
+	if !r.cfg.ShareEnabled() || (mode == shareUpdateConfigured && !r.cfg.Share.AutoUpdate) {
 		return nil
 	}
 	staleAfter, err := time.ParseDuration(r.cfg.Share.StaleAfter)
 	if err != nil {
 		return configErr(fmt.Errorf("invalid share.stale_after: %w", err))
 	}
-	if !share.NeedsImport(r.ctx, r.store, staleAfter) {
+	if mode != shareUpdateForce && !share.NeedsImport(r.ctx, r.store, staleAfter) {
 		return nil
 	}
 	opts, err := r.shareOptions()
 	if err != nil {
 		return err
 	}
+	r.setSyncLockPhase("share pull")
+	r.logger.Info("share update pulling", "repo_path", opts.RepoPath, "remote", opts.Remote)
 	if err := share.Pull(r.ctx, opts); err != nil {
 		return err
 	}
+	r.setSyncLockPhase("share import")
 	_, _, err = share.ImportIfChanged(r.ctx, r.store, opts)
 	if errors.Is(err, share.ErrNoManifest) {
 		return nil
@@ -355,5 +371,6 @@ func (r *runtime) shareOptions() (share.Options, error) {
 		RepoPath: repoPath,
 		Remote:   r.cfg.Share.Remote,
 		Branch:   r.cfg.Share.Branch,
+		Progress: r.shareProgress,
 	}, nil
 }
