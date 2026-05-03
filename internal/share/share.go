@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -245,8 +246,7 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 			return Manifest{}, fmt.Errorf("drop %s: %w", table, err)
 		}
 	}
-	for i := len(SnapshotTables) - 1; i >= 0; i-- {
-		table := SnapshotTables[i]
+	for _, table := range slices.Backward(SnapshotTables) {
 		query, args := snapshotDeleteQuery(table)
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return Manifest{}, fmt.Errorf("clear %s: %w", table, err)
