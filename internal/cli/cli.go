@@ -28,9 +28,16 @@ func (e *cliError) Error() string {
 	return e.err.Error()
 }
 
+func (e *cliError) Unwrap() error {
+	return e.err
+}
+
 func ExitCode(err error) int {
 	if err == nil {
 		return 0
+	}
+	if errors.Is(err, context.Canceled) {
+		return 1
 	}
 	var codeErr *cliError
 	if errors.As(err, &codeErr) {
