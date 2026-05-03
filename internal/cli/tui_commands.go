@@ -131,6 +131,7 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 			Author:    discordAuthorLabel(row),
 			Title:     title,
 			Text:      row.Content,
+			URL:       discordMessageURL(row),
 			CreatedAt: formatTime(row.CreatedAt),
 			Tags:      tags,
 			Fields: map[string]string{
@@ -145,6 +146,16 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 		})
 	}
 	return items
+}
+
+func discordMessageURL(row store.MessageRow) string {
+	guildID := strings.TrimSpace(row.GuildID)
+	channelID := strings.TrimSpace(row.ChannelID)
+	messageID := strings.TrimSpace(row.MessageID)
+	if guildID == "" || channelID == "" || messageID == "" {
+		return ""
+	}
+	return "https://discord.com/channels/" + guildID + "/" + channelID + "/" + messageID
 }
 
 func discordScopeLabel(row store.MessageRow) string {

@@ -165,6 +165,7 @@ func TestStatusSearchSQLAndListings(t *testing.T) {
 	require.Equal(t, "message", rows[0]["kind"])
 	require.Equal(t, "Guild", rows[0]["scope"])
 	require.Equal(t, "general", rows[0]["container"])
+	require.Equal(t, "https://discord.com/channels/g1/c1/m1", rows[0]["url"])
 	after, err := os.ReadFile(dbPath)
 	require.NoError(t, err)
 	require.Equal(t, before, after, "tui --json should not mutate the database")
