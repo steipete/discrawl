@@ -117,7 +117,8 @@ func (r *runtime) archiveSourceLocation() string {
 func discordTUIRows(rows []store.MessageRow) []tui.Row {
 	items := make([]tui.Row, 0, len(rows))
 	for _, row := range rows {
-		title := strings.TrimSpace(row.Content)
+		content := discordDisplayContent(row)
+		title := strings.TrimSpace(content)
 		if title == "" {
 			title = row.MessageID
 		}
@@ -137,8 +138,8 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 			Container: discordContainerLabel(row),
 			Author:    discordAuthorLabel(row),
 			Title:     title,
-			Text:      row.Content,
-			Detail:    row.Content,
+			Text:      content,
+			Detail:    content,
 			URL:       discordMessageURL(row),
 			CreatedAt: formatTime(row.CreatedAt),
 			Tags:      tags,
@@ -154,6 +155,13 @@ func discordTUIRows(rows []store.MessageRow) []tui.Row {
 		})
 	}
 	return items
+}
+
+func discordDisplayContent(row store.MessageRow) string {
+	if content := strings.TrimSpace(row.DisplayContent); content != "" {
+		return content
+	}
+	return row.Content
 }
 
 func discordMessageURL(row store.MessageRow) string {

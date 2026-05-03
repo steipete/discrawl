@@ -37,6 +37,7 @@ type MessageRow struct {
 	AuthorID       string    `json:"author_id"`
 	AuthorName     string    `json:"author_name"`
 	Content        string    `json:"content"`
+	DisplayContent string    `json:"display_content,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	ReplyToMessage string    `json:"reply_to_message_id,omitempty"`
 	Source         string    `json:"source,omitempty"`
@@ -161,11 +162,72 @@ func (s *Store) ListMessages(ctx context.Context, opts MessageListOptions) ([]Me
 		row.CreatedAt = parseTime(created)
 		row.HasAttachments = hasAttachments == 1
 		row.Pinned = pinned == 1
+		row.DisplayContent = row.Content
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, s.resolveMessageDisplayMentions(ctx, out)
 }
 
 func normalizeChannelFilter(raw string) string {
 	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "#"))
+}
+
+func (s *Store) resolveMessageDisplayMentions(ctx context.Context, rows []MessageRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	ids := make([]any, 0, len(rows))
+	indexByID := make(map[string]int, len(rows))
+	for index, row := range rows {
+		id := strings.TrimSpace(row.MessageID)
+		if id == "" {
+			continue
+		}
+		ids = append(ids, id)
+		indexByID[id] = index
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query := `select message_id, target_type, target_id, target_name from mention_events where message_id in (` + placeholders(len(ids)) + `)`
+	mentionRows, err := s.db.QueryContext(ctx, query, ids...)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = mentionRows.Close() }()
+	for mentionRows.Next() {
+		var messageID, targetType, targetID, targetName string
+		if err := mentionRows.Scan(&messageID, &targetType, &targetID, &targetName); err != nil {
+			return err
+		}
+		index, ok := indexByID[messageID]
+		if !ok {
+			continue
+		}
+		rows[index].DisplayContent = replaceDiscordMention(rows[index].DisplayContent, targetType, targetID, targetName)
+	}
+	return mentionRows.Err()
+}
+
+func replaceDiscordMention(content, targetType, targetID, targetName string) string {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return content
+	}
+	label := strings.TrimSpace(targetName)
+	if label == "" {
+		label = targetID
+	}
+	switch strings.TrimSpace(targetType) {
+	case "role":
+		return strings.ReplaceAll(content, "<@&"+targetID+">", "@"+label)
+	case "channel":
+		return strings.ReplaceAll(content, "<#"+targetID+">", "#"+label)
+	default:
+		content = strings.ReplaceAll(content, "<@"+targetID+">", "@"+label)
+		return strings.ReplaceAll(content, "<@!"+targetID+">", "@"+label)
+	}
 }
