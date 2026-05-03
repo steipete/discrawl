@@ -2,7 +2,7 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
-## 0.6.5 - Unreleased
+## 0.6.5 - 2026-05-03
 
 ### Fixes
 

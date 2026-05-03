@@ -34,7 +34,7 @@ func TestHelpAndVersion(t *testing.T) {
 
 	out.Reset()
 	require.NoError(t, Run(context.Background(), []string{"--version"}, &out, &bytes.Buffer{}))
-	require.Contains(t, out.String(), "0.6.4")
+	require.Contains(t, out.String(), "0.6.5")
 
 	err := Run(context.Background(), []string{"bogus"}, &out, &bytes.Buffer{})
 	require.Equal(t, 2, ExitCode(err))
