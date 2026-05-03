@@ -28,6 +28,10 @@ All notable changes to `discrawl` will be documented in this file.
 - Refreshed dependency and CI tooling pins, including GoReleaser, `go-toml`, golangci-lint, and gosec.
 - Tightened CI compatibility with the latest linters and made signal-cancellation and sync fixture tests deterministic under the race detector.
 
+### Fixes
+
+- Label direct-message TUI panes as direct messages instead of raw `@me` guild rows, keeping DM channel/person context readable.
+
 ## 0.6.3 - 2026-05-01
 
 ### Changes
