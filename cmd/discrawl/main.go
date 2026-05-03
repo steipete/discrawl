@@ -4,12 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/steipete/discrawl/internal/cli"
 )
 
 func main() {
-	if err := cli.Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	err := cli.Run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(cli.ExitCode(err))
 	}

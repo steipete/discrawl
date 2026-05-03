@@ -298,6 +298,9 @@ func (s *Store) UpsertMessages(ctx context.Context, messages []MessageMutation) 
 	}
 	defer rollback(tx)
 	for _, message := range messages {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := upsertMessageTx(ctx, tx, message.Record, message.Options); err != nil {
 			return err
 		}

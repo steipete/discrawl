@@ -623,6 +623,9 @@ func (s *Store) rebuildFTS(ctx context.Context) error {
 	defer func() { _ = stmt.Close() }()
 
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		var (
 			messageID   string
 			guildID     string

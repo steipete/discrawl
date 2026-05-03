@@ -4,6 +4,10 @@ All notable changes to `discrawl` will be documented in this file.
 
 ## 0.6.4 - Unreleased
 
+### Fixes
+
+- `discrawl` now handles SIGINT/SIGTERM by canceling active sync/import contexts so large SQLite and FTS writes can roll back and close cleanly instead of being terminated mid-transaction.
+
 ## 0.6.3 - 2026-05-01
 
 ### Fixes

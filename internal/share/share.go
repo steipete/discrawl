@@ -253,6 +253,9 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		}
 	}
 	for _, table := range manifest.Tables {
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, err
+		}
 		if err := importTable(ctx, tx, opts.RepoPath, table); err != nil {
 			return Manifest{}, err
 		}
@@ -439,6 +442,9 @@ func exportTable(ctx context.Context, db *sql.DB, repoPath, table string) (Table
 		ptrs[i] = &values[i]
 	}
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return TableManifest{}, err
+		}
 		if err := rows.Scan(ptrs...); err != nil {
 			return TableManifest{}, fmt.Errorf("scan %s: %w", table, err)
 		}
@@ -509,6 +515,9 @@ func exportEmbeddings(ctx context.Context, db *sql.DB, opts Options) (EmbeddingM
 	columns := []string{"message_id", "provider", "model", "input_version", "dimensions", "embedding_blob", "embedded_at"}
 	count := 0
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return EmbeddingManifest{}, err
+		}
 		var (
 			messageID  string
 			rowProv    string
@@ -578,6 +587,9 @@ func importTable(ctx context.Context, tx *sql.Tx, repoPath string, table TableMa
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, rel := range files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := importTableFile(ctx, stmt, repoPath, table, columns, rel); err != nil {
 			return err
 		}
@@ -600,6 +612,9 @@ func importTableFile(ctx context.Context, stmt *sql.Stmt, repoPath string, table
 	dec := json.NewDecoder(gz)
 	dec.UseNumber()
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		row := map[string]any{}
 		err := dec.Decode(&row)
 		if err == io.EOF {
@@ -760,6 +775,9 @@ func importEmbeddings(ctx context.Context, tx *sql.Tx, opts Options, manifests [
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, manifest := range manifests {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !embeddingManifestMatches(opts, manifest) {
 			continue
 		}
@@ -768,6 +786,9 @@ func importEmbeddings(ctx context.Context, tx *sql.Tx, opts Options, manifests [
 			return fmt.Errorf("embedding manifest %s/%s/%s has no files", manifest.Provider, manifest.Model, manifest.InputVersion)
 		}
 		for _, rel := range files {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := importEmbeddingFile(ctx, stmt, opts.RepoPath, rel); err != nil {
 				return err
 			}
@@ -791,6 +812,9 @@ func importEmbeddingFile(ctx context.Context, stmt *sql.Stmt, repoPath, rel stri
 	dec := json.NewDecoder(gz)
 	dec.UseNumber()
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		var row struct {
 			MessageID     string      `json:"message_id"`
 			Provider      string      `json:"provider"`

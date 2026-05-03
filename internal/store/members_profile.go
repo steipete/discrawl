@@ -98,6 +98,9 @@ func (s *Store) rebuildMemberFTS(ctx context.Context) error {
 	defer func() { _ = stmt.Close() }()
 
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		var guildID string
 		var userID string
 		var username string

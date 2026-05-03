@@ -70,6 +70,35 @@ func TestUpsertMessagesBatch(t *testing.T) {
 	require.Equal(t, "2", rows[0][0])
 }
 
+func TestUpsertMessagesHonorsCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "discrawl.db"))
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	err = s.UpsertMessages(canceled, []MessageMutation{{
+		Record: MessageRecord{
+			ID:                "m1",
+			GuildID:           "g1",
+			ChannelID:         "c1",
+			MessageType:       0,
+			CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+			Content:           "one",
+			NormalizedContent: "one",
+			RawJSON:           `{"id":"m1"}`,
+		},
+	}})
+	require.ErrorIs(t, err, context.Canceled)
+
+	_, rows, err := s.ReadOnlyQuery(ctx, "select count(*) from messages")
+	require.NoError(t, err)
+	require.Equal(t, "0", rows[0][0])
+}
+
 func TestUpsertMessagesSkipsEventsAndEmbeddingsByDefault(t *testing.T) {
 	t.Parallel()
 

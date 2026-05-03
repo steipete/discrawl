@@ -246,11 +246,17 @@ func scan(ctx context.Context, opts Options, state scanState) (Stats, snapshot, 
 		collectChannelRoutes(snap, bytes.ToValidUTF8(data, nil))
 		objects := extractJSONValues(bytes.ToValidUTF8(data, nil))
 		for _, payload := range extractGzipPayloads(data, maxBytes) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			collectChannelRoutes(snap, bytes.ToValidUTF8(payload, nil))
 			objects = append(objects, extractJSONValues(bytes.ToValidUTF8(payload, nil))...)
 		}
 		stats.JSONObjects += len(objects)
 		for _, raw := range objects {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			var value any
 			if err := json.Unmarshal(raw, &value); err != nil {
 				continue
@@ -320,6 +326,9 @@ func writeSnapshot(ctx context.Context, st *store.Store, snap snapshot, prune bo
 	guilds := mapValues(snap.guilds)
 	sort.Slice(guilds, func(i, j int) bool { return guilds[i].ID < guilds[j].ID })
 	for _, guild := range guilds {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := st.UpsertGuild(ctx, guild); err != nil {
 			return err
 		}
@@ -327,6 +336,9 @@ func writeSnapshot(ctx context.Context, st *store.Store, snap snapshot, prune bo
 	channels := mapValues(snap.channels)
 	sort.Slice(channels, func(i, j int) bool { return channels[i].ID < channels[j].ID })
 	for _, channel := range channels {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := st.UpsertChannel(ctx, channel); err != nil {
 			return err
 		}
