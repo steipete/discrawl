@@ -6,6 +6,7 @@ All notable changes to `discrawl` will be documented in this file.
 
 ### Fixes
 
+- Scheduled Discord backup publishing now skips redundant pre-sync snapshot imports when the workflow DB cache is warm, keeping fresh Git snapshots from getting delayed by a full archive reimport.
 - `discrawl sync` now keeps Git snapshot refreshes explicit by default; use `--update=auto` or `--update=force` when you want a sync run to pull/import the shared snapshot before live Discord or desktop-cache deltas.
 - Snapshot imports now emit phase/table/file progress and keep the sync lock file updated with the active phase, making long update/import runs diagnosable instead of looking hung.
 - Recent-message scans are backed by a plain `messages(created_at, id)` index so archive freshness and short-window analysis queries avoid full-table scans.

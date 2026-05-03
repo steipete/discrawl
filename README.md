@@ -493,7 +493,7 @@ discrawl report --readme path/to/discord-backup/README.md
 
 Every scheduled snapshot publish updates deterministic README stats: latest update time, latest archived message, archive totals, and day/week/month activity.
 
-The backup workflows restore and save `.discrawl-ci/discrawl.db` with `actions/cache`. On a warm runner cache, `discrawl update` compares the cached DB's last imported snapshot timestamp with `manifest.json` and skips the full sharded import when they match. Cache misses and newer backup manifests still take the normal pull/import path.
+The backup workflows restore and save `.discrawl-ci/discrawl.db` with `actions/cache`. On a warm runner cache, scheduled publishers skip the pre-sync snapshot import and go straight to the live latest-message delta before publishing. Cache misses still import the latest published snapshot first so `--latest-only` has channel cursors to resume from.
 
 ### `digest`
 

@@ -76,7 +76,12 @@ jobs:
           git clone "$BACKUP_REMOTE" "$BACKUP_REPO"
           go run ./cmd/discrawl --config "$CONFIG" init --db "$DB" --guild "$DISCRAWL_GUILD_ID"
           if [ -f "$BACKUP_REPO/manifest.json" ]; then
-            go run ./cmd/discrawl --config "$CONFIG" update --repo "$BACKUP_REPO" --remote "$BACKUP_REMOTE"
+            if [ -s "$DB" ]; then
+              echo "Restored Discord DB cache at $DB; skipping pre-sync snapshot import."
+            else
+              echo "Discord DB cache missing; importing latest published snapshot before latest-only sync."
+              go run ./cmd/discrawl --config "$CONFIG" update --repo "$BACKUP_REPO" --remote "$BACKUP_REMOTE"
+            fi
           fi
           go run ./cmd/discrawl --config "$CONFIG" sync --guild "$DISCRAWL_GUILD_ID" --skip-members --latest-only
           git -C "$BACKUP_REPO" pull --ff-only origin main
