@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/pelletier/go-toml/v2 v2.3.0
+	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/stretchr/testify v1.11.1
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.43.0
