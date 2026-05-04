@@ -195,43 +195,30 @@ func (s *Store) hydrateMessageThreadContext(ctx context.Context, rows []MessageR
 	if len(rows) == 0 {
 		return rows, nil
 	}
-	type threadRef struct {
-		guildID   string
-		channelID string
-		rootID    string
+	rootIDs := make([]any, 0, len(rows))
+	seenRoots := map[string]struct{}{}
+	visible := map[string]struct{}{}
+	for _, row := range rows {
+		if id := strings.TrimSpace(row.MessageID); id != "" {
+			visible[id] = struct{}{}
+		}
 	}
-	refs := make([]threadRef, 0, len(rows))
-	seenRefs := map[string]struct{}{}
 	for _, row := range rows {
 		rootID := strings.TrimSpace(row.ReplyToMessage)
-		if rootID == "" || strings.TrimSpace(row.GuildID) == "" || strings.TrimSpace(row.ChannelID) == "" {
+		if rootID == "" {
 			continue
 		}
-		key := row.GuildID + "\x00" + row.ChannelID + "\x00" + rootID
-		if _, ok := seenRefs[key]; ok {
+		if _, ok := visible[rootID]; ok {
 			continue
 		}
-		seenRefs[key] = struct{}{}
-		refs = append(refs, threadRef{guildID: row.GuildID, channelID: row.ChannelID, rootID: rootID})
+		if _, ok := seenRoots[rootID]; ok {
+			continue
+		}
+		seenRoots[rootID] = struct{}{}
+		rootIDs = append(rootIDs, rootID)
 	}
-	if len(refs) == 0 {
+	if len(rootIDs) == 0 {
 		return rows, nil
-	}
-	clauses := make([]string, 0, len(refs))
-	args := make([]any, 0, len(refs)*4+1)
-	for _, ref := range refs {
-		clauses = append(clauses, `(m.guild_id = ? and m.channel_id = ? and (m.id = ? or m.reply_to_message_id = ?))`)
-		args = append(args, ref.guildID, ref.channelID, ref.rootID, ref.rootID)
-	}
-	contextLimit := limit * 5
-	if contextLimit < len(rows) {
-		contextLimit = len(rows)
-	}
-	if contextLimit < 200 {
-		contextLimit = 200
-	}
-	if contextLimit > 2000 {
-		contextLimit = 2000
 	}
 	query := `
 		select
@@ -265,11 +252,9 @@ func (s *Store) hydrateMessageThreadContext(ctx context.Context, rows []MessageR
 		left join guilds g on g.id = m.guild_id
 		left join channels c on c.id = m.channel_id
 		left join members mem on mem.guild_id = m.guild_id and mem.user_id = m.author_id
-		where ` + strings.Join(clauses, " or ") + `
-		order by m.created_at asc, m.id asc
-		limit ?`
-	args = append(args, contextLimit)
-	contextRows, err := s.db.QueryContext(ctx, query, args...)
+		where m.id in (` + placeholders(len(rootIDs)) + `)
+		order by m.created_at asc, m.id asc`
+	contextRows, err := s.db.QueryContext(ctx, query, rootIDs...)
 	if err != nil {
 		return nil, err
 	}
