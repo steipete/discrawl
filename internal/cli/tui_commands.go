@@ -72,7 +72,7 @@ func (r *runtime) runTUI(args []string) error {
 			GuildIDs:     guildIDs,
 			Channel:      *channel,
 			Author:       *author,
-			Limit:        *limit,
+			Last:         *limit,
 			IncludeEmpty: *includeEmpty,
 		})
 		if err != nil {
