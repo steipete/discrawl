@@ -174,6 +174,17 @@ func Import(ctx context.Context, s *store.Store, opts Options) (Manifest, error)
 		DB:           s.DB(),
 		RootDir:      opts.RepoPath,
 		DeleteTables: SnapshotTables,
+		Progress: func(progress snapshot.ImportProgress) {
+			opts.reportProgress(ImportProgress{
+				Phase:     progress.Phase,
+				Table:     progress.Table,
+				File:      progress.File,
+				FileIndex: progress.FileIndex,
+				FileCount: progress.FileCount,
+				Rows:      progress.Rows,
+				TotalRows: progress.TotalRows,
+			})
+		},
 		Filter: func(table string, row map[string]any) (bool, error) {
 			return !isDirectMessageSnapshotRow(table, row), nil
 		},
