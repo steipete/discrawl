@@ -204,9 +204,6 @@ func (s *Store) hydrateMessageThreadContext(ctx context.Context, rows []MessageR
 	seenRefs := map[string]struct{}{}
 	for _, row := range rows {
 		rootID := strings.TrimSpace(row.ReplyToMessage)
-		if rootID == "" {
-			rootID = strings.TrimSpace(row.MessageID)
-		}
 		if rootID == "" || strings.TrimSpace(row.GuildID) == "" || strings.TrimSpace(row.ChannelID) == "" {
 			continue
 		}
