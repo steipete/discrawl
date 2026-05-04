@@ -68,7 +68,7 @@ func (r *runtime) runTUI(args []string) error {
 		})
 	}
 	loadRows := func() ([]tui.Row, error) {
-		rows, err := r.store.ListMessages(r.ctx, store.MessageListOptions{
+		rows, err := r.store.ListMessagesWithThreadContext(r.ctx, store.MessageListOptions{
 			GuildIDs:     guildIDs,
 			Channel:      *channel,
 			Author:       *author,
