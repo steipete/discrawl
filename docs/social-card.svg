@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Discrawl social card</title>
+  <desc id="desc">Discrawl mirrors Discord into SQLite for local search and analysis.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0f16"/>
+      <stop offset="0.58" stop-color="#111723"/>
+      <stop offset="1" stop-color="#151827"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5fe3d4"/>
+      <stop offset="0.56" stop-color="#a594ff"/>
+      <stop offset="1" stop-color="#f364a2"/>
+    </linearGradient>
+    <linearGradient id="terminal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#161d2a"/>
+      <stop offset="1" stop-color="#0f141d"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-15%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="36"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1030" cy="92" r="210" fill="#5fe3d4" opacity="0.11" filter="url(#softGlow)"/>
+  <circle cx="104" cy="568" r="240" fill="#f364a2" opacity="0.10" filter="url(#softGlow)"/>
+  <path d="M0 515 C190 438 330 548 512 472 S874 330 1200 410 L1200 630 L0 630 Z" fill="#0a0d13" opacity="0.55"/>
+  <path d="M0 534 C206 456 338 570 520 492 S884 360 1200 438" fill="none" stroke="url(#accent)" stroke-width="3" opacity="0.44"/>
+
+  <g transform="translate(72 70)">
+    <rect x="0" y="0" width="112" height="112" rx="22" fill="#0c0f14" stroke="#253244" stroke-width="2"/>
+    <rect x="23" y="28" width="66" height="47" rx="5" fill="none" stroke="#5fe3d4" stroke-width="4"/>
+    <line x1="23" y1="43" x2="89" y2="43" stroke="#5fe3d4" stroke-width="3"/>
+    <circle cx="33" cy="36" r="2.8" fill="#f364a2"/>
+    <circle cx="43" cy="36" r="2.8" fill="#f7c177"/>
+    <circle cx="53" cy="36" r="2.8" fill="#5fe3d4"/>
+    <text x="31" y="59" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="10" font-weight="800" fill="#5fe3d4">SELECT</text>
+    <text x="31" y="71" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="10" font-weight="800" fill="#aab3c1">msgs</text>
+    <rect x="23" y="84" width="66" height="6" rx="3" fill="#161b24"/>
+    <rect x="23" y="84" width="42" height="6" rx="3" fill="#5fe3d4"/>
+  </g>
+
+  <text x="205" y="126" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="28" font-weight="800" letter-spacing="2" fill="#5fe3d4">discrawl.sh</text>
+  <text x="72" y="248" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="96" font-weight="800" letter-spacing="-3" fill="#edf4fb">Discord history,</text>
+  <text x="72" y="346" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="96" font-weight="800" letter-spacing="-3" fill="#edf4fb">local answers.</text>
+  <text x="74" y="410" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30" font-weight="560" fill="#aab3c1">Mirror Discord into SQLite.</text>
+  <text x="74" y="450" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30" font-weight="560" fill="#aab3c1">Search, query, tail, and analyze locally.</text>
+
+  <g transform="translate(72 505)">
+    <rect x="0" y="0" width="210" height="54" rx="10" fill="#5fe3d4"/>
+    <text x="28" y="35" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="20" font-weight="900" fill="#081016">discrawl sync</text>
+    <rect x="230" y="0" width="228" height="54" rx="10" fill="#151d29" stroke="#263448" stroke-width="2"/>
+    <text x="258" y="35" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="20" font-weight="800" fill="#f364a2">discrawl search</text>
+  </g>
+
+  <g transform="translate(742 135)" filter="url(#shadow)">
+    <rect x="0" y="0" width="386" height="330" rx="20" fill="url(#terminal)" stroke="#263448" stroke-width="2"/>
+    <rect x="0" y="0" width="386" height="54" rx="20" fill="#121925"/>
+    <path d="M0 34 Q0 0 34 0 H352 Q386 0 386 34 V54 H0 Z" fill="#121925"/>
+    <circle cx="30" cy="27" r="7" fill="#f364a2"/>
+    <circle cx="54" cy="27" r="7" fill="#f7c177"/>
+    <circle cx="78" cy="27" r="7" fill="#5fe3d4"/>
+    <text x="112" y="34" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="16" font-weight="800" fill="#657287">sqlite archive</text>
+    <text x="28" y="95" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="20" font-weight="800" fill="#5fe3d4">$ discrawl wiretap</text>
+    <text x="28" y="132" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="650" fill="#6f7b8d">dm cache imported: 814</text>
+    <text x="28" y="180" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="20" font-weight="800" fill="#5fe3d4">$ discrawl sql</text>
+    <text x="28" y="218" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="650" fill="#edf4fb">312k messages</text>
+    <text x="28" y="255" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="650" fill="#edf4fb">14k attachments</text>
+    <text x="28" y="292" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="650" fill="#edf4fb">FTS5 ready</text>
+    <rect x="280" y="260" width="72" height="10" rx="5" fill="#263448"/>
+    <rect x="280" y="282" width="46" height="10" rx="5" fill="#263448"/>
+    <rect x="280" y="304" width="60" height="10" rx="5" fill="#263448"/>
+  </g>
+
+  <text x="72" y="600" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="800" fill="#657287">bot sync  +  desktop wiretap  +  FTS5  +  semantic search</text>
+</svg>

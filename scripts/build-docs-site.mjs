@@ -6,6 +6,7 @@ const root = process.cwd();
 const docsDir = path.join(root, "docs");
 const outDir = path.join(root, "dist", "docs-site");
 const repoEditBase = "https://github.com/steipete/discrawl/edit/main/docs";
+const siteUrl = "https://discrawl.sh";
 
 const sections = [
   ["Start", ["README.md", "install.md", "configuration.md", "bot-setup.md", "security.md", "contact.md"]],
@@ -48,6 +49,7 @@ for (const page of pages) {
 }
 
 fs.writeFileSync(path.join(outDir, "discrawl.svg"), discrawlSvg(), "utf8");
+fs.copyFileSync(path.join(docsDir, "social-card.png"), path.join(outDir, "social-card.png"));
 fs.writeFileSync(path.join(outDir, "CNAME"), "discrawl.sh\n", "utf8");
 fs.writeFileSync(path.join(outDir, ".nojekyll"), "", "utf8");
 console.log(`built docs site: ${path.relative(root, outDir)}`);
@@ -230,6 +232,7 @@ function tocFromHtml(html) {
 function layout({ page, html, toc, prev, next, sectionName }) {
   const depth = page.outRel.split("/").length - 1;
   const rootPrefix = depth ? "../".repeat(depth) : "";
+  const canonicalUrl = absolutePageUrl(page);
   const editUrl = `${repoEditBase}/${page.rel}`;
   const isHome = page.rel === "README.md";
   const prevNext = !isHome && (prev || next) ? pageNavHtml(prev, next, rootPrefix) : "";
@@ -243,6 +246,21 @@ function layout({ page, html, toc, prev, next, sectionName }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(isHome ? "Discrawl" : `${page.title} - Discrawl`)}</title>
   <meta name="description" content="Discrawl: mirror Discord into local SQLite for offline search and analysis.">
+  <link rel="canonical" href="${canonicalUrl}">
+  <meta property="og:site_name" content="Discrawl">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${escapeHtml(isHome ? "Discrawl" : `${page.title} - Discrawl`)}">
+  <meta property="og:description" content="Mirror Discord into SQLite for local search, SQL, analytics, wiretap DMs, and Git-backed archive snapshots.">
+  <meta property="og:url" content="${canonicalUrl}">
+  <meta property="og:image" content="${siteUrl}/social-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Discrawl - Discord history, local answers.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(isHome ? "Discrawl" : `${page.title} - Discrawl`)}">
+  <meta name="twitter:description" content="Mirror Discord into SQLite for local search, SQL, analytics, wiretap DMs, and Git-backed archive snapshots.">
+  <meta name="twitter:image" content="${siteUrl}/social-card.png">
+  <meta name="theme-color" content="#0c0f14">
   <link rel="icon" href="${rootPrefix}discrawl.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -277,6 +295,11 @@ function layout({ page, html, toc, prev, next, sectionName }) {
   <script>${js()}</script>
 </body>
 </html>`;
+}
+
+function absolutePageUrl(page) {
+  if (page.outRel === "index.html") return `${siteUrl}/`;
+  return `${siteUrl}/${page.outRel}`;
 }
 
 function standardHero(page, sectionName, editUrl) {
