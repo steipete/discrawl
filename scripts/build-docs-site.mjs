@@ -48,7 +48,7 @@ for (const page of pages) {
 }
 
 fs.writeFileSync(path.join(outDir, "discrawl.svg"), discrawlSvg(), "utf8");
-fs.writeFileSync(path.join(outDir, "CNAME"), "discrawl.app\n", "utf8");
+fs.writeFileSync(path.join(outDir, "CNAME"), "discrawl.sh\n", "utf8");
 fs.writeFileSync(path.join(outDir, ".nojekyll"), "", "utf8");
 console.log(`built docs site: ${path.relative(root, outDir)}`);
 
