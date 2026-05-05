@@ -49,10 +49,7 @@ func (r *importRun) scanContext(candidates []fileCandidate) error {
 
 func (r *importRun) scanCacheBatches(candidates []fileCandidate) error {
 	for start := 0; start < len(candidates); start += checkpointEveryFiles {
-		end := start + checkpointEveryFiles
-		if end > len(candidates) {
-			end = len(candidates)
-		}
+		end := min(start+checkpointEveryFiles, len(candidates))
 		batchCandidates := candidates[start:end]
 		batch := newSnapshotWithContext(r.base)
 		if err := scanCandidates(r.ctx, r.rootFS, r.opts, batchCandidates, batch, r.channelLookup, r.stats); err != nil {

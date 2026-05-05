@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -71,9 +72,9 @@ func TestImportCheckpointsCacheBatches(t *testing.T) {
 	for i := range checkpointEveryFiles + 1 {
 		channelID := "111111111111111121"
 		messageID := 333333333333333346 + i
-		body := []byte(fmt.Sprintf(`https://discord.com/channels/999999999999999996/%s
+		body := bytesf(`https://discord.com/channels/999999999999999996/%s
 {"id":"%d","channel_id":"%s","content":"checkpoint cache %d","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222232","username":"alice"}}
-`, channelID, messageID, channelID, i))
+`, channelID, messageID, channelID, i)
 		require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", i)), body, 0o600))
 	}
 
@@ -101,18 +102,18 @@ func TestImportUsesLaterCacheMetadataBeforeCheckpointingEarlierBatch(t *testing.
 
 	channelID := "111111111111111121"
 	guildID := "999999999999999996"
-	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), []byte(fmt.Sprintf(`https://discord.com/api/v9/channels/%s/messages?limit=50
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), bytesf(`https://discord.com/api/v9/channels/%s/messages?limit=50
 {"id":"333333333333333346","channel_id":"%s","content":"needs later channel metadata","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222232","username":"alice"}}
-`, channelID, channelID)), 0o600))
+`, channelID, channelID), 0o600))
 	for i := 1; i < checkpointEveryFiles; i++ {
-		require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", i)), []byte(fmt.Sprintf(
+		require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", i)), bytesf(
 			"https://discord.com/api/v9/channels/%s/messages?limit=50\n",
 			channelID,
-		)), 0o600))
+		), 0o600))
 	}
-	require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", checkpointEveryFiles)), []byte(fmt.Sprintf(`https://discord.com/api/v9/channels/%s/messages?limit=50
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", checkpointEveryFiles)), bytesf(`https://discord.com/api/v9/channels/%s/messages?limit=50
 {"id":"%s","guild_id":"%s","type":0,"name":"later-metadata"}
-`, channelID, channelID, guildID)), 0o600))
+`, channelID, channelID, guildID), 0o600))
 
 	st, err := store.Open(ctx, filepath.Join(dir, "discrawl.db"))
 	require.NoError(t, err)
@@ -147,20 +148,20 @@ func TestImportCheckpointsPartiallyResolvedRetryBatch(t *testing.T) {
 	resolvedChannelID := "111111111111111121"
 	unresolvedChannelID := "111111111111111122"
 	guildID := "999999999999999996"
-	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), []byte(fmt.Sprintf(`https://discord.com/api/v9/channels/%s/messages?limit=50
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), bytesf(`https://discord.com/api/v10/channels/%s/messages?limit=50
 https://discord.com/api/v9/channels/%s/messages?limit=50
 {"id":"333333333333333346","channel_id":"%s","content":"partially resolved retry message","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222232","username":"alice"}}
 {"id":"333333333333333347","channel_id":"%s","content":"still unresolved retry message","timestamp":"2026-04-23T18:20:44Z","author":{"id":"222222222222222232","username":"alice"}}
-`, resolvedChannelID, unresolvedChannelID, resolvedChannelID, unresolvedChannelID)), 0o600))
+`, resolvedChannelID, unresolvedChannelID, resolvedChannelID, unresolvedChannelID), 0o600))
 	for i := 1; i < checkpointEveryFiles; i++ {
-		require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", i)), []byte(fmt.Sprintf(
+		require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", i)), bytesf(
 			"https://discord.com/api/v9/channels/%s/messages?limit=50\n",
 			resolvedChannelID,
-		)), 0o600))
+		), 0o600))
 	}
-	require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", checkpointEveryFiles)), []byte(fmt.Sprintf(`https://discord.com/api/v9/channels/%s/messages?limit=50
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, fmt.Sprintf("entry_%03d", checkpointEveryFiles)), bytesf(`https://discord.com/api/v9/channels/%s/messages?limit=50
 {"id":"%s","guild_id":"%s","type":0,"name":"partially-resolved"}
-`, resolvedChannelID, resolvedChannelID, guildID)), 0o600))
+`, resolvedChannelID, resolvedChannelID, guildID), 0o600))
 
 	st, err := store.Open(ctx, filepath.Join(dir, "discrawl.db"))
 	require.NoError(t, err)
@@ -196,9 +197,9 @@ func TestImportCheckpointsUnresolvableRouteBearingCacheMisses(t *testing.T) {
 	require.NoError(t, os.MkdirAll(cachePath, 0o755))
 
 	channelID := "111111111111111121"
-	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), []byte(fmt.Sprintf(`https://discord.com/api/v9/channels/%s/messages?limit=50
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), bytesf(`https://discord.com/api/v9/channels/%s/messages?limit=50
 {"id":"333333333333333346","channel_id":"%s","content":"permanent unresolved cache miss","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222232","username":"alice"}}
-`, channelID, channelID)), 0o600))
+`, channelID, channelID), 0o600))
 
 	st, err := store.Open(ctx, filepath.Join(dir, "discrawl.db"))
 	require.NoError(t, err)
@@ -229,11 +230,11 @@ func TestImportDoesNotAppendEventsForSkippedMixedBatch(t *testing.T) {
 	guildID := "999999999999999996"
 	resolvedChannelID := "111111111111111121"
 	unresolvedChannelID := "111111111111111122"
-	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), []byte(fmt.Sprintf(`https://discord.com/channels/%s/%s
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), bytesf(`https://discord.com/channels/%s/%s
 https://discord.com/api/v9/channels/%s/messages?limit=50
 {"id":"333333333333333346","channel_id":"%s","content":"mixed resolved message","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222232","username":"alice"}}
 {"id":"333333333333333347","channel_id":"%s","content":"mixed unresolved message","timestamp":"2026-04-23T18:20:44Z","author":{"id":"222222222222222232","username":"alice"}}
-`, guildID, resolvedChannelID, unresolvedChannelID, resolvedChannelID, unresolvedChannelID)), 0o600))
+`, guildID, resolvedChannelID, unresolvedChannelID, resolvedChannelID, unresolvedChannelID), 0o600))
 
 	st, err := store.Open(ctx, filepath.Join(dir, "discrawl.db"))
 	require.NoError(t, err)
@@ -267,10 +268,10 @@ func TestImportDoesNotDuplicateEventsWhenSwitchingFullCacheModes(t *testing.T) {
 
 	channelID := "111111111111111121"
 	guildID := "999999999999999996"
-	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), []byte(fmt.Sprintf(`https://discord.com/channels/%s/%s
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_000"), bytesf(`https://discord.com/channels/%s/%s
 {"id":"%s","guild_id":"%s","type":0,"name":"mode-switch"}
 {"id":"333333333333333346","channel_id":"%s","content":"mode switch event once","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222232","username":"alice"}}
-`, guildID, channelID, channelID, guildID, channelID)), 0o600))
+`, guildID, channelID, channelID, guildID, channelID), 0o600))
 
 	t.Run("full then default", func(t *testing.T) {
 		st, err := store.Open(ctx, filepath.Join(dir, "full-first.db"))
@@ -319,14 +320,14 @@ func TestImportFastCachePreservesKnownChannelMetadataAcrossBatches(t *testing.T)
 
 	channelID := "111111111111111121"
 	guildID := "999999999999999996"
-	require.NoError(t, os.WriteFile(filepath.Join(leveldbPath, "000001.log"), []byte(fmt.Sprintf(
+	require.NoError(t, os.WriteFile(filepath.Join(leveldbPath, "000001.log"), bytesf(
 		`{"id":"%s","guild_id":"%s","type":11,"name":"known-thread","thread_metadata":{"archived":false}}`,
 		channelID,
 		guildID,
-	)), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_0"), []byte(fmt.Sprintf(`https://discord.com/channels/%s/%s
+	), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(cachePath, "entry_0"), bytesf(`https://discord.com/channels/%s/%s
 {"id":"333333333333333346","channel_id":"%s","content":"thread metadata cache","timestamp":"2026-04-23T18:20:43Z","author":{"id":"222222222222222232","username":"alice"}}
-`, guildID, channelID, channelID)), 0o600))
+`, guildID, channelID, channelID), 0o600))
 
 	st, err := store.Open(ctx, filepath.Join(dir, "discrawl.db"))
 	require.NoError(t, err)
@@ -374,9 +375,13 @@ func TestImportFastCacheRouteFiltersServiceWorkerCacheStorage(t *testing.T) {
 
 func requireMessageCount(t *testing.T, ctx context.Context, st *store.Store, table string, expected int) {
 	t.Helper()
-	_, rows, err := st.ReadOnlyQuery(ctx, fmt.Sprintf("select count(*) from %s", table))
+	_, rows, err := st.ReadOnlyQuery(ctx, "select count(*) from "+table)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.Len(t, rows[0], 1)
-	require.Equal(t, fmt.Sprint(expected), rows[0][0])
+	require.Equal(t, strconv.Itoa(expected), rows[0][0])
+}
+
+func bytesf(format string, args ...any) []byte {
+	return fmt.Appendf(nil, format, args...)
 }

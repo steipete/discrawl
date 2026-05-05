@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,8 +32,10 @@ const (
 	checkpointEveryFiles   = 256
 )
 
-var channelRouteRE = regexp.MustCompile(`/channels/(@me|[0-9]{12,24})/([0-9]{12,24})`)
-var apiMessagesRouteRE = regexp.MustCompile(`/api/v[0-9]+/channels/[0-9]{12,24}/messages`)
+var (
+	channelRouteRE     = regexp.MustCompile(`/channels/(@me|[0-9]{12,24})/([0-9]{12,24})`)
+	apiMessagesRouteRE = regexp.MustCompile(`/api/v[0-9]+/channels/[0-9]{12,24}/messages`)
+)
 
 type Options struct {
 	Path         string
@@ -616,9 +619,7 @@ func finalizeSnapshot(snap snapshot, channelLookup map[string]store.ChannelRecor
 }
 
 func mergeUnresolved(dst, src unresolvedMessages) {
-	for messageID, channelID := range src {
-		dst[messageID] = channelID
-	}
+	maps.Copy(dst, src)
 }
 
 func recordUnresolved(unresolved unresolvedMessages, totals scanTotals, stats *Stats) {
@@ -701,12 +702,8 @@ func newSnapshot() snapshot {
 
 func newSnapshotWithContext(base snapshot) snapshot {
 	snap := newSnapshot()
-	for channelID, guildID := range base.routes {
-		snap.routes[channelID] = guildID
-	}
-	for userID, label := range base.userLabels {
-		snap.userLabels[userID] = label
-	}
+	maps.Copy(snap.routes, base.routes)
+	maps.Copy(snap.userLabels, base.userLabels)
 	return snap
 }
 
@@ -714,19 +711,13 @@ func mergeSnapshotContext(base snapshot, next snapshot) {
 	for channelID, guildID := range next.routes {
 		collectChannelRoute(base, channelID, guildID)
 	}
-	for userID, label := range next.userLabels {
-		base.userLabels[userID] = label
-	}
-	for channelID, channel := range next.channels {
-		base.channels[channelID] = channel
-	}
+	maps.Copy(base.userLabels, next.userLabels)
+	maps.Copy(base.channels, next.channels)
 }
 
 func copyChannelLookup(in map[string]store.ChannelRecord) map[string]store.ChannelRecord {
 	out := make(map[string]store.ChannelRecord, len(in))
-	for id, channel := range in {
-		out[id] = channel
-	}
+	maps.Copy(out, in)
 	return out
 }
 
