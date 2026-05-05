@@ -2,6 +2,12 @@
 
 All notable changes to `discrawl` will be documented in this file.
 
+## Unreleased
+
+### Fixes
+
+- `wiretap` now uses a fast default path for Discord Chromium cache imports: it scans cheap context files plus route-bearing HTTP cache entries, checkpoints file progress in batches, and leaves exhaustive historical cache archaeology behind `--full-cache` / `desktop.full_cache`.
+
 ## 0.6.5 - 2026-05-03
 
 ### Fixes

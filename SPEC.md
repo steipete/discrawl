@@ -465,12 +465,14 @@ Expected flags:
 - `--dry-run`
 - `--watch-every <duration>`
 - `--max-file-bytes <bytes>`
+- `--full-cache`
 
 Requirements:
 
 - never use Discord user tokens
 - never extract or persist auth tokens from desktop cache
 - scan bounded local files only
+- default to route-bearing HTTP cache entries; exhaustive Chromium cache scans require explicit full-cache mode
 - store sanitized raw metadata, not full arbitrary cache blobs
 
 ### `search`

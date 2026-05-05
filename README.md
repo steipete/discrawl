@@ -253,6 +253,7 @@ This is the path for searchable DMs because bot tokens cannot read personal dire
 discrawl wiretap
 discrawl wiretap --path "$HOME/Library/Application Support/discord"
 discrawl wiretap --dry-run
+discrawl wiretap --full-cache
 discrawl wiretap --watch-every 2m
 ```
 
@@ -264,7 +265,8 @@ Notes:
 - preserves existing local `@me` guilds, channels, messages, and attachments when importing a Git snapshot, so a shared guild mirror refresh does not wipe local wiretap DM search
 - drops message payloads whose channel cannot be classified from cached channel metadata or Discord route URLs; dropped rows are counted as `skipped_messages`
 - imports what Discord Desktop has cached locally, not complete live DM history
-- scans local `.ldb`, `.log`, `.json`, and `.txt` artifacts for Discord message JSON
+- scans local `.ldb`, `.log`, `.json`, and `.txt` artifacts for Discord message JSON, plus route-bearing Chromium HTTP cache entries by default
+- use `--full-cache` or `desktop.full_cache = true` for exhaustive Chromium cache import when you want slower historical guild-cache archaeology
 - does not extract, store, or print Discord auth tokens
 - `--max-file-bytes` skips unusually large files; default is 64 MiB
 
@@ -573,6 +575,7 @@ attachment_text = true
 [desktop]
 path = "~/.config/discord" # macOS default: "~/Library/Application Support/discord"
 max_file_bytes = 67108864
+full_cache = false
 
 [search]
 default_mode = "fts"

@@ -181,6 +181,7 @@ func (r *runtime) runSyncLocked(sources syncSources, opts syncer.SyncOptions) er
 		stats, err := discorddesktop.Import(r.ctx, r.store, discorddesktop.Options{
 			Path:         r.cfg.Desktop.Path,
 			MaxFileBytes: r.cfg.Desktop.MaxFileBytes,
+			FullCache:    r.cfg.Desktop.FullCache,
 			Now:          r.now,
 		})
 		if err != nil {
@@ -262,6 +263,7 @@ func (r *runtime) runWiretap(args []string) error {
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", r.cfg.Desktop.Path, "")
 	maxFileBytes := fs.Int64("max-file-bytes", r.cfg.Desktop.MaxFileBytes, "")
+	fullCache := fs.Bool("full-cache", r.cfg.Desktop.FullCache, "")
 	dryRun := fs.Bool("dry-run", false, "")
 	watchEvery := fs.Duration("watch-every", 0, "")
 	if err := fs.Parse(args); err != nil {
@@ -277,6 +279,7 @@ func (r *runtime) runWiretap(args []string) error {
 		stats, err := discorddesktop.Import(ctx, r.store, discorddesktop.Options{
 			Path:         *path,
 			MaxFileBytes: *maxFileBytes,
+			FullCache:    *fullCache,
 			DryRun:       *dryRun,
 			Now:          r.now,
 		})

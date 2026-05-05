@@ -44,6 +44,7 @@ type DiscordConfig struct {
 type DesktopConfig struct {
 	Path         string `toml:"path"`
 	MaxFileBytes int64  `toml:"max_file_bytes"`
+	FullCache    bool   `toml:"full_cache"`
 }
 
 type SyncConfig struct {

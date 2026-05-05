@@ -27,35 +27,43 @@ const (
 	DirectMessageGuildName = "Discord Direct Messages"
 	defaultMaxFileBytes    = 64 << 20
 	maxObjectBytes         = 4 << 20
+	cacheSniffBytes        = 1 << 20
+	checkpointEveryFiles   = 256
 )
 
 var channelRouteRE = regexp.MustCompile(`/channels/(@me|[0-9]{12,24})/([0-9]{12,24})`)
+var apiMessagesRouteRE = regexp.MustCompile(`/api/v[0-9]+/channels/[0-9]{12,24}/messages`)
 
 type Options struct {
 	Path         string
 	MaxFileBytes int64
 	DryRun       bool
+	FullCache    bool
 	Now          func() time.Time
 }
 
 type Stats struct {
-	Path            string    `json:"path"`
-	FilesScanned    int       `json:"files_scanned"`
-	FilesSkipped    int       `json:"files_skipped"`
-	FilesUnchanged  int       `json:"files_unchanged"`
-	BytesScanned    int64     `json:"bytes_scanned"`
-	JSONObjects     int       `json:"json_objects"`
-	Guilds          int       `json:"guilds"`
-	Channels        int       `json:"channels"`
-	Messages        int       `json:"messages"`
-	DMMessages      int       `json:"dm_messages"`
-	DMChannels      int       `json:"dm_channels"`
-	GuildMessages   int       `json:"guild_messages"`
-	SkippedMessages int       `json:"skipped_messages"`
-	SkippedChannels int       `json:"skipped_channels"`
-	DryRun          bool      `json:"dry_run,omitempty"`
-	StartedAt       time.Time `json:"started_at"`
-	FinishedAt      time.Time `json:"finished_at"`
+	Path                  string    `json:"path"`
+	FilesVisited          int       `json:"files_visited"`
+	FilesScanned          int       `json:"files_scanned"`
+	FilesSkipped          int       `json:"files_skipped"`
+	FilesUnchanged        int       `json:"files_unchanged"`
+	CacheFilesFastSkipped int       `json:"cache_files_fast_skipped"`
+	BytesScanned          int64     `json:"bytes_scanned"`
+	JSONObjects           int       `json:"json_objects"`
+	Guilds                int       `json:"guilds"`
+	Channels              int       `json:"channels"`
+	Messages              int       `json:"messages"`
+	DMMessages            int       `json:"dm_messages"`
+	DMChannels            int       `json:"dm_channels"`
+	GuildMessages         int       `json:"guild_messages"`
+	SkippedMessages       int       `json:"skipped_messages"`
+	SkippedChannels       int       `json:"skipped_channels"`
+	Checkpoints           int       `json:"checkpoints"`
+	DryRun                bool      `json:"dry_run,omitempty"`
+	FullCache             bool      `json:"full_cache,omitempty"`
+	StartedAt             time.Time `json:"started_at"`
+	FinishedAt            time.Time `json:"finished_at"`
 }
 
 type snapshot struct {
@@ -67,8 +75,9 @@ type snapshot struct {
 }
 
 type fileFingerprint struct {
-	Size      int64 `json:"size"`
-	ModUnixNS int64 `json:"mod_unix_ns"`
+	Size      int64  `json:"size"`
+	ModUnixNS int64  `json:"mod_unix_ns"`
+	Status    string `json:"status,omitempty"`
 }
 
 type scanState struct {
@@ -77,7 +86,41 @@ type scanState struct {
 	channels map[string]store.ChannelRecord
 }
 
+type fileSource int
+
+const (
+	fileSourceContext fileSource = iota
+	fileSourceCacheData
+)
+
+type fileCandidate struct {
+	absPath     string
+	relPath     string
+	relKey      string
+	source      fileSource
+	info        fs.FileInfo
+	fingerprint fileFingerprint
+}
+
+type scanTotals struct {
+	guilds          map[string]struct{}
+	channels        map[string]struct{}
+	messages        map[string]struct{}
+	dmMessages      map[string]struct{}
+	guildMessages   map[string]struct{}
+	dmChannels      map[string]struct{}
+	skippedMessages map[string]struct{}
+	skippedChannels map[string]struct{}
+}
+
+type unresolvedMessages map[string]string
+
 const wiretapFileIndexScope = "wiretap:file_index:v1"
+
+const (
+	fileStatusImported = "imported"
+	fileStatusSkipped  = "skipped"
+)
 
 func DefaultPath() string {
 	home, _ := os.UserHomeDir()
@@ -105,25 +148,29 @@ func Import(ctx context.Context, st *store.Store, opts Options) (Stats, error) {
 	if err != nil {
 		return Stats{}, err
 	}
-	stats, snap, err := scan(ctx, opts, state)
+	if opts.FullCache {
+		stats, snap, err := scanFullCache(ctx, opts, state)
+		if err != nil {
+			return stats, err
+		}
+		stats.DryRun = opts.DryRun
+		if opts.DryRun {
+			return stats, nil
+		}
+		if err := writeSnapshot(ctx, st, snap, len(state.previous) == 0); err != nil {
+			return stats, err
+		}
+		if err := saveFileIndex(ctx, st, opts, state.current); err != nil {
+			return stats, err
+		}
+		stats.Checkpoints = 1
+		return stats, nil
+	}
+	stats, err := scanAndImport(ctx, st, opts, state)
 	if err != nil {
 		return stats, err
 	}
 	stats.DryRun = opts.DryRun
-	if opts.DryRun {
-		return stats, nil
-	}
-	fullScan := len(state.previous) == 0
-	if snapshotHasChanges(snap) || fullScan {
-		if err := writeSnapshot(ctx, st, snap, fullScan); err != nil {
-			return stats, err
-		}
-	} else if err := st.SetSyncState(ctx, "wiretap:last_import", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		return stats, err
-	}
-	if err := saveFileIndex(ctx, st, state.current); err != nil {
-		return stats, err
-	}
 	return stats, nil
 }
 
@@ -136,7 +183,7 @@ func loadScanState(ctx context.Context, st *store.Store, opts Options) (scanStat
 	if st == nil || opts.DryRun {
 		return state, nil
 	}
-	raw, err := st.GetSyncState(ctx, wiretapFileIndexScope)
+	raw, err := st.GetSyncState(ctx, fileIndexScope(opts))
 	if err != nil {
 		return state, err
 	}
@@ -160,19 +207,107 @@ func loadScanState(ctx context.Context, st *store.Store, opts Options) (scanStat
 	return state, nil
 }
 
-func saveFileIndex(ctx context.Context, st *store.Store, index map[string]fileFingerprint) error {
+func fileIndexScope(Options) string {
+	return wiretapFileIndexScope
+}
+
+func saveFileIndex(ctx context.Context, st *store.Store, opts Options, index map[string]fileFingerprint) error {
 	body, err := json.Marshal(index)
 	if err != nil {
 		return err
 	}
-	return st.SetSyncState(ctx, wiretapFileIndexScope, string(body))
+	return st.SetSyncState(ctx, fileIndexScope(opts), string(body))
+}
+
+func sameFileFingerprint(a, b fileFingerprint) bool {
+	return a.Size == b.Size && a.ModUnixNS == b.ModUnixNS
+}
+
+func isImportedFingerprint(fingerprint fileFingerprint) bool {
+	return fingerprint.Status == "" || fingerprint.Status == fileStatusImported
+}
+
+func importedFingerprint(fingerprint fileFingerprint) fileFingerprint {
+	fingerprint.Status = fileStatusImported
+	return fingerprint
+}
+
+func skippedFingerprint(fingerprint fileFingerprint) fileFingerprint {
+	fingerprint.Status = fileStatusSkipped
+	return fingerprint
 }
 
 func snapshotHasChanges(snap snapshot) bool {
 	return len(snap.guilds) > 0 || len(snap.channels) > 0 || len(snap.messages) > 0
 }
 
-func scan(ctx context.Context, opts Options, state scanState) (Stats, snapshot, error) {
+func scanAndImport(ctx context.Context, st *store.Store, opts Options, state scanState) (Stats, error) {
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+	root := strings.TrimSpace(opts.Path)
+	if root == "" {
+		root = DefaultPath()
+	}
+	stats := Stats{Path: root, FullCache: opts.FullCache, StartedAt: now().UTC()}
+	rootFS, err := os.OpenRoot(root)
+	if err != nil {
+		stats.FinishedAt = now().UTC()
+		return stats, ignoreCacheFileError(err)
+	}
+	defer func() { _ = rootFS.Close() }()
+	contextFiles, cacheFiles, err := discoverCandidates(ctx, root, rootFS, opts, state, &stats)
+	if err != nil {
+		stats.FinishedAt = now().UTC()
+		return stats, err
+	}
+	fullScan := len(state.previous) == 0
+	if fullScan && !opts.DryRun {
+		if err := st.DeleteGuildData(ctx, "@unknown"); err != nil {
+			stats.FinishedAt = now().UTC()
+			return stats, err
+		}
+	}
+	run := newImportRun(ctx, st, opts, state, rootFS, &stats)
+	if err := run.scanContext(contextFiles); err != nil {
+		stats.FinishedAt = now().UTC()
+		return stats, err
+	}
+	if err := collectCacheRouteHints(ctx, rootFS, cacheFiles, run.base); err != nil {
+		stats.FinishedAt = now().UTC()
+		return stats, err
+	}
+	if err := run.scanCacheBatches(cacheFiles); err != nil {
+		stats.FinishedAt = now().UTC()
+		return stats, err
+	}
+	if err := run.retryPending(); err != nil {
+		stats.FinishedAt = now().UTC()
+		return stats, err
+	}
+	if !opts.DryRun {
+		if len(contextFiles) == 0 && len(cacheFiles) == 0 {
+			if err := st.SetSyncState(ctx, "wiretap:last_import", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+				stats.FinishedAt = now().UTC()
+				return stats, err
+			}
+			if err := saveFileIndex(ctx, st, opts, state.current); err != nil {
+				stats.FinishedAt = now().UTC()
+				return stats, err
+			}
+			stats.Checkpoints++
+		}
+		if err := st.DeleteOrphanChannels(ctx, DirectMessageGuildID); err != nil {
+			stats.FinishedAt = now().UTC()
+			return stats, err
+		}
+	}
+	stats.FinishedAt = now().UTC()
+	return stats, nil
+}
+
+func scanFullCache(ctx context.Context, opts Options, state scanState) (Stats, snapshot, error) {
 	now := opts.Now
 	if now == nil {
 		now = time.Now
@@ -185,14 +320,8 @@ func scan(ctx context.Context, opts Options, state scanState) (Stats, snapshot, 
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxFileBytes
 	}
-	stats := Stats{Path: root, StartedAt: now().UTC()}
-	snap := snapshot{
-		guilds:     map[string]store.GuildRecord{},
-		channels:   map[string]store.ChannelRecord{},
-		messages:   map[string]store.MessageMutation{},
-		routes:     map[string]string{},
-		userLabels: map[string]userLabel{},
-	}
+	stats := Stats{Path: root, FullCache: true, StartedAt: now().UTC()}
+	snap := newSnapshot()
 	rootFS, err := os.OpenRoot(root)
 	if err != nil {
 		stats.FinishedAt = now().UTC()
@@ -212,6 +341,7 @@ func scan(ctx context.Context, opts Options, state scanState) (Stats, snapshot, 
 			}
 			return nil
 		}
+		stats.FilesVisited++
 		info, err := entry.Info()
 		if err != nil {
 			stats.FilesSkipped++
@@ -231,8 +361,8 @@ func scan(ctx context.Context, opts Options, state scanState) (Stats, snapshot, 
 			Size:      info.Size(),
 			ModUnixNS: info.ModTime().UnixNano(),
 		}
-		state.current[relKey] = fingerprint
-		if previous, ok := state.previous[relKey]; ok && previous == fingerprint {
+		state.current[relKey] = importedFingerprint(fingerprint)
+		if previous, ok := state.previous[relKey]; ok && sameFileFingerprint(previous, fingerprint) && isImportedFingerprint(previous) {
 			stats.FilesUnchanged++
 			return nil
 		}
@@ -267,15 +397,181 @@ func scan(ctx context.Context, opts Options, state scanState) (Stats, snapshot, 
 	}); err != nil {
 		return stats, snap, err
 	}
-	reconcileMessages(snap, state.channels)
+	totals := newScanTotals()
+	finalizeSnapshot(snap, state.channels, totals, &stats, true)
+	stats.FinishedAt = now().UTC()
+	return stats, snap, nil
+}
+
+func discoverCandidates(ctx context.Context, root string, rootFS *os.Root, opts Options, state scanState, stats *Stats) ([]fileCandidate, []fileCandidate, error) {
+	var contextFiles []fileCandidate
+	var cacheFiles []fileCandidate
+	maxBytes := opts.MaxFileBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxFileBytes
+	}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return ignoreCacheFileError(err)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if entry.IsDir() {
+			if shouldSkipDir(entry.Name()) && path != root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		stats.FilesVisited++
+		info, err := entry.Info()
+		if err != nil {
+			stats.FilesSkipped++
+			return ignoreCacheFileError(err)
+		}
+		if !isCandidateFile(path) || info.Size() <= 0 || info.Size() > maxBytes {
+			stats.FilesSkipped++
+			return nil
+		}
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			stats.FilesSkipped++
+			return ignoreCacheFileError(err)
+		}
+		relKey := filepath.ToSlash(relPath)
+		fingerprint := fileFingerprint{
+			Size:      info.Size(),
+			ModUnixNS: info.ModTime().UnixNano(),
+		}
+		candidate := fileCandidate{
+			absPath:     path,
+			relPath:     relPath,
+			relKey:      relKey,
+			source:      sourceForPath(root, path, relPath),
+			info:        info,
+			fingerprint: fingerprint,
+		}
+		if candidate.source == fileSourceCacheData {
+			if previous, ok := state.previous[relKey]; ok && sameFileFingerprint(previous, fingerprint) {
+				if !opts.FullCache || isImportedFingerprint(previous) {
+					state.current[relKey] = previous
+					stats.FilesUnchanged++
+					return nil
+				}
+			}
+			if !opts.FullCache {
+				ok, err := cacheFileHasRouteHint(rootFS, relPath)
+				if err != nil {
+					stats.FilesSkipped++
+					return ignoreCacheFileError(err)
+				}
+				if !ok {
+					state.current[relKey] = skippedFingerprint(fingerprint)
+					stats.FilesSkipped++
+					stats.CacheFilesFastSkipped++
+					return nil
+				}
+			}
+			cacheFiles = append(cacheFiles, candidate)
+			return nil
+		}
+		if previous, ok := state.previous[relKey]; ok && sameFileFingerprint(previous, fingerprint) {
+			state.current[relKey] = previous
+			stats.FilesUnchanged++
+			return nil
+		}
+		contextFiles = append(contextFiles, candidate)
+		return nil
+	})
+	return contextFiles, cacheFiles, err
+}
+
+func scanCandidates(ctx context.Context, rootFS *os.Root, opts Options, candidates []fileCandidate, snap snapshot, channelLookup map[string]store.ChannelRecord, stats *Stats) error {
+	maxBytes := opts.MaxFileBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxFileBytes
+	}
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := rootFS.ReadFile(candidate.relPath)
+		if err != nil {
+			stats.FilesSkipped++
+			if err := ignoreCacheFileError(err); err != nil {
+				return err
+			}
+			continue
+		}
+		stats.FilesScanned++
+		stats.BytesScanned += int64(len(data))
+		collectChannelRoutes(snap, bytes.ToValidUTF8(data, nil))
+		objects := extractJSONValues(bytes.ToValidUTF8(data, nil))
+		for _, payload := range extractGzipPayloads(data, maxBytes) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			collectChannelRoutes(snap, bytes.ToValidUTF8(payload, nil))
+			objects = append(objects, extractJSONValues(bytes.ToValidUTF8(payload, nil))...)
+		}
+		stats.JSONObjects += len(objects)
+		for _, raw := range objects {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			var value any
+			if err := json.Unmarshal(raw, &value); err != nil {
+				continue
+			}
+			collectValue(snap, channelLookup, value, candidate.info.ModTime().UTC())
+		}
+	}
+	return nil
+}
+
+func collectCacheRouteHints(ctx context.Context, rootFS *os.Root, candidates []fileCandidate, snap snapshot) error {
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := readFilePrefix(rootFS, candidate.relPath)
+		if err != nil {
+			if err := ignoreCacheFileError(err); err != nil {
+				return err
+			}
+			continue
+		}
+		collectChannelRoutes(snap, bytes.ToValidUTF8(data, nil))
+	}
+	return nil
+}
+
+func newScanTotals() scanTotals {
+	return scanTotals{
+		guilds:          map[string]struct{}{},
+		channels:        map[string]struct{}{},
+		messages:        map[string]struct{}{},
+		dmMessages:      map[string]struct{}{},
+		guildMessages:   map[string]struct{}{},
+		dmChannels:      map[string]struct{}{},
+		skippedMessages: map[string]struct{}{},
+		skippedChannels: map[string]struct{}{},
+	}
+}
+
+func finalizeSnapshot(snap snapshot, channelLookup map[string]store.ChannelRecord, totals scanTotals, stats *Stats, recordSkipped bool) unresolvedMessages {
+	reconcileMessages(snap, channelLookup)
 	inferDirectMessageNames(snap)
-	reconcileMessages(snap, state.channels)
-	skippedChannels := map[string]struct{}{}
+	reconcileMessages(snap, channelLookup)
+	unresolved := unresolvedMessages{}
 	for id, msg := range snap.messages {
 		guildID := msg.Record.GuildID
 		if guildID == "" {
-			stats.SkippedMessages++
-			skippedChannels[msg.Record.ChannelID] = struct{}{}
+			unresolved[id] = msg.Record.ChannelID
+			if recordSkipped {
+				totals.skippedMessages[id] = struct{}{}
+				totals.skippedChannels[msg.Record.ChannelID] = struct{}{}
+			}
 			delete(snap.messages, id)
 			continue
 		}
@@ -283,34 +579,195 @@ func scan(ctx context.Context, opts Options, state scanState) (Stats, snapshot, 
 			snap.guilds[guildID] = syntheticGuild(guildID, guildName(guildID))
 		}
 		if _, ok := snap.channels[msg.Record.ChannelID]; !ok {
-			snap.channels[msg.Record.ChannelID] = syntheticChannel(msg.Record.ChannelID, guildID, msg.Record.ChannelName)
+			if channel, ok := channelLookup[msg.Record.ChannelID]; ok && channel.GuildID != "" {
+				snap.channels[msg.Record.ChannelID] = channel
+			} else {
+				snap.channels[msg.Record.ChannelID] = syntheticChannel(msg.Record.ChannelID, guildID, msg.Record.ChannelName)
+			}
 		}
 		snap.messages[id] = msg
 	}
-	messageChannels := map[string]struct{}{}
-	dmChannels := map[string]struct{}{}
 	for _, msg := range snap.messages {
-		messageChannels[msg.Record.ChannelID] = struct{}{}
+		totals.messages[msg.Record.ID] = struct{}{}
 		switch msg.Record.GuildID {
 		case DirectMessageGuildID:
-			stats.DMMessages++
-			dmChannels[msg.Record.ChannelID] = struct{}{}
+			totals.dmMessages[msg.Record.ID] = struct{}{}
+			totals.dmChannels[msg.Record.ChannelID] = struct{}{}
 		default:
-			stats.GuildMessages++
+			totals.guildMessages[msg.Record.ID] = struct{}{}
 		}
 	}
-	for id := range snap.channels {
-		if _, ok := messageChannels[id]; !ok {
-			delete(snap.channels, id)
-		}
+	for id, channel := range snap.channels {
+		channelLookup[id] = channel
+		totals.channels[id] = struct{}{}
 	}
-	stats.DMChannels = len(dmChannels)
-	stats.SkippedChannels = len(skippedChannels)
-	stats.Guilds = len(snap.guilds)
-	stats.Channels = len(snap.channels)
-	stats.Messages = len(snap.messages)
-	stats.FinishedAt = now().UTC()
-	return stats, snap, nil
+	for id := range snap.guilds {
+		totals.guilds[id] = struct{}{}
+	}
+	stats.DMChannels = len(totals.dmChannels)
+	stats.SkippedChannels = len(totals.skippedChannels)
+	stats.Guilds = len(totals.guilds)
+	stats.Channels = len(totals.channels)
+	stats.Messages = len(totals.messages)
+	stats.DMMessages = len(totals.dmMessages)
+	stats.GuildMessages = len(totals.guildMessages)
+	stats.SkippedMessages = len(totals.skippedMessages)
+	return unresolved
+}
+
+func mergeUnresolved(dst, src unresolvedMessages) {
+	for messageID, channelID := range src {
+		dst[messageID] = channelID
+	}
+}
+
+func recordUnresolved(unresolved unresolvedMessages, totals scanTotals, stats *Stats) {
+	for messageID, channelID := range unresolved {
+		totals.skippedMessages[messageID] = struct{}{}
+		totals.skippedChannels[channelID] = struct{}{}
+	}
+	stats.SkippedChannels = len(totals.skippedChannels)
+	stats.SkippedMessages = len(totals.skippedMessages)
+}
+
+func commitSnapshot(ctx context.Context, st *store.Store, opts Options, state scanState, candidates []fileCandidate, snap snapshot, checkpoint bool, stats *Stats) error {
+	if opts.DryRun {
+		return nil
+	}
+	if !checkpoint {
+		if snapshotHasChanges(snap) {
+			return writeSnapshot(ctx, st, snapshotWithoutMessageEvents(snap), false)
+		}
+		return nil
+	}
+	if snapshotHasChanges(snap) {
+		if err := writeSnapshot(ctx, st, snap, false); err != nil {
+			return err
+		}
+	} else if err := st.SetSyncState(ctx, "wiretap:last_import", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	for _, candidate := range candidates {
+		state.current[candidate.relKey] = importedFingerprint(candidate.fingerprint)
+	}
+	if err := saveFileIndex(ctx, st, opts, state.current); err != nil {
+		return err
+	}
+	stats.Checkpoints++
+	return nil
+}
+
+func checkpointScannedCandidates(ctx context.Context, st *store.Store, opts Options, state scanState, candidates []fileCandidate, stats *Stats) error {
+	if opts.DryRun {
+		return nil
+	}
+	if err := st.SetSyncState(ctx, "wiretap:last_import", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	for _, candidate := range candidates {
+		state.current[candidate.relKey] = importedFingerprint(candidate.fingerprint)
+	}
+	if err := saveFileIndex(ctx, st, opts, state.current); err != nil {
+		return err
+	}
+	stats.Checkpoints++
+	return nil
+}
+
+func snapshotWithoutMessageEvents(snap snapshot) snapshot {
+	out := snapshot{
+		guilds:     snap.guilds,
+		channels:   snap.channels,
+		messages:   make(map[string]store.MessageMutation, len(snap.messages)),
+		routes:     snap.routes,
+		userLabels: snap.userLabels,
+	}
+	for id, message := range snap.messages {
+		message.Options.AppendEvent = false
+		out.messages[id] = message
+	}
+	return out
+}
+
+func newSnapshot() snapshot {
+	return snapshot{
+		guilds:     map[string]store.GuildRecord{},
+		channels:   map[string]store.ChannelRecord{},
+		messages:   map[string]store.MessageMutation{},
+		routes:     map[string]string{},
+		userLabels: map[string]userLabel{},
+	}
+}
+
+func newSnapshotWithContext(base snapshot) snapshot {
+	snap := newSnapshot()
+	for channelID, guildID := range base.routes {
+		snap.routes[channelID] = guildID
+	}
+	for userID, label := range base.userLabels {
+		snap.userLabels[userID] = label
+	}
+	return snap
+}
+
+func mergeSnapshotContext(base snapshot, next snapshot) {
+	for channelID, guildID := range next.routes {
+		collectChannelRoute(base, channelID, guildID)
+	}
+	for userID, label := range next.userLabels {
+		base.userLabels[userID] = label
+	}
+	for channelID, channel := range next.channels {
+		base.channels[channelID] = channel
+	}
+}
+
+func copyChannelLookup(in map[string]store.ChannelRecord) map[string]store.ChannelRecord {
+	out := make(map[string]store.ChannelRecord, len(in))
+	for id, channel := range in {
+		out[id] = channel
+	}
+	return out
+}
+
+func sourceForPath(root, path, relPath string) fileSource {
+	if isRouteFilteredCachePath(root, path, relPath) {
+		return fileSourceCacheData
+	}
+	return fileSourceContext
+}
+
+func isRouteFilteredCachePath(root, path, relPath string) bool {
+	cleanRoot := filepath.ToSlash(root)
+	cleanPath := filepath.ToSlash(path)
+	cleanRel := filepath.ToSlash(relPath)
+	return filepath.Base(cleanRoot) == "Cache_Data" ||
+		filepath.Base(cleanRoot) == "CacheStorage" ||
+		strings.Contains(cleanPath, "/Cache/Cache_Data/") ||
+		strings.Contains(cleanPath, "/Service Worker/CacheStorage/") ||
+		strings.HasPrefix(cleanRel, "Cache_Data/") ||
+		strings.HasPrefix(cleanRel, "Service Worker/CacheStorage/")
+}
+
+func cacheFileHasRouteHint(rootFS *os.Root, relPath string) (bool, error) {
+	data, err := readFilePrefix(rootFS, relPath)
+	if err != nil {
+		return false, err
+	}
+	return channelRouteRE.Match(data) || apiMessagesRouteRE.Match(data), nil
+}
+
+func readFilePrefix(rootFS *os.Root, relPath string) ([]byte, error) {
+	file, err := rootFS.Open(relPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, cacheSniffBytes))
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func ignoreCacheFileError(error) error {

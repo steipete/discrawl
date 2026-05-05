@@ -142,8 +142,8 @@ func printHuman(w io.Writer, value any) error {
 			}
 		}
 		if v.Wiretap != nil {
-			if _, err := fmt.Fprintf(w, "wiretap_files=%d\nwiretap_unchanged=%d\nwiretap_messages=%d\nwiretap_dm_messages=%d\nwiretap_dm_channels=%d\nwiretap_guild_messages=%d\nwiretap_skipped_messages=%d\nwiretap_skipped_channels=%d\n",
-				v.Wiretap.FilesScanned, v.Wiretap.FilesUnchanged, v.Wiretap.Messages, v.Wiretap.DMMessages, v.Wiretap.DMChannels, v.Wiretap.GuildMessages, v.Wiretap.SkippedMessages, v.Wiretap.SkippedChannels); err != nil {
+			if _, err := fmt.Fprintf(w, "wiretap_visited=%d\nwiretap_files=%d\nwiretap_unchanged=%d\nwiretap_fast_skipped=%d\nwiretap_messages=%d\nwiretap_dm_messages=%d\nwiretap_dm_channels=%d\nwiretap_guild_messages=%d\nwiretap_skipped_messages=%d\nwiretap_skipped_channels=%d\nwiretap_checkpoints=%d\n",
+				v.Wiretap.FilesVisited, v.Wiretap.FilesScanned, v.Wiretap.FilesUnchanged, v.Wiretap.CacheFilesFastSkipped, v.Wiretap.Messages, v.Wiretap.DMMessages, v.Wiretap.DMChannels, v.Wiretap.GuildMessages, v.Wiretap.SkippedMessages, v.Wiretap.SkippedChannels, v.Wiretap.Checkpoints); err != nil {
 				return err
 			}
 		}
@@ -152,8 +152,8 @@ func printHuman(w io.Writer, value any) error {
 		_, err := fmt.Fprintf(w, "guilds=%d channels=%d threads=%d members=%d messages=%d\n", v.Guilds, v.Channels, v.Threads, v.Members, v.Messages)
 		return err
 	case discorddesktop.Stats:
-		_, err := fmt.Fprintf(w, "path=%s\nfiles=%d\nskipped=%d\nunchanged=%d\nobjects=%d\nguilds=%d\nchannels=%d\nmessages=%d\ndm_messages=%d\ndm_channels=%d\nguild_messages=%d\nskipped_messages=%d\nskipped_channels=%d\ndry_run=%t\n",
-			v.Path, v.FilesScanned, v.FilesSkipped, v.FilesUnchanged, v.JSONObjects, v.Guilds, v.Channels, v.Messages, v.DMMessages, v.DMChannels, v.GuildMessages, v.SkippedMessages, v.SkippedChannels, v.DryRun)
+		_, err := fmt.Fprintf(w, "path=%s\nvisited=%d\nfiles=%d\nskipped=%d\nunchanged=%d\nfast_skipped=%d\nobjects=%d\nguilds=%d\nchannels=%d\nmessages=%d\ndm_messages=%d\ndm_channels=%d\nguild_messages=%d\nskipped_messages=%d\nskipped_channels=%d\ncheckpoints=%d\nfull_cache=%t\ndry_run=%t\n",
+			v.Path, v.FilesVisited, v.FilesScanned, v.FilesSkipped, v.FilesUnchanged, v.CacheFilesFastSkipped, v.JSONObjects, v.Guilds, v.Channels, v.Messages, v.DMMessages, v.DMChannels, v.GuildMessages, v.SkippedMessages, v.SkippedChannels, v.Checkpoints, v.FullCache, v.DryRun)
 		return err
 	case store.Status:
 		_, err := fmt.Fprintf(w, "db=%s\nguilds=%d\nchannels=%d\nthreads=%d\nmessages=%d\nmembers=%d\nembedding_backlog=%d\nlast_sync=%s\nlast_tail_event=%s\n",
