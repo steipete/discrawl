@@ -38,4 +38,4 @@ discrawl tail
 
 ## Where to file issues
 
-`https://github.com/openclaw/discrawl/issues`. Contact: [steipete@gmail.com](contact.html).
+`https://github.com/openclaw/discrawl/issues`. See [contact](contact.html) for project links.

@@ -70,9 +70,9 @@
     <text x="28" y="218" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="650" fill="#edf4fb">312k messages</text>
     <text x="28" y="255" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="650" fill="#edf4fb">14k attachments</text>
     <text x="28" y="292" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="650" fill="#edf4fb">FTS5 ready</text>
-    <rect x="280" y="260" width="72" height="10" rx="5" fill="#263448"/>
-    <rect x="280" y="282" width="46" height="10" rx="5" fill="#263448"/>
-    <rect x="280" y="304" width="60" height="10" rx="5" fill="#263448"/>
+    <rect x="286" y="260" width="72" height="10" rx="5" fill="#263448"/>
+    <rect x="312" y="282" width="46" height="10" rx="5" fill="#263448"/>
+    <rect x="298" y="304" width="60" height="10" rx="5" fill="#263448"/>
   </g>
 
   <text x="72" y="600" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="18" font-weight="800" fill="#657287">bot sync  +  desktop wiretap  +  FTS5  +  semantic search</text>
