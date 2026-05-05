@@ -6,10 +6,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/steipete/discrawl/internal/config"
-	"github.com/steipete/discrawl/internal/report"
-	"github.com/steipete/discrawl/internal/share"
-	"github.com/steipete/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/config"
+	"github.com/openclaw/discrawl/internal/report"
+	"github.com/openclaw/discrawl/internal/share"
+	"github.com/openclaw/discrawl/internal/store"
 )
 
 func (r *runtime) runPublish(args []string) error {

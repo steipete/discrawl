@@ -11,10 +11,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/steipete/discrawl/internal/discorddesktop"
-	"github.com/steipete/discrawl/internal/report"
-	"github.com/steipete/discrawl/internal/store"
-	"github.com/steipete/discrawl/internal/syncer"
+	"github.com/openclaw/discrawl/internal/discorddesktop"
+	"github.com/openclaw/discrawl/internal/report"
+	"github.com/openclaw/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/syncer"
 )
 
 func (r *runtime) print(value any) error {

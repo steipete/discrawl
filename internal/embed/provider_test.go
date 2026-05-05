@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/steipete/discrawl/internal/config"
+	"github.com/openclaw/discrawl/internal/config"
 )
 
 func TestOllamaProviderEmbeds(t *testing.T) {

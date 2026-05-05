@@ -5,7 +5,7 @@ import (
 	"flag"
 	"io"
 
-	"github.com/steipete/discrawl/internal/report"
+	"github.com/openclaw/discrawl/internal/report"
 )
 
 func (r *runtime) runReport(args []string) error {

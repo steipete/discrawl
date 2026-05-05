@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steipete/discrawl/internal/config"
+	"github.com/openclaw/discrawl/internal/config"
 )
 
 const (

@@ -16,7 +16,7 @@ The tap auto-installs from `steipete/tap`.
 Requires Go `1.26+`.
 
 ```bash
-git clone https://github.com/steipete/discrawl.git
+git clone https://github.com/openclaw/discrawl.git
 cd discrawl
 go build -o bin/discrawl ./cmd/discrawl
 ./bin/discrawl --version

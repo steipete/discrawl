@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steipete/discrawl/internal/config"
+	"github.com/openclaw/discrawl/internal/config"
 )
 
 func (r *runtime) withSyncLock(fn func() error) error {

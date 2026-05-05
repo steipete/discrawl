@@ -10,7 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/require"
 
-	"github.com/steipete/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/store"
 )
 
 func errMissingAccess() error {

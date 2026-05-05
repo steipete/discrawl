@@ -5,7 +5,7 @@ import path from "node:path";
 const root = process.cwd();
 const docsDir = path.join(root, "docs");
 const outDir = path.join(root, "dist", "docs-site");
-const repoEditBase = "https://github.com/steipete/discrawl/edit/main/docs";
+const repoEditBase = "https://github.com/openclaw/discrawl/edit/main/docs";
 const siteUrl = "https://discrawl.sh";
 
 const sections = [
@@ -280,7 +280,7 @@ function layout({ page, html, toc, prev, next, sectionName }) {
       <label class="search"><span>filter</span><input id="doc-search" type="search" placeholder="sync, wiretap, search..."></label>
       <nav>${navHtml(page.rel, rootPrefix)}</nav>
       <footer class="side-foot">
-        <a href="https://github.com/steipete/discrawl" rel="noopener">github</a>
+        <a href="https://github.com/openclaw/discrawl" rel="noopener">github</a>
         <a href="${rootPrefix}contact.html">contact</a>
       </footer>
     </aside>
@@ -309,7 +309,7 @@ function standardHero(page, sectionName, editUrl) {
           <h1>${escapeHtml(page.title)}</h1>
         </div>
         <div class="hero-meta">
-          <a class="repo" href="https://github.com/steipete/discrawl" rel="noopener">github</a>
+          <a class="repo" href="https://github.com/openclaw/discrawl" rel="noopener">github</a>
           <a class="edit" href="${escapeAttr(editUrl)}" rel="noopener">edit</a>
         </div>
       </header>`;
@@ -334,7 +334,7 @@ function landingHero(rootPrefix) {
           <p class="lede">Discrawl mirrors Discord guilds into local SQLite so you can grep, query, and run analytics on org memory without depending on Discord search. Bring a bot token, or read everything offline from a Git snapshot.</p>
           <div class="cta">
             <a class="cta-primary" href="${rootPrefix}install.html">Get started</a>
-            <a class="cta-secondary" href="https://github.com/steipete/discrawl" rel="noopener">View on GitHub</a>
+            <a class="cta-secondary" href="https://github.com/openclaw/discrawl" rel="noopener">View on GitHub</a>
           </div>
         </div>
         <pre class="hero-snippet" aria-hidden="true"><code><span class="prompt">$</span> discrawl init

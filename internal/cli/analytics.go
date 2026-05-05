@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/steipete/discrawl/internal/report"
+	"github.com/openclaw/discrawl/internal/report"
 )
 
 func (r *runtime) runAnalytics(args []string) error {

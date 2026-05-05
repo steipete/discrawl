@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/steipete/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/store"
 )
 
 type importRun struct {

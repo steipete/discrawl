@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/steipete/discrawl/internal/store"
-	"github.com/steipete/discrawl/internal/syncer"
+	"github.com/openclaw/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/syncer"
 )
 
 func TestPrintRows(t *testing.T) {

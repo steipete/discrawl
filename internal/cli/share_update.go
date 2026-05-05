@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steipete/discrawl/internal/share"
+	"github.com/openclaw/discrawl/internal/share"
 )
 
 type shareUpdateMode string

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steipete/discrawl/internal/embed"
+	"github.com/openclaw/discrawl/internal/embed"
 )
 
 const (

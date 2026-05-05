@@ -14,7 +14,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/steipete/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/store"
 )
 
 const (

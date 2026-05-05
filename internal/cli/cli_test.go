@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/steipete/discrawl/internal/config"
-	discordclient "github.com/steipete/discrawl/internal/discord"
-	"github.com/steipete/discrawl/internal/share"
-	"github.com/steipete/discrawl/internal/store"
-	"github.com/steipete/discrawl/internal/syncer"
+	"github.com/openclaw/discrawl/internal/config"
+	discordclient "github.com/openclaw/discrawl/internal/discord"
+	"github.com/openclaw/discrawl/internal/share"
+	"github.com/openclaw/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/syncer"
 )
 
 func TestHelpAndVersion(t *testing.T) {

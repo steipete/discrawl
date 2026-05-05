@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steipete/discrawl/internal/report"
+	"github.com/openclaw/discrawl/internal/report"
 )
 
 func (r *runtime) runDigest(args []string) error {

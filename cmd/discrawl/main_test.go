@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steipete/discrawl/internal/config"
-	"github.com/steipete/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/config"
+	"github.com/openclaw/discrawl/internal/store"
 )
 
 func TestMainHelpAndVersion(t *testing.T) {

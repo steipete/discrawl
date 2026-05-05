@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/steipete/discrawl/internal/embed"
+	"github.com/openclaw/discrawl/internal/embed"
 )
 
 func TestUpsertMessagesBatch(t *testing.T) {

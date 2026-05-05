@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/steipete/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/store"
 )
 
 func (s *Syncer) syncMessageChannels(

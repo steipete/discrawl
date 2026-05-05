@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/steipete/discrawl/internal/cli"
+	"github.com/openclaw/discrawl/internal/cli"
 )
 
 func main() {

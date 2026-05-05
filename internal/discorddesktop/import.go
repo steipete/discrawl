@@ -20,7 +20,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/steipete/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/store"
 )
 
 const (

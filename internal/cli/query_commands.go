@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/steipete/discrawl/internal/config"
-	"github.com/steipete/discrawl/internal/embed"
-	"github.com/steipete/discrawl/internal/store"
+	"github.com/openclaw/discrawl/internal/config"
+	"github.com/openclaw/discrawl/internal/embed"
+	"github.com/openclaw/discrawl/internal/store"
 )
 
 func (r *runtime) runSearch(args []string) error {

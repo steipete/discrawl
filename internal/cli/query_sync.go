@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/steipete/discrawl/internal/syncer"
+	"github.com/openclaw/discrawl/internal/syncer"
 )
 
 func (r *runtime) syncMessagesQuery(channel, guild, guilds string) error {
